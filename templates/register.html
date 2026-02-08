@@ -42,6 +42,12 @@
                         <label for="password" class="form-label">{{ translate('register.password') }} <span class="text-danger">{{ translate('register.required') }}</span></label>
                         <input type="password" class="form-control" id="password" name="password" required placeholder="{{ translate('register.password_placeholder') }}" minlength="6">
                     </div>
+                    <div class="mb-4 form-check">
+                        <input type="checkbox" class="form-check-input" id="agree_disclaimer" name="agree_disclaimer" required>
+                        <label class="form-check-label" for="agree_disclaimer">
+                            我已阅读并同意 <a href="https://my.feishu.cn/docx/KYlJdyq3wojmwox8KJTcnKORnob" target="_blank" rel="noopener">《免责声明》</a>
+                        </label>
+                    </div>
                     <button type="submit" class="btn btn-primary w-100 py-2">{{ translate('register.submit') }}</button>
                 </form>
                 <div class="mt-4 text-center">

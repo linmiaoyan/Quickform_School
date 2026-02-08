@@ -560,6 +560,10 @@ def register():
                 flash('请填写所有必填字段', 'danger')
                 return redirect(url_for('quickform.register'))
 
+            if not request.form.get('agree_disclaimer'):
+                flash('请先阅读并同意《免责声明》', 'danger')
+                return redirect(url_for('quickform.register'))
+
             # 校验邮箱验证码
             if not email_code or not verify_email_code(email, email_code):
                 flash('邮箱验证码错误或已过期，请重新获取', 'danger')

@@ -3,6 +3,12 @@
 {% block title %}{{ translate('profile.title') }} - QuickForm{% endblock %}
 
 {% block content %}
+<style>
+/* 个人中心 tab 字体为黑色，覆盖 navbar 的 nav-link 白色样式 */
+.card .nav-tabs .nav-link { color: #000 !important; }
+.card .nav-tabs .nav-link:hover { color: #333 !important; }
+.card .nav-tabs .nav-link.active { color: #000 !important; font-weight: 600; }
+</style>
 <div class="row justify-content-center">
     <div class="col-md-8">
 

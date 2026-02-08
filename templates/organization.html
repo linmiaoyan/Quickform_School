@@ -97,9 +97,11 @@
                             <h6 style="margin: 0; font-weight: 600;">{{ org.name }}</h6>
                             <span class="org-badge creator mt-1"><i class="bi bi-person-badge"></i> {{ translate('organization.creator') }}</span>
                         </div>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteOrganization({{ org.id }}, '{{ org.name }}')">
-                            <i class="bi bi-trash"></i> {{ translate('organization.dissolve') }}
-                        </button>
+                        <form method="POST" action="{{ url_for('quickform.delete_organization', org_id=org.id) }}" class="d-inline" onsubmit='return confirm({{ (translate("organization.delete_confirm")|replace("{name}", org.name))|tojson }});'>
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-trash"></i> {{ translate('organization.dissolve') }}
+                            </button>
+                        </form>
                     </div>
                     {% if org.description %}
                     <p class="text-muted small mb-2">{{ org.description }}</p>
@@ -156,9 +158,11 @@
                                 {% endif %}
                             </span>
                         </div>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="leaveOrganization({{ membership.organization.id }}, '{{ membership.organization.name }}')">
-                            <i class="bi bi-box-arrow-right"></i> {{ translate('organization.leave') }}
-                        </button>
+                        <form method="POST" action="{{ url_for('quickform.leave_organization', org_id=membership.organization.id) }}" class="d-inline" onsubmit='return confirm({{ (translate("organization.leave_confirm")|replace("{name}", membership.organization.name))|tojson }});'>
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-box-arrow-right"></i> {{ translate('organization.leave') }}
+                            </button>
+                        </form>
                     </div>
                     {% if membership.organization.description %}
                     <p class="text-muted small mb-2">{{ membership.organization.description }}</p>
@@ -246,34 +250,4 @@
     </div>
 </div>
 
-{% endblock %}
-
-{% block scripts %}
-<script>
-function deleteOrganization(orgId, orgName) {
-    const msg = '{{ translate("organization.delete_confirm") }}'.replace('{name}', orgName);
-    if (!confirm(msg)) {
-        return;
-    }
-    
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = `/organization/${orgId}/delete`;
-    document.body.appendChild(form);
-    form.submit();
-}
-
-function leaveOrganization(orgId, orgName) {
-    const msg = '{{ translate("organization.leave_confirm") }}'.replace('{name}', orgName);
-    if (!confirm(msg)) {
-        return;
-    }
-    
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = `/organization/${orgId}/leave`;
-    document.body.appendChild(form);
-    form.submit();
-}
-</script>
 {% endblock %}

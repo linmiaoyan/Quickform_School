@@ -11,6 +11,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _generate_task_id():
+    """生成10位API随机码：小写字母和数字，无下划线，最后两位为字母"""
+    chars_any = string.ascii_lowercase + string.digits  # a-z, 0-9
+    chars_letter = string.ascii_lowercase  # a-z
+    part1 = ''.join(secrets.choice(chars_any) for _ in range(8))
+    part2 = ''.join(secrets.choice(chars_letter) for _ in range(2))
+    return part1 + part2
+
 Base = declarative_base()
 
 
@@ -71,7 +80,7 @@ class Task(Base):
     submission = relationship('Submission', back_populates='task', cascade='all, delete-orphan')
     file_name = Column(String(200))
     file_path = Column(String(500))
-    task_id = Column(String(50), unique=True, default=lambda: secrets.token_urlsafe(8))
+    task_id = Column(String(50), unique=True, default=_generate_task_id)
     analysis_report = Column(Text)
     report_file_path = Column(String(500))
     report_generated_at = Column(DateTime)

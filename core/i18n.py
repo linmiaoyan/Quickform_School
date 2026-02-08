@@ -13,7 +13,7 @@ TRANSLATIONS = {
         'nav.tutorials': '开源教程',
         'nav.cases': '精品案例',
         'nav.community': '项目交流',
-        'nav.dashboard': '仪表盘',
+        'nav.dashboard': '数据任务',
         'nav.create_task': '创建任务',
         'nav.admin': '管理员',
         'nav.login': '登录',
@@ -29,8 +29,8 @@ TRANSLATIONS = {
         'home.step1': '1. 注册账号或登录系统',
         'home.step2': '2. 创建新的数据任务，获取唯一URL',
         'home.step3': '3. 将URL集成到您的网页中，接收表单提交',
-        'home.step4': '4. 在仪表盘查看和分析收集的数据',
-        'home.enter_dashboard': '进入仪表盘',
+        'home.step4': '4. 在数据任务查看和分析收集的数据',
+        'home.enter_dashboard': '进入数据任务',
         'home.register_now': '立即注册',
         'home.login': '已有账号？登录',
         'home.about': '关于 QuickForm',
@@ -87,7 +87,7 @@ TRANSLATIONS = {
         'base.copied': '已复制',
         
         # Dashboard页面
-        'dashboard.title': '仪表盘',
+        'dashboard.title': '数据任务',
         'dashboard.my_tasks': '我的数据任务',
         'dashboard.task_list': '任务列表',
         'dashboard.certified_teacher': '认证教师',
@@ -276,7 +276,7 @@ TRANSLATIONS = {
         'task_detail.simple_prompt_text': '创建完应用后，向',
         'task_detail.simple_prompt_send': '发送post格式的json数据',
         'task_detail.copy': '复制',
-        'task_detail.data_query_tip': '访问下方 URL 可查看已收集的数据；制作实时统计页面时，需向大模型提供该 URL 及数据样例。',
+        'task_detail.data_query_tip': '访问下方 URL 可查看已收集的数据；制作实时统计页面时，需向大模型提供该 URL 及数据样例。提交接口：POST 到该 URL；查询全部数据：GET 访问该 URL 加 /all，如 xxx/api/任务ID/all 可获取所有提交记录的 JSON 列表。',
         'task_detail.full_prompt_label': '完整版提示词：',
         'task_detail.expand_collapse': '展开/收起',
         

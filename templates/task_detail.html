@@ -281,49 +281,8 @@
                 <!-- GET方法说明 -->
                 <div class="alert alert-info mb-3">
                     <strong>💡</strong> {{ translate('task_detail.data_query_tip') }}
-                    <div class="mt-2 small">数据接口地址：<code>{{ request.host_url }}api/{{ task.task_id }}</code></div>
-                </div>
-
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <label class="form-label mb-0"><strong>{{ translate('task_detail.full_prompt_label') }}</strong></label>
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#fullPromptCollapse" aria-expanded="false" style="font-weight: 500;">{{ translate('task_detail.expand_collapse') }}</button>
-                    </div>
-                    <p class="small text-muted mb-2">完整提示词中提交数据为 JSON 格式，Content-Type: application/json，示例：<code>{"name":"张三","score":85}</code></p>
-                    <div class="collapse" id="fullPromptCollapse">
-                        <div class="input-group">
-                            <textarea class="form-control" id="prompt-text" rows="15" readonly style="font-family: 'Courier New', monospace; font-size: 13px;">{{ translate('dashboard.code_example_comment') }}
-
-<script>
-function sendTestData() {
-    const url = '{{ request.host_url }}api/{{ task.task_id }}';
-    const data = {"{{ translate('dashboard.code_example_field') }}1": "{{ translate('dashboard.code_example_value') }}1", "{{ translate('dashboard.code_example_field') }}2": "{{ translate('dashboard.code_example_value') }}2"};
-    document.getElementById('send-result').textContent = "{{ translate('dashboard.code_example_submitting') }}";
-    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)})
-    .then(async r => {
-        const text = await r.text();
-        let json = {};
-        try { json = JSON.parse(text); } catch(e) { json = {raw: text}; }
-        if (!r.ok) throw new Error(json.error || json.message || `HTTP ${r.status}`);
-        return json;
-    })
-    .then(d => {
-        document.getElementById('send-result').textContent = "{{ translate('dashboard.code_example_success') }}: " + JSON.stringify(d);
-        document.getElementById('send-result').style.color = '#28a745';
-        console.log('{{ translate('dashboard.code_example_success') }}:', d);
-    })
-    .catch(e => {
-        document.getElementById('send-result').textContent = "{{ translate('dashboard.code_example_failed') }}: " + e.message;
-        document.getElementById('send-result').style.color = '#dc3545';
-        console.error('{{ translate('dashboard.code_example_failed') }}:', e, 'URL:', url, 'Data:', data);
-    });
-}
-</script></textarea>
-                            <button class="btn btn-primary" onclick="copyToClipboardText('prompt-text')" style="font-weight: 500;">
-                                <i class="bi bi-clipboard-check"></i>{{ translate('dashboard.copy_prompt') }}
-                            </button>
-                        </div>
-                    </div>
+                    <div class="mt-2 small">提交接口：<code>{{ request.host_url }}api/{{ task.task_id }}</code></div>
+                    <div class="mt-1 small">查询全部数据：<code>{{ request.host_url }}api/{{ task.task_id }}/all</code>（GET 请求可获取所有提交记录的 JSON 列表）</div>
                 </div>
             </div>
         </div>
