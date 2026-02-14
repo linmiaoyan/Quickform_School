@@ -9,9 +9,16 @@
             <h2 class="mb-0">{{ task.title }}</h2>
             <div class="d-flex flex-wrap gap-2 align-items-center">
                 {% if can_analyze_export %}
-                <a href="{{ url_for('quickform.export_data', task_id=task.id) }}" class="btn btn-success me-2" style="font-weight: 500;">
-                    <i class="bi bi-download"></i>{{ translate('task_detail.export_data') }}
-                </a>
+                <div class="btn-group me-2">
+                    <button type="button" class="btn btn-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" style="font-weight: 500;">
+                        <i class="bi bi-download"></i>{{ translate('task_detail.export_data') }}
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ url_for('quickform.export_data', task_id=task.id, fmt='xls') }}"><i class="bi bi-file-earmark-excel me-2"></i>导出 XLS</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('quickform.export_data', task_id=task.id, fmt='csv') }}"><i class="bi bi-file-earmark-spreadsheet me-2"></i>导出 CSV</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('quickform.export_data', task_id=task.id, fmt='json') }}"><i class="bi bi-file-earmark-code me-2"></i>导出 JSON（数据大屏）</a></li>
+                    </ul>
+                </div>
                 <a href="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" class="btn btn-info me-2" style="font-weight: 500;">
                     <i class="bi bi-bar-chart"></i>{{ translate('task_detail.analyze') }}
                 </a>
@@ -88,6 +95,16 @@
                     <p>{{ task.description }}</p>
                 </div>
                 {% endif %}
+                {% if (task.share_url or task.tutorial_link) and not is_public_visitor %}
+                <div class="mt-3">
+                    {% if task.share_url %}
+                    <p class="mb-1"><strong>URL 地址：</strong><a href="{{ task.share_url }}" target="_blank" rel="noopener">{{ task.share_url[:60] }}{% if task.share_url|length > 60 %}...{% endif %}</a></p>
+                    {% endif %}
+                    {% if task.tutorial_link %}
+                    <p class="mb-0"><strong>教程链接：</strong><a href="{{ task.tutorial_link }}" target="_blank" rel="noopener">{{ task.tutorial_link[:60] }}{% if task.tutorial_link|length > 60 %}...{% endif %}</a></p>
+                    {% endif %}
+                </div>
+                {% endif %}
                 
                 <div class="mt-3">
                     {% if html_files and html_files|length > 0 %}
@@ -103,7 +120,7 @@
                                     {{ file.original_name }}
                                 </a>
                                 {% if task.html_approved == 1 %}
-                                <div class="position-relative">
+                                <div class="position-relative d-inline-block">
                                     <button 
                                         type="button" 
                                         class="btn btn-outline-secondary btn-sm" 
@@ -112,7 +129,7 @@
                                         style="font-weight: 500;">
                                         <i class="bi bi-qr-code"></i>
                                     </button>
-                                    <div class="qr-code-container" style="display: none; position: absolute; z-index: 1060; background: white; padding: 12px; border: 1px solid #ddd; border-radius: 8px; margin-top: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.15);">
+                                    <div class="alert alert-success mb-2 qr-code-container" style="display: none; position: absolute; z-index: 1060; padding: 12px; margin-top: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); min-width: 220px;">
                                         <div id="qrcode-{{ task.id }}-{{ loop.index0 }}" style="width: 220px; height: 220px;"></div>
                                     </div>
                                 </div>
@@ -829,16 +846,16 @@
     };
     
     // 共享管理折叠面板图标旋转
-    const shareManagement = document.getElementById('shareManagement');
-    const shareManagementIcon = document.getElementById('shareManagementIcon');
+    const shareManagementEl = document.getElementById('shareManagement');
+    const shareManagementIconEl = document.getElementById('shareManagementIcon');
     
-    if (shareManagement && shareManagementIcon) {
-        shareManagement.addEventListener('show.bs.collapse', function () {
-            shareManagementIcon.style.transform = 'rotate(180deg)';
+    if (shareManagementEl && shareManagementIconEl) {
+        shareManagementEl.addEventListener('show.bs.collapse', function () {
+            shareManagementIconEl.style.transform = 'rotate(180deg)';
         });
         
-        shareManagement.addEventListener('hide.bs.collapse', function () {
-            shareManagementIcon.style.transform = 'rotate(0deg)';
+        shareManagementEl.addEventListener('hide.bs.collapse', function () {
+            shareManagementIconEl.style.transform = 'rotate(0deg)';
         });
     }
     

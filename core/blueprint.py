@@ -279,7 +279,11 @@ MODEL_LABELS = {
     'chat_server': '硅基流动',
     'deepseek': 'DeepSeek',
     'doubao': '豆包',
-    'qwen': '阿里云百炼'
+    'qwen': '阿里云百炼',
+    'moonshot': '月之暗面',
+    'glm': '智谱清言',
+    'ernie': '文心一言',
+    'openrouter': 'OpenRouter'
 }
 
 # 注意：engine和SessionLocal现在在_init_database()函数中初始化
@@ -863,6 +867,8 @@ def create_task():
             organization_id = request.form.get('organization_id')
             
             task = Task(title=title, description=description, user_id=current_user.id)
+            task.share_url = (request.form.get('share_url') or '').strip() or None
+            task.tutorial_link = (request.form.get('tutorial_link') or '').strip() or None
             
             # 设置组织和共享类型（支持：私有、组织、公开；公开仅认证教师或管理员可用）
             share_scope = request.form.get('share_scope', 'private')
@@ -1199,6 +1205,8 @@ def edit_task(task_id):
             
             task.title = title
             task.description = description
+            task.share_url = (request.form.get('share_url') or '').strip() or None
+            task.tutorial_link = (request.form.get('tutorial_link') or '').strip() or None
             
             # 处理多文件上传（新功能）
             if html_files_data:
@@ -1812,7 +1820,11 @@ def list_tasks():
 @quickform_bp.route('/export/<int:task_id>')
 @login_required
 def export_data(task_id):
-    """导出数据"""
+    """导出数据，支持 xls、csv、json 三种格式"""
+    fmt = (request.args.get('fmt') or 'xls').lower().strip()
+    if fmt not in ('xls', 'xlsx', 'csv', 'json'):
+        fmt = 'xls'
+    
     db = SessionLocal()
     try:
         task = db.get(Task, task_id)
@@ -1863,18 +1875,43 @@ def export_data(task_id):
                     'raw_data': sub.data
                 })
         
-        df = pd.DataFrame(data_list)
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='提交数据')
-        output.seek(0)
+        if fmt == 'json':
+            # JSON 格式，便于数据大屏使用
+            output = io.BytesIO()
+            output.write(json.dumps(data_list, ensure_ascii=False, indent=2).encode('utf-8'))
+            output.seek(0)
+            filename = f"{task.title}_数据导出_{ts}.json"
+            try:
+                return send_file(output, download_name=filename, as_attachment=True, mimetype='application/json; charset=utf-8')
+            except TypeError:
+                return send_file(output, attachment_filename=filename, as_attachment=True, mimetype='application/json; charset=utf-8')
         
-        filename = f"{task.title}_数据导出_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        try:
-            return send_file(output, download_name=filename, as_attachment=True, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        except TypeError:
-            return send_file(output, attachment_filename=filename, as_attachment=True, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        elif fmt == 'csv':
+            # CSV 格式
+            df = pd.DataFrame(data_list)
+            output = io.BytesIO()
+            df.to_csv(output, index=False, encoding='utf-8-sig')
+            output.seek(0)
+            filename = f"{task.title}_数据导出_{ts}.csv"
+            try:
+                return send_file(output, download_name=filename, as_attachment=True, mimetype='text/csv; charset=utf-8')
+            except TypeError:
+                return send_file(output, attachment_filename=filename, as_attachment=True, mimetype='text/csv; charset=utf-8')
+        
+        else:
+            # XLS/XLSX 格式（默认）
+            df = pd.DataFrame(data_list)
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='提交数据')
+            output.seek(0)
+            filename = f"{task.title}_数据导出_{ts}.xlsx"
+            try:
+                return send_file(output, download_name=filename, as_attachment=True, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            except TypeError:
+                return send_file(output, attachment_filename=filename, as_attachment=True, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         flash(f'导出数据时出错: {str(e)}', 'danger')
         return redirect(url_for('quickform.task_detail', task_id=task_id))
@@ -1908,6 +1945,11 @@ def profile():
                 ai_config.doubao_api_key = None
                 ai_config.doubao_secret_key = None
                 ai_config.qwen_api_key = None
+                ai_config.moonshot_api_key = None
+                ai_config.glm_api_key = None
+                ai_config.ernie_api_key = None
+                ai_config.ernie_secret_key = None
+                ai_config.openrouter_api_key = None
 
                 db.commit()
                 flash('已恢复到系统默认的 AI 配置。', 'success')
@@ -1920,6 +1962,11 @@ def profile():
                 qwen_api_key = request.form.get('qwen_api_key', '')
                 chat_server_api_url = request.form.get('chat_server_api_url', '')
                 chat_server_api_token = request.form.get('chat_server_api_token', '')
+                moonshot_api_key = request.form.get('moonshot_api_key', '')
+                glm_api_key = request.form.get('glm_api_key', '')
+                ernie_api_key = request.form.get('ernie_api_key', '')
+                ernie_secret_key = request.form.get('ernie_secret_key', '')
+                openrouter_api_key = request.form.get('openrouter_api_key', '')
                 
                 if ai_config:
                     ai_config.selected_model = selected_model
@@ -1928,6 +1975,11 @@ def profile():
                     ai_config.qwen_api_key = qwen_api_key
                     ai_config.chat_server_api_url = chat_server_api_url
                     ai_config.chat_server_api_token = chat_server_api_token
+                    ai_config.moonshot_api_key = moonshot_api_key
+                    ai_config.glm_api_key = glm_api_key
+                    ai_config.ernie_api_key = ernie_api_key
+                    ai_config.ernie_secret_key = ernie_secret_key
+                    ai_config.openrouter_api_key = openrouter_api_key
                 else:
                     ai_config = AIConfig(
                         user_id=current_user.id,
@@ -1936,7 +1988,12 @@ def profile():
                         doubao_api_key=doubao_api_key,
                         qwen_api_key=qwen_api_key,
                         chat_server_api_url=chat_server_api_url,
-                        chat_server_api_token=chat_server_api_token
+                        chat_server_api_token=chat_server_api_token,
+                        moonshot_api_key=moonshot_api_key,
+                        glm_api_key=glm_api_key,
+                        ernie_api_key=ernie_api_key,
+                        ernie_secret_key=ernie_secret_key,
+                        openrouter_api_key=openrouter_api_key
                     )
                     db.add(ai_config)
                 
@@ -2090,6 +2147,9 @@ def user_view_certification_file(request_id):
     finally:
         db.close()
 
+# ai_service 已集成支持的模型（moonshot/glm/ernie/openrouter 待后续集成）
+SUPPORTED_AI_MODELS = {'chat_server', 'deepseek', 'doubao', 'qwen'}
+
 @quickform_bp.route('/api/test_ai', methods=['POST'])
 @login_required
 def test_ai_api():
@@ -2099,6 +2159,10 @@ def test_ai_api():
         ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
         if not ai_config or not ai_config.selected_model:
             return jsonify({'success': False, 'message': '请先保存AI配置后再测试'}), 400
+
+        if ai_config.selected_model not in SUPPORTED_AI_MODELS:
+            model_label = MODEL_LABELS.get(ai_config.selected_model, ai_config.selected_model)
+            return jsonify({'success': False, 'message': f'{model_label} 暂未集成，敬请期待后续版本'}), 400
 
         payload = request.get_json(silent=True) or {}
         test_prompt = (payload.get('prompt') or '这是一次连通性测试，请简短回复“OK”。').strip()
@@ -2169,6 +2233,8 @@ def smart_analyze(task_id):
         
         model_label = MODEL_LABELS.get(ai_config.selected_model, ai_config.selected_model)
         
+        if ai_config.selected_model not in SUPPORTED_AI_MODELS:
+            return render_template('smart_analyze.html', task=task, error=f"{model_label} 暂未集成，敬请期待后续版本", ai_config=ai_config, now=datetime.now(), model_label=model_label)
         if ai_config.selected_model == 'chat_server':
             if not current_app.config.get('CHAT_SERVER_API_TOKEN'):
                 flash('当前使用默认 ChatServer 调用，建议在配置中设置专属 API Token（非必填）。', 'warning')
@@ -2195,21 +2261,43 @@ def smart_analyze(task_id):
                 return redirect(url_for('quickform.smart_analyze', task_id=task.id))
             
             # 生成报告的逻辑
-            # 获取提交数据并生成完整提示词
+            # 获取提交数据（支持数据范围筛选）
             submission_for_prompt = db.query(Submission).filter_by(task_id=task_id).all()
+            data_range = request.form.get('data_range', 'all')
+            if data_range == 'single_day':
+                single_date_str = request.form.get('single_date', '')
+                if single_date_str:
+                    from datetime import datetime as dt
+                    try:
+                        target_date = dt.strptime(single_date_str, '%Y-%m-%d').date()
+                        submission_for_prompt = [s for s in submission_for_prompt if s.submitted_at and s.submitted_at.date() == target_date]
+                    except (ValueError, TypeError):
+                        pass
+            elif data_range == 'date_range':
+                date_start_str = request.form.get('date_start', '')
+                date_end_str = request.form.get('date_end', '')
+                if date_start_str and date_end_str:
+                    from datetime import datetime as dt
+                    try:
+                        start_d = dt.strptime(date_start_str, '%Y-%m-%d').date()
+                        end_d = dt.strptime(date_end_str, '%Y-%m-%d').date()
+                        submission_for_prompt = [s for s in submission_for_prompt if s.submitted_at and start_d <= s.submitted_at.date() <= end_d]
+                    except (ValueError, TypeError):
+                        pass
+            interface_desc = request.form.get('interface_desc', '').strip()
             file_content_for_prompt = None
             if task.file_path and os.path.exists(task.file_path):
                 file_content_for_prompt = read_file_content(task.file_path)
             
-            # 检查是否有自定义的完整提示词（用户可能直接编辑了完整提示词）
-            custom_prompt = request.form.get('custom_prompt', '').strip()
-            if custom_prompt:
-                # 用户直接编辑了完整提示词，使用它
-                pass
-            else:
-                # 使用用户模板（如果有）生成完整提示词
-                user_template = task.user_prompt_template if task.user_prompt_template else None
-                custom_prompt = generate_analysis_prompt(task, submission_for_prompt, file_content_for_prompt, SessionLocal, Submission, user_template=user_template)
+            # 始终根据表单中的「你的补充关注点」和「接口描述」生成完整提示词
+            user_prompt_from_form = request.form.get('user_prompt_template', '').strip()
+            user_template_val = user_prompt_from_form or (task.user_prompt_template if task.user_prompt_template else None)
+            custom_prompt = generate_analysis_prompt(
+                task, submission_for_prompt, file_content_for_prompt,
+                SessionLocal, Submission,
+                user_template=user_template_val,
+                interface_desc=interface_desc or None
+            )
             
             # 保存完整提示词（用于兼容旧代码）
             task.custom_prompt = custom_prompt
@@ -2265,13 +2353,14 @@ def smart_analyze(task_id):
         # 根据检查结果决定使用保存的提示词还是重新生成
         # 使用用户模板（如果有）生成预览提示词
         user_template = task.user_prompt_template if task.user_prompt_template else None
+        interface_desc = (task.description or '').strip()  # 预览时默认用任务描述
         if should_regenerate_prompt:
-            preview_prompt = generate_analysis_prompt(task, submission, file_content, SessionLocal, Submission, user_template=user_template)
+            preview_prompt = generate_analysis_prompt(task, submission, file_content, SessionLocal, Submission, user_template=user_template, interface_desc=interface_desc)
             # 更新保存的提示词（但不立即提交，让用户可以选择是否保存）
         else:
             # 如果数据条数没有变化，但用户模板可能已更新，使用用户模板重新生成
             if user_template:
-                preview_prompt = generate_analysis_prompt(task, submission, file_content, SessionLocal, Submission, user_template=user_template)
+                preview_prompt = generate_analysis_prompt(task, submission, file_content, SessionLocal, Submission, user_template=user_template, interface_desc=interface_desc)
             else:
                 preview_prompt = task.custom_prompt
         
@@ -2701,6 +2790,14 @@ def admin_panel():
         )
         public_pending_with_author = [{'task': t, 'author': db.get(User, t.user_id)} for t in public_pending_tasks]
         
+        # 开源项目管理：已在项目交流展示的公开项目（public_approved=1）
+        open_source_tasks_query = (
+            db.query(Task)
+            .filter(Task.sharing_type == 'public', Task.public_approved == 1)
+            .order_by(Task.created_at.desc())
+        )
+        open_source_tasks_with_author = [{'task': t, 'author': db.get(User, t.user_id)} for t in open_source_tasks_query.all()]
+        
         return render_template(
             'admin.html',
             users=users,
@@ -2728,7 +2825,8 @@ def admin_panel():
             cert_review_total=total_cert_requests,
             cert_review_per_page=cert_review_per_page,
             current_tab=current_tab,
-            public_pending_with_author=public_pending_with_author
+            public_pending_with_author=public_pending_with_author,
+            open_source_tasks_with_author=open_source_tasks_with_author
         )
     finally:
         db.close()
@@ -2768,6 +2866,43 @@ def admin_public_reject(task_id):
     finally:
         db.close()
     return redirect(url_for('quickform.admin_panel', tab='public-review'))
+
+
+@quickform_bp.route('/admin/open_source_revoke/<int:task_id>', methods=['POST'])
+@admin_required
+def admin_open_source_revoke(task_id):
+    """管理员取消项目在开源/项目交流的展示"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task or task.public_approved != 1:
+            flash('任务不存在或未在项目交流展示', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='open-source'))
+        task.public_approved = -1
+        db.commit()
+        flash(f'已取消项目「{task.title}」在项目交流的展示。', 'success')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='open-source'))
+
+
+@quickform_bp.route('/admin/open_source_feature/<int:task_id>', methods=['POST'])
+@admin_required
+def admin_open_source_feature(task_id):
+    """管理员切换项目加精状态"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task or task.public_approved != 1:
+            flash('任务不存在或未在项目交流展示', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='open-source'))
+        task.is_featured = not task.is_featured
+        db.commit()
+        status = '加精' if task.is_featured else '取消加精'
+        flash(f'已{status}项目「{task.title}」。', 'success')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='open-source'))
 
 
 @quickform_bp.route('/admin/change_role/<int:user_id>', methods=['POST'])

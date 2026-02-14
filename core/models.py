@@ -101,6 +101,9 @@ class Task(Base):
     like_count = Column(Integer, default=0)  # 点赞数（公开项目用）
     # 多HTML文件支持
     html_files = Column(Text)  # JSON格式存储多个HTML文件: [{"name": "file.html", "path": "/path/to/file.html"}, ...]
+    # 外部URL与教程链接（扣子/豆包等分享链接）
+    share_url = Column(String(500))  # 扣子编程、豆包编程等提供的分享URL
+    tutorial_link = Column(String(500))  # 提示词分享链接，便于分享和后期查找
     approver = relationship('User', foreign_keys=[html_approved_by], backref='approved_tasks')
     organization = relationship('Organization', back_populates='tasks')
     shares = relationship('TaskShare', back_populates='task', cascade='all, delete-orphan')
@@ -129,6 +132,12 @@ class AIConfig(Base):
     # 硅基流动（ChatServer）配置
     chat_server_api_url = Column(String(200))
     chat_server_api_token = Column(String(200))
+    # 更多模型
+    moonshot_api_key = Column(String(200))
+    glm_api_key = Column(String(200))
+    ernie_api_key = Column(String(200))
+    ernie_secret_key = Column(String(200))
+    openrouter_api_key = Column(String(200))
 
 
 class CertificationRequest(Base):
@@ -465,5 +474,27 @@ def migrate_database(engine):
                     logger.info("成功为task添加public_approved字段")
                 except Exception as e:
                     logger.warning(f"添加public_approved失败（可能已存在）: {str(e)}")
+
+            if task_cols and 'share_url' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN share_url VARCHAR(500)"))
+                    logger.info("成功为task添加share_url字段（扣子/豆包等分享URL）")
+                except Exception as e:
+                    logger.warning(f"添加share_url失败（可能已存在）: {str(e)}")
+            if task_cols and 'tutorial_link' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN tutorial_link VARCHAR(500)"))
+                    logger.info("成功为task添加tutorial_link字段（教程/提示词链接）")
+                except Exception as e:
+                    logger.warning(f"添加tutorial_link失败（可能已存在）: {str(e)}")
+            
+            # ai_config 新增更多模型字段
+            for col_name in ['moonshot_api_key', 'glm_api_key', 'ernie_api_key', 'ernie_secret_key', 'openrouter_api_key']:
+                if ai_cfg_cols and col_name not in ai_cfg_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE ai_config ADD COLUMN {col_name} VARCHAR(200)"))
+                        logger.info(f"成功为ai_config添加{col_name}")
+                    except Exception as e:
+                        logger.warning(f"添加{col_name}失败（可能已存在）: {str(e)}")
     except Exception as e:
         logger.error(f"数据库迁移失败: {str(e)}")

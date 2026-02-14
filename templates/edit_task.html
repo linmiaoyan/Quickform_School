@@ -133,6 +133,16 @@
                         <label for="description" class="form-label">任务描述</label>
                         <textarea class="form-control" id="description" name="description" rows="4" placeholder="{{ translate('create_task.description_placeholder') }}">{{ task.description }}</textarea>
                     </div>
+                    <div class="mb-4">
+                        <label for="share_url" class="form-label">URL 地址</label>
+                        <input type="url" class="form-control" id="share_url" name="share_url" value="{{ task.share_url or '' }}" placeholder="扣子编程、豆包编程等提供的分享链接（可选）">
+                        <div class="form-text">可填写扣子、豆包等编程助手的分享 URL，便于关联外部任务</div>
+                    </div>
+                    <div class="mb-4">
+                        <label for="tutorial_link" class="form-label">教程链接</label>
+                        <input type="url" class="form-control" id="tutorial_link" name="tutorial_link" value="{{ task.tutorial_link or '' }}" placeholder="提示词分享链接，便于后期查找（可选）">
+                        <div class="form-text">可填写提示词的分享链接，用于分享和后期定位对应地址</div>
+                    </div>
                     
                     <!-- 状态选择 -->
                     <div class="mb-3">

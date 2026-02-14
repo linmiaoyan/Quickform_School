@@ -104,16 +104,24 @@
                     
                     <!-- AI配置标签页 -->
                     <div class="tab-pane fade" id="config">
+                        <div class="alert alert-info mb-3">
+                            <strong>申请教程：</strong>
+                            <a href="https://quickform.readthedocs.io/zh-cn/latest/guide/get_apikey.html" target="_blank" rel="noopener">如何获取各服务商 API Key</a>
+                        </div>
                         <form method="POST" action="{{ url_for('quickform.profile') }}">
                             <input type="hidden" name="update_config" value="1">
                             
                             <div class="form-group">
                                 <label for="selected_model" style="color: #000; font-weight: 500;">{{ translate('profile.select_model') }}</label>
                                 <select class="form-control" id="selected_model" name="selected_model" required>
-                                    <option value="chat_server" {% if ai_config and ai_config.selected_model == 'chat_server' %}selected{% endif %}>{{ translate('profile.model_chat_server') }}</option>
-                                    <option value="deepseek" {% if ai_config and ai_config.selected_model == 'deepseek' %}selected{% endif %}>{{ translate('profile.model_deepseek') }}</option>
-                                    <option value="doubao" {% if ai_config and ai_config.selected_model == 'doubao' %}selected{% endif %}>{{ translate('profile.model_doubao') }}</option>
-                                    <option value="qwen" {% if ai_config and ai_config.selected_model == 'qwen' %}selected{% endif %}>{{ translate('profile.model_qwen') }}</option>
+                                    <option value="chat_server" {% if ai_config and ai_config.selected_model == 'chat_server' %}selected{% endif %}>硅基流动</option>
+                                    <option value="deepseek" {% if ai_config and ai_config.selected_model == 'deepseek' %}selected{% endif %}>deepseek(深度求索)</option>
+                                    <option value="qwen" {% if ai_config and ai_config.selected_model == 'qwen' %}selected{% endif %}>阿里云百炼</option>
+                                    <option value="doubao" {% if ai_config and ai_config.selected_model == 'doubao' %}selected{% endif %}>豆包（火山引擎）</option>
+                                    <option value="moonshot" {% if ai_config and ai_config.selected_model == 'moonshot' %}selected{% endif %}>moonshot(月之暗面)</option>
+                                    <option value="glm" {% if ai_config and ai_config.selected_model == 'glm' %}selected{% endif %}>glm(智谱清言)</option>
+                                    <option value="ernie" {% if ai_config and ai_config.selected_model == 'ernie' %}selected{% endif %}>ernie(文心一言)</option>
+                                    <option value="openrouter" {% if ai_config and ai_config.selected_model == 'openrouter' %}selected{% endif %}>openrouter（AI模型聚合平台）</option>
                                 </select>
                             </div>
                             <div id="chat_server_config" class="model-config" style="{% if not ai_config or ai_config.selected_model != 'chat_server' %}display:none;{% endif %}">
@@ -148,11 +156,51 @@
                             </div>
                             
                             <div id="qwen_config" class="model-config" style="{% if not ai_config or ai_config.selected_model != 'qwen' %}display:none;{% endif %}">
-                                <h5 class="mt-4 mb-3">{{ translate('profile.qwen_config') }}</h5>
+                                <h5 class="mt-4 mb-3">阿里云百炼</h5>
                                 <div class="form-group">
-                                    <label for="qwen_api_key" style="color: #000; font-weight: 500;">{{ translate('profile.qwen_api_key') }}</label>
+                                    <label for="qwen_api_key" style="color: #000; font-weight: 500;">API Key</label>
                                     <input type="password" class="form-control api-key-input" id="qwen_api_key" name="qwen_api_key" value="{{ ai_config.qwen_api_key if ai_config and ai_config.qwen_api_key else '' }}">
-                                    <small class="form-text text-muted">{{ translate('profile.qwen_api_key_hint') }}</small>
+                                    <small class="form-text text-muted">在 <a href="https://dashscope.console.aliyun.com/apiKey" target="_blank">阿里云百炼控制台</a> 创建 API-KEY</small>
+                                </div>
+                            </div>
+                            
+                            <div id="moonshot_config" class="model-config" style="{% if not ai_config or ai_config.selected_model != 'moonshot' %}display:none;{% endif %}">
+                                <h5 class="mt-4 mb-3">moonshot(月之暗面)</h5>
+                                <div class="form-group">
+                                    <label for="moonshot_api_key" style="color: #000; font-weight: 500;">API Key</label>
+                                    <input type="password" class="form-control api-key-input" id="moonshot_api_key" name="moonshot_api_key" value="{{ ai_config.moonshot_api_key if ai_config and ai_config.moonshot_api_key else '' }}">
+                                    <small class="form-text text-muted">在 <a href="https://platform.moonshot.cn/console/api-keys" target="_blank">月之暗面控制台</a> 左侧 API Key 管理 - 新建</small>
+                                </div>
+                            </div>
+                            
+                            <div id="glm_config" class="model-config" style="{% if not ai_config or ai_config.selected_model != 'glm' %}display:none;{% endif %}">
+                                <h5 class="mt-4 mb-3">glm(智谱清言)</h5>
+                                <div class="form-group">
+                                    <label for="glm_api_key" style="color: #000; font-weight: 500;">API Key</label>
+                                    <input type="password" class="form-control api-key-input" id="glm_api_key" name="glm_api_key" value="{{ ai_config.glm_api_key if ai_config and ai_config.glm_api_key else '' }}">
+                                    <small class="form-text text-muted">在 <a href="https://open.bigmodel.cn/usercenter/apikeys" target="_blank">智谱开放平台</a> 左侧 API keys - 创建 API key</small>
+                                </div>
+                            </div>
+                            
+                            <div id="ernie_config" class="model-config" style="{% if not ai_config or ai_config.selected_model != 'ernie' %}display:none;{% endif %}">
+                                <h5 class="mt-4 mb-3">ernie(文心一言)</h5>
+                                <div class="form-group mb-2">
+                                    <label for="ernie_api_key" style="color: #000; font-weight: 500;">API Key</label>
+                                    <input type="password" class="form-control api-key-input" id="ernie_api_key" name="ernie_api_key" value="{{ ai_config.ernie_api_key if ai_config and ai_config.ernie_api_key else '' }}">
+                                </div>
+                                <div class="form-group">
+                                    <label for="ernie_secret_key" style="color: #000; font-weight: 500;">Secret Key</label>
+                                    <input type="password" class="form-control api-key-input" id="ernie_secret_key" name="ernie_secret_key" value="{{ ai_config.ernie_secret_key if ai_config and ai_config.ernie_secret_key else '' }}">
+                                    <small class="form-text text-muted">在 <a href="https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application" target="_blank">百度千帆</a> 左侧应用接入 - 创建应用，需同时获取 API Key 与 Secret Key</small>
+                                </div>
+                            </div>
+                            
+                            <div id="openrouter_config" class="model-config" style="{% if not ai_config or ai_config.selected_model != 'openrouter' %}display:none;{% endif %}">
+                                <h5 class="mt-4 mb-3">openrouter（AI模型聚合平台）</h5>
+                                <div class="form-group">
+                                    <label for="openrouter_api_key" style="color: #000; font-weight: 500;">API Key</label>
+                                    <input type="password" class="form-control api-key-input" id="openrouter_api_key" name="openrouter_api_key" value="{{ ai_config.openrouter_api_key if ai_config and ai_config.openrouter_api_key else '' }}">
+                                    <small class="form-text text-muted">在 <a href="https://openrouter.ai/settings/keys" target="_blank">OpenRouter</a> 创建 API Key</small>
                                 </div>
                             </div>
                             
@@ -215,11 +263,32 @@
         
         <div class="card">
             <div class="card-header ">
-                <h5 class="mb-0">{{ translate('profile.config_guide_title') }}</h5>
+                <h5 class="mb-0">API Key 获取指南</h5>
             </div>
             <div class="card-body">
-                <p>{{ translate('profile.config_guide_desc1') }}</p>
-                <p>{{ translate('profile.config_guide_desc2') }}</p>
+                <p>每个服务商需要分别注册和获取相应的密钥，密钥获取的注册网址和 key 的获取方式如下表所示（右拉可查看如何获取 key）：</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm">
+                        <thead>
+                            <tr>
+                                <th>服务商</th>
+                                <th>注册/控制台链接</th>
+                                <th>获取方式</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>硅基流动</td><td><a href="https://www.siliconflow.cn/" target="_blank">https://www.siliconflow.cn/</a></td><td>登陆后即可看到「API 密钥」</td><td>提供大量免费模型</td></tr>
+                            <tr><td>deepseek(深度求索)</td><td><a href="https://platform.deepseek.com/api_keys" target="_blank">https://platform.deepseek.com/api_keys</a></td><td>左侧 API keys - 创建 API key</td><td>500万 tokens（注意要去首页认证领取）</td></tr>
+                            <tr><td>阿里云百炼</td><td><a href="https://dashscope.console.aliyun.com/apiKey" target="_blank">https://dashscope.console.aliyun.com/apiKey</a></td><td>API-KEY 管理 - 创建新的 API-KEY Key</td><td>无</td></tr>
+                            <tr><td>豆包（火山引擎）</td><td><a href="https://console.volcengine.com/home" target="_blank">https://console.volcengine.com/home</a></td><td>在「火山方舟」中选「API Key 管理」</td><td>50万 tokens</td></tr>
+                            <tr><td>moonshot(月之暗面)</td><td><a href="https://platform.moonshot.cn/console/api-keys" target="_blank">https://platform.moonshot.cn/console/api-keys</a></td><td>左侧 API Key 管理 - 新建</td><td>15.00 元（认证后领取）</td></tr>
+                            <tr><td>glm(智谱清言)</td><td><a href="https://open.bigmodel.cn/usercenter/apikeys" target="_blank">https://open.bigmodel.cn/usercenter/apikeys</a></td><td>左侧 API keys - 创建 API key</td><td>2500万 tokens（有效期1个月）</td></tr>
+                            <tr><td>ernie(文心一言)</td><td><a href="https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application" target="_blank">百度千帆控制台</a></td><td>左侧应用接入 - 创建应用（不能重名）- 同时需要 API Key 与 Secret Key</td><td>无（注意要实名认证开启服务，可在个人中心确认）</td></tr>
+                            <tr><td>openrouter（AI模型聚合平台）</td><td><a href="https://openrouter.ai/settings/keys" target="_blank">https://openrouter.ai/settings/keys</a></td><td>创建 API Key</td><td>—</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -235,7 +304,11 @@ document.addEventListener('DOMContentLoaded', function(){
         chat_server: document.getElementById('chat_server_config'),
         deepseek: document.getElementById('deepseek_config'),
         doubao: document.getElementById('doubao_config'),
-        qwen: document.getElementById('qwen_config')
+        qwen: document.getElementById('qwen_config'),
+        moonshot: document.getElementById('moonshot_config'),
+        glm: document.getElementById('glm_config'),
+        ernie: document.getElementById('ernie_config'),
+        openrouter: document.getElementById('openrouter_config')
     };
     function updateShow(){
         var v = sel.value;

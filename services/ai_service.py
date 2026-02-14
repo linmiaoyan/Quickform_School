@@ -173,7 +173,7 @@ def call_ai_model(prompt, ai_config):
         raise Exception(f"不支持的AI模型: {ai_config.selected_model}")
 
 
-def generate_analysis_prompt(task, submission=None, file_content=None, SessionLocal=None, Submission=None, user_template=None):
+def generate_analysis_prompt(task, submission=None, file_content=None, SessionLocal=None, Submission=None, user_template=None, interface_desc=None):
     """根据任务信息生成分析提示词（优化版）
     
     Args:
@@ -183,6 +183,7 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
         SessionLocal: 数据库会话工厂
         Submission: 提交模型类
         user_template: 用户自定义的提示词模板（可选），如果提供，将在模板中查找 {DATA_SECTION} 占位符并替换为数据部分
+        interface_desc: 接口描述（可选），将作为背景信息参与生成
     """
     if not submission and SessionLocal and Submission:
         db = SessionLocal()
@@ -191,9 +192,12 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
         finally:
             db.close()
     
+    # 接口描述：优先使用传入的 interface_desc，否则使用任务描述
+    desc_text = (interface_desc or '').strip() or (task.description or '无')
+    
     # 生成数据部分
     data_section = f"""任务标题：{task.title}
-任务描述：{task.description or '无'}
+接口描述（背景信息）：{desc_text}
 
 提交数据信息：
 """
