@@ -291,8 +291,9 @@
         });
     });
     
-    // 记录要删除的文件
-    const filesToRemove = [];
+    // 记录要删除的文件（允许脚本多次加载时复用同一数组）
+    var filesToRemove = window.filesToRemove || [];
+    window.filesToRemove = filesToRemove;
     
     // 删除单个HTML文件
     window.removeHtmlFile = function(savedName) {

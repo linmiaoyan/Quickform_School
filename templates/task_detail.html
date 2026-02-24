@@ -437,7 +437,6 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/qrcode.min.js') }}"></script>
 <script>
-    // 拖拽上传处理函数
     function toggleQRCode(btn) {
         const container = btn.nextElementSibling;
         if (!container || !container.classList.contains('qr-code-container')) return;
@@ -446,15 +445,11 @@
         
         if (container.style.display === 'none' || container.style.display === '') {
             container.style.display = 'block';
-            // 使用 fixed 定位并相对按钮计算位置，避免被下方卡片悬停效果遮挡
-            var rect = btn.getBoundingClientRect();
-            var popupW = 244, popupH = 244;
-            var left = rect.left + rect.width / 2 - popupW / 2;
-            var top = rect.top - popupH - 8;
+            // 使用 fixed 定位并固定在视口上方居中位置，避免被页面内容遮挡
+            var popupW = 380, popupH = 420;
+            var left = (window.innerWidth - popupW) / 2;
             if (left < 8) left = 8;
-            if (top < 8) top = 8;
-            if (left + popupW > window.innerWidth - 8) left = window.innerWidth - popupW - 8;
-            if (top + popupH > window.innerHeight - 8) top = rect.bottom + 8;
+            var top = 80; // 距离顶部固定 80px，近似“置顶”效果
             container.style.position = 'fixed';
             container.style.left = left + 'px';
             container.style.top = top + 'px';
