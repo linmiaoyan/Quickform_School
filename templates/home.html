@@ -22,9 +22,8 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: url('{{ url_for("static", filename="images/dashboard-preview.png") }}') center/cover no-repeat;
-    opacity: 0.03;
-    filter: blur(40px);
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    opacity: 0.5;
     z-index: 0;
 }
 
@@ -428,7 +427,7 @@
                         class="w-100" 
                         controls 
                         muted 
-                        preload="metadata"
+                        preload="none"
                         style="max-height: 600px; background: #000; display: block; border-radius: 8px;"
                         poster="">
                         <source id="video-source" src="{{ url_for('static', filename='videos/' + video_files[0]) }}" type="video/mp4">
@@ -461,7 +460,7 @@
                         controls 
                         muted 
                         loop
-                        preload="metadata"
+                        preload="none"
                         style="max-height: 600px; background: #000; display: block; border-radius: 8px;">
                         <source src="{{ url_for('static', filename='videos/index.mp4') }}" type="video/mp4">
                         {{ translate('common.browser_not_support_video') if translate('common.browser_not_support_video') != 'common.browser_not_support_video' else '您的浏览器不支持视频播放。' }}

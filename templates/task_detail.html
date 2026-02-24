@@ -442,20 +442,23 @@
         if (!container || !container.classList.contains('qr-code-container')) return;
         const qrcodeDiv = container.querySelector('div[id^="qrcode-"]');
         const url = btn.getAttribute('data-url');
-        
+        const parent = btn.parentNode; // 用于关闭时移回原处
+
         if (container.style.display === 'none' || container.style.display === '') {
+            if (container.parentNode !== document.body) {
+                container._qrOriginalParent = parent;
+                document.body.appendChild(container);
+            }
             container.style.display = 'block';
-            // 使用 fixed 定位并固定在视口上方居中位置，避免被页面内容遮挡
             var popupW = 380, popupH = 420;
             var left = (window.innerWidth - popupW) / 2;
             if (left < 8) left = 8;
-            var top = 80; // 距离顶部固定 80px，近似“置顶”效果
+            var top = 80;
             container.style.position = 'fixed';
             container.style.left = left + 'px';
             container.style.top = top + 'px';
             container.style.marginTop = '0';
-            container.style.zIndex = '1060';
-            // 如果二维码还没有生成，则生成它
+            container.style.zIndex = '9999';
             if (qrcodeDiv && !qrcodeDiv.hasAttribute('data-generated')) {
                 try {
                     qrcodeDiv.innerHTML = '';
@@ -476,18 +479,34 @@
             }
         } else {
             container.style.display = 'none';
+            if (container._qrOriginalParent && container.parentNode === document.body) {
+                container._qrOriginalParent.appendChild(container);
+            } else if (parent && container.parentNode === document.body) {
+                parent.appendChild(container);
+            }
             container.style.position = 'absolute';
             container.style.left = '';
             container.style.top = '';
             container.style.marginTop = '8px';
+            container.style.zIndex = '1060';
         }
     }
-    
-    // 点击外部关闭二维码
+
     document.addEventListener('click', function(e) {
         if (!e.target.closest('.qr-code-container') && !e.target.closest('button[onclick*="toggleQRCode"]')) {
             document.querySelectorAll('.qr-code-container').forEach(function(container) {
-                container.style.display = 'none';
+                if (container.style.display !== 'none') {
+                    container.style.display = 'none';
+                    var orig = container._qrOriginalParent;
+                    if (orig && container.parentNode === document.body) {
+                        orig.appendChild(container);
+                    }
+                    container.style.position = 'absolute';
+                    container.style.left = '';
+                    container.style.top = '';
+                    container.style.marginTop = '8px';
+                    container.style.zIndex = '1060';
+                }
             });
         }
     });
@@ -840,9 +859,9 @@
         });
     };
     
-    // 共享管理折叠面板图标旋转
-    const shareManagementEl = document.getElementById('shareManagement');
-    const shareManagementIconEl = document.getElementById('shareManagementIcon');
+    // 共享管理折叠面板图标旋转（使用 var 避免重复声明导致 SyntaxError）
+    var shareManagementEl = document.getElementById('shareManagement');
+    var shareManagementIconEl = document.getElementById('shareManagementIcon');
     
     if (shareManagementEl && shareManagementIconEl) {
         shareManagementEl.addEventListener('show.bs.collapse', function () {
