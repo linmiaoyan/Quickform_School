@@ -33,7 +33,7 @@ class User(UserMixin, Base):
     phone = Column(String(20))
     role = Column(String(20), default='user')
     task_limit = Column(Integer, default=3)  # 任务创建上限，-1表示无限制
-    email_verified = Column(Boolean, default=False)  # 创建第二个任务前需验证邮箱。已有数据库需执行：ALTER TABLE user ADD COLUMN email_verified BOOLEAN DEFAULT 1;
+    email_verified = Column(Boolean, default=False)  # 创建第二个任务前需验证邮箱；启动时 migrate_database 会自动为旧表添加该列
     is_certified = Column(Boolean, default=False)
     certified_at = Column(DateTime)
     certification_note = Column(Text)
@@ -296,6 +296,15 @@ def migrate_database(engine):
                     logger.info("成功为user表添加certification_note字段")
                 except Exception as e:
                     logger.warning(f"添加certification_note字段失败（可能已存在）: {str(e)}")
+
+            if 'email_verified' not in columns:
+                try:
+                    # MySQL: BOOLEAN 即 TINYINT(1)；已有用户默认 1 视为已验证，新注册用户由应用设为 0
+                    conn.execute(text("ALTER TABLE user ADD COLUMN email_verified TINYINT(1) DEFAULT 1"))
+                    conn.execute(text("UPDATE user SET email_verified = 1 WHERE email_verified IS NULL"))
+                    logger.info("成功为user表添加email_verified字段")
+                except Exception as e:
+                    logger.warning(f"添加email_verified字段失败（可能已存在）: {str(e)}")
             
             # ai_config 新增 chat_server 字段
             if ai_cfg_cols and 'chat_server_api_url' not in ai_cfg_cols:
