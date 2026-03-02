@@ -125,19 +125,21 @@
                         <p class="mt-2">{{ translate('smart_analyze.waited') }} <span id="elapsedSeconds">0</span> {{ translate('smart_analyze.seconds') }}</p>
                     </div>
                 </div>
-                <div class="alert alert-warning d-flex justify-content-between align-items-center" role="alert">
-                    <div>
-                        {{ translate('smart_analyze.current_model') }} <strong>{{ model_label or translate('smart_analyze.model_not_configured') }}</strong>
-                        {% if ai_config and ai_config.selected_model == 'chat_server' %}
-                        {{ translate('smart_analyze.change_api_token') }}
-                        {% else %}
-                        {{ translate('smart_analyze.change_api_token') }}
+                <div class="alert alert-warning d-flex justify-content-between align-items-center mb-4" role="alert">
+                    <div class="me-3">
+                        <div>
+                            {{ translate('smart_analyze.current_model') }} <strong>{{ model_label or translate('smart_analyze.model_not_configured') }}</strong>
+                            {{ translate('smart_analyze.change_api_token') }}
+                        </div>
+                        {% if is_large_dataset %}
+                        <div class="mt-1 small text-muted">
+                            {{ translate('smart_analyze.important_tip') }}
+                        </div>
                         {% endif %}
                     </div>
-                    <a href="{{ url_for('quickform.profile') }}" class="btn btn-sm btn-outline-primary">{{ translate('smart_analyze.change_api_token') }}</a>
-                </div>
-                <div class="alert alert-info mb-4" role="alert">
-                    <strong>⚠️</strong> {{ translate('smart_analyze.important_tip') }}
+                    <a href="{{ url_for('quickform.profile') }}" class="btn btn-sm btn-outline-primary">
+                        {{ translate('smart_analyze.change_api_token') }}
+                    </a>
                 </div>
                 {% if error %}
                     <div class="alert alert-danger">

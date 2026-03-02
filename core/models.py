@@ -33,6 +33,7 @@ class User(UserMixin, Base):
     phone = Column(String(20))
     role = Column(String(20), default='user')
     task_limit = Column(Integer, default=3)  # 任务创建上限，-1表示无限制
+    email_verified = Column(Boolean, default=False)  # 创建第二个任务前需验证邮箱。已有数据库需执行：ALTER TABLE user ADD COLUMN email_verified BOOLEAN DEFAULT 1;
     is_certified = Column(Boolean, default=False)
     certified_at = Column(DateTime)
     certification_note = Column(Text)

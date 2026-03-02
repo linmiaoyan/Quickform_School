@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block title %}验证邮箱 - QuickForm{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header" style="background-color: #2563eb; color: white;">
+                <h5 class="mb-0">验证邮箱</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">创建第二个数据任务前需要验证您的邮箱，验证码将发送至：<strong>{{ email }}</strong></p>
+                <form method="POST" action="{{ url_for('quickform.verify_email', next=next_url) }}">
+                    <div class="mb-3">
+                        <label for="email_code" class="form-label">邮箱验证码</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="email_code" name="email_code" required placeholder="请输入验证码" maxlength="6">
+                            <button type="button" class="btn btn-outline-primary" id="sendCodeBtn">发送验证码</button>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">提交验证</button>
+                        <a href="{{ next_url }}" class="btn btn-outline-secondary">稍后验证</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var cooldown = 0;
+    var btn = document.getElementById('sendCodeBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+        if (cooldown > 0) return;
+        btn.disabled = true;
+        btn.textContent = '发送中...';
+        fetch('{{ url_for("quickform.api_send_verify_code") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                alert(data.message || '验证码已发送');
+                cooldown = 60;
+                var t = setInterval(function() {
+                    cooldown--;
+                    btn.textContent = cooldown > 0 ? '重新发送(' + cooldown + 's)' : '发送验证码';
+                    btn.disabled = cooldown > 0;
+                    if (cooldown <= 0) clearInterval(t);
+                }, 1000);
+            } else {
+                alert(data.message || '发送失败');
+                btn.disabled = false;
+                btn.textContent = '发送验证码';
+            }
+        })
+        .catch(function() {
+            alert('请求失败');
+            btn.disabled = false;
+            btn.textContent = '发送验证码';
+        });
+    });
+})();
+</script>
+{% endblock %}

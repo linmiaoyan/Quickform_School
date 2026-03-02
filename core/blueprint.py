@@ -568,11 +568,7 @@ def register():
                 flash('请先阅读并同意《免责声明》', 'danger')
                 return redirect(url_for('quickform.register'))
 
-            # 校验邮箱验证码
-            if not email_code or not verify_email_code(email, email_code):
-                flash('邮箱验证码错误或已过期，请重新获取', 'danger')
-                return redirect(url_for('quickform.register'))
-            
+            # 自由注册：不再要求邮箱验证码；创建第二个任务时再验证邮箱
             db = SessionLocal()
             try:
                 existing_user = db.query(User).filter(
@@ -611,6 +607,57 @@ def register():
             return render_template('register.html')
         except:
             return f"注册页面加载失败: {str(e)}", 500
+
+
+@quickform_bp.route('/verify_email', methods=['GET', 'POST'])
+@login_required
+def verify_email():
+    """创建第二个任务前验证邮箱：发送验证码到当前用户邮箱并校验"""
+    next_url = request.args.get('next') or url_for('quickform.dashboard')
+    db = SessionLocal()
+    try:
+        user = db.get(User, current_user.id)
+        if not user or not user.email:
+            flash('您的账号未绑定邮箱，请先在个人资料中填写邮箱后再验证。', 'danger')
+            return redirect(url_for('quickform.profile'))
+        if getattr(user, 'email_verified', False):
+            return redirect(next_url)
+        if request.method == 'POST':
+            email_code = (request.form.get('email_code') or '').strip()
+            if not email_code or not verify_email_code(user.email, email_code):
+                flash('验证码错误或已过期，请重新获取', 'danger')
+                return redirect(url_for('quickform.verify_email', next=next_url))
+            user.email_verified = True
+            db.commit()
+            flash('邮箱验证成功，可以创建更多任务。', 'success')
+            return redirect(next_url)
+        return render_template('verify_email.html', next_url=next_url, email=user.email)
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/api/email/send_verify_code', methods=['POST'])
+@login_required
+def api_send_verify_code():
+    """已登录用户：向当前用户绑定邮箱发送验证码（用于创建第二任务前的验证）"""
+    try:
+        db = SessionLocal()
+        try:
+            user = db.get(User, current_user.id)
+            if not user or not user.email:
+                return jsonify({'success': False, 'message': '您的账号未绑定邮箱'}), 400
+            email = user.email
+        finally:
+            db.close()
+        import random
+        code = f"{random.randint(0, 999999):06d}"
+        set_email_code(email, code, ttl_seconds=600)
+        send_email_code(email, code)
+        return jsonify({'success': True, 'message': '验证码已发送到您的邮箱，有效期10分钟'})
+    except Exception as e:
+        logger.exception("发送验证码异常")
+        return jsonify({'success': False, 'message': str(e) if isinstance(e, RuntimeError) else '发送失败，请稍后重试'}), 500
+
 
 @quickform_bp.route('/login', methods=['GET', 'POST'])
 def login():
@@ -854,12 +901,18 @@ def create_task():
     """创建任务"""
     db = SessionLocal()
     try:
+        task_count = db.query(Task).filter_by(user_id=current_user.id).count()
         if not current_user.is_admin():
             if not current_user.can_create_task(SessionLocal, Task):
                 task_limit = current_user.task_limit if current_user.task_limit != -1 else "无限制"
-                task_count = db.query(Task).filter_by(user_id=current_user.id).count()
                 flash(f'您已达到任务数量上限（{task_limit}个，当前{task_count}个）。如需创建更多任务，请联系管理员：wzlinmiaoyan@163.com', 'warning')
                 return redirect(url_for('quickform.dashboard'))
+            # 创建第二个任务时需已验证邮箱（旧用户无 email_verified 字段时视为已验证）
+            refreshed_user = db.get(User, current_user.id)
+            email_verified = getattr(refreshed_user, 'email_verified', True)
+            if task_count >= 1 and not email_verified:
+                flash('创建第二个数据任务前请先验证邮箱。', 'warning')
+                return redirect(url_for('quickform.verify_email', next=url_for('quickform.create_task')))
         
         if request.method == 'POST':
             title = request.form.get('title')
@@ -1078,31 +1131,11 @@ def task_detail(task_id):
             can_analyze_export = has_access
             user_liked = False
         
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 20, type=int)
-        if page < 1:
-            page = 1
-        if per_page < 1:
-            per_page = 20
-        elif per_page > 200:
-            per_page = 200
-
-        submission_query = (
-            db.query(Submission)
-            .filter_by(task_id=task.id)
-            .order_by(Submission.submitted_at.desc())
-        )
-        total_submissions = submission_query.count()
-        total_pages = max(math.ceil(total_submissions / per_page), 1) if total_submissions else 1
-        if page > total_pages:
-            page = total_pages
-
-        submissions = (
-            submission_query
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
+        # 任务详情页默认不加载提交数据，仅统计总数；具体数据在「查看数据」新页面中按需加载
+        submission_count_query = db.query(Submission).filter_by(task_id=task.id)
+        total_submissions = submission_count_query.count()
+        submissions = []
+        pagination = {'page': 1, 'per_page': 20, 'pages': 1}
 
         saved_filename = None
         try:
@@ -1159,6 +1192,73 @@ def task_detail(task_id):
         )
     finally:
         db.close()
+
+
+@quickform_bp.route('/task/<int:task_id>/data')
+def task_data_view(task_id):
+    """提交数据查看页：在新页面中展示具体数据，定时刷新；仅对有分析/导出权限的用户开放"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            flash('任务不存在', 'danger')
+            return redirect(url_for('quickform.dashboard'))
+        can_analyze_export = False
+        if task.sharing_type == 'public':
+            if current_user.is_authenticated:
+                can_analyze_export = (
+                    current_user.is_admin() or task.user_id == current_user.id or
+                    (task.organization_id and db.query(OrganizationMember).filter_by(
+                        organization_id=task.organization_id, user_id=current_user.id
+                    ).first() is not None) or
+                    db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first() is not None
+                )
+        else:
+            if not current_user.is_authenticated:
+                return redirect(url_for('quickform.login', next=url_for('quickform.task_data_view', task_id=task_id)))
+            if current_user.is_admin() or task.user_id == current_user.id:
+                can_analyze_export = True
+            elif task.organization_id:
+                if db.query(OrganizationMember).filter_by(
+                    organization_id=task.organization_id, user_id=current_user.id
+                ).first() is not None:
+                    can_analyze_export = True
+            else:
+                if db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first() is not None:
+                    can_analyze_export = True
+        if not can_analyze_export:
+            flash('无权查看该任务的提交数据', 'danger')
+            return redirect(url_for('quickform.task_detail', task_id=task_id))
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        page = max(1, page)
+        per_page = min(max(1, per_page), 200)
+        submission_query = (
+            db.query(Submission)
+            .filter_by(task_id=task.id)
+            .order_by(Submission.submitted_at.desc())
+        )
+        total_submissions = submission_query.count()
+        total_pages = max(math.ceil(total_submissions / per_page), 1) if total_submissions else 1
+        if page > total_pages:
+            page = total_pages
+        submissions = (
+            submission_query
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        pagination = {'page': page, 'per_page': per_page, 'pages': total_pages}
+        return render_template(
+            'task_data_view.html',
+            task=task,
+            submissions=submissions,
+            total_submissions=total_submissions,
+            pagination=pagination
+        )
+    finally:
+        db.close()
+
 
 @quickform_bp.route('/edit_task/<int:task_id>', methods=['GET', 'POST'])
 @login_required
@@ -2377,14 +2477,18 @@ def smart_analyze(task_id):
         if should_redirect:
             return redirect(url_for('quickform.smart_analyze', task_id=task.id))
         
-        return render_template('smart_analyze.html', 
-                             task=task, 
-                             report=report,
-                             preview_prompt=preview_prompt,
-                             user_prompt_template=user_prompt_template,
-                             ai_config=ai_config,
-                             now=datetime.now(),
-                             model_label=model_label)
+        return render_template(
+            'smart_analyze.html',
+            task=task,
+            report=report,
+            preview_prompt=preview_prompt,
+            user_prompt_template=user_prompt_template,
+            ai_config=ai_config,
+            now=datetime.now(),
+            model_label=model_label,
+            submission_count=current_submission_count,
+            is_large_dataset=current_submission_count > 200,
+        )
     finally:
         db.close()
 
@@ -2798,6 +2902,17 @@ def admin_panel():
         )
         open_source_tasks_with_author = [{'task': t, 'author': db.get(User, t.user_id)} for t in open_source_tasks_query.all()]
         
+        # 开源教程：读取 tutorials.json 供管理员编辑
+        tutorials_json_content = '[]'
+        try:
+            tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
+            json_path = os.path.join(tutorials_dir, 'tutorials.json')
+            if os.path.exists(json_path):
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    tutorials_json_content = f.read()
+        except Exception as e:
+            logger.warning(f"读取 tutorials.json 失败: {e}")
+        
         return render_template(
             'admin.html',
             users=users,
@@ -2826,7 +2941,8 @@ def admin_panel():
             cert_review_per_page=cert_review_per_page,
             current_tab=current_tab,
             public_pending_with_author=public_pending_with_author,
-            open_source_tasks_with_author=open_source_tasks_with_author
+            open_source_tasks_with_author=open_source_tasks_with_author,
+            tutorials_json_content=tutorials_json_content
         )
     finally:
         db.close()
@@ -2903,6 +3019,33 @@ def admin_open_source_feature(task_id):
     finally:
         db.close()
     return redirect(url_for('quickform.admin_panel', tab='open-source'))
+
+
+@quickform_bp.route('/admin/tutorials_json/save', methods=['POST'])
+@admin_required
+def admin_tutorials_json_save():
+    """管理员保存开源教程菜单的 JSON 配置（static/tutorials/tutorials.json）"""
+    content = (request.form.get('tutorials_json') or '').strip()
+    if not content:
+        flash('内容不能为空', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
+    try:
+        data = json.loads(content)
+        if not isinstance(data, list):
+            flash('JSON 必须为数组格式', 'danger')
+            return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
+        tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
+        os.makedirs(tutorials_dir, exist_ok=True)
+        json_path = os.path.join(tutorials_dir, 'tutorials.json')
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        flash('开源教程链接已保存。', 'success')
+    except json.JSONDecodeError as e:
+        flash(f'JSON 格式错误：{e}', 'danger')
+    except OSError as e:
+        logger.exception("写入 tutorials.json 失败")
+        flash(f'保存文件失败：{e}', 'danger')
+    return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
 
 
 @quickform_bp.route('/admin/change_role/<int:user_id>', methods=['POST'])
@@ -3601,6 +3744,67 @@ def admin_handle_certification(request_id):
         db.rollback()
         logger.error(f"认证审核处理失败: {str(e)}")
         flash(f'处理失败：{str(e)}', 'danger')
+    finally:
+        db.close()
+
+    return redirect(url_for('quickform.admin_panel', tab='cert-review'))
+
+
+@quickform_bp.route('/admin/certification/batch_approve', methods=['POST'])
+@admin_required
+def admin_cert_batch_approve():
+    """管理员批量通过教师认证申请"""
+    request_ids = request.form.getlist('request_ids')
+    if not request_ids:
+        flash('请先选择要通过的认证申请', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='cert-review'))
+
+    db = SessionLocal()
+    success_count = 0
+    try:
+        for rid in request_ids:
+            try:
+                rid_int = int(rid)
+            except (TypeError, ValueError):
+                continue
+
+            cert_request = db.get(CertificationRequest, rid_int)
+            if not cert_request or cert_request.status == 1:
+                continue
+
+            user = cert_request.user
+            if not user:
+                continue
+
+            cert_request.status = 1
+            cert_request.reviewed_at = datetime.now()
+            cert_request.reviewed_by = current_user.id
+
+            if not user.is_certified:
+                user.is_certified = True
+                user.certified_at = datetime.now()
+            if user.task_limit != -1:
+                user.task_limit = -1
+
+            # 自动通过该用户所有待审核的HTML任务
+            pending_tasks = db.query(Task).filter(Task.user_id == user.id, Task.html_approved != 1).all()
+            for task in pending_tasks:
+                task.html_approved = 1
+                task.html_approved_by = current_user.id
+                task.html_approved_at = datetime.now()
+                task.html_review_note = None
+
+            success_count += 1
+
+        db.commit()
+        if success_count:
+            flash(f'已批量通过 {success_count} 个教师认证申请。', 'success')
+        else:
+            flash('没有可处理的认证申请。', 'info')
+    except Exception as e:
+        db.rollback()
+        logger.error(f"批量通过教师认证申请失败: {str(e)}")
+        flash(f'批量处理失败：{str(e)}', 'danger')
     finally:
         db.close()
 

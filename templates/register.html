@@ -17,13 +17,8 @@
                     </div>
                     <div class="mb-4">
                         <label for="email" class="form-label">{{ translate('register.email') }} <span class="text-danger">{{ translate('register.required') }}</span></label>
-                        <div class="input-group">
-                            <input type="email" class="form-control" id="email" name="email" required placeholder="{{ translate('register.email_placeholder') }}">
-                            <button type="button" class="btn btn-outline-primary" id="sendEmailCodeBtn" onclick="sendEmailCode()">
-                                发送验证码
-                            </button>
-                        </div>
-                        <small class="form-text text-muted">请填写可用邮箱，用于接收验证码。</small>
+                        <input type="email" class="form-control" id="email" name="email" required placeholder="{{ translate('register.email_placeholder') }}">
+                        <small class="form-text text-muted">请填写可用邮箱；创建第二个数据任务时需验证该邮箱。</small>
                     </div>
                     <div class="mb-4">
                         <label for="school" class="form-label">{{ translate('register.school') }} <span class="text-danger">{{ translate('register.required') }}</span></label>
@@ -33,10 +28,6 @@
                         <label for="phone" class="form-label">{{ translate('register.phone') }} <span class="text-danger">{{ translate('register.required') }}</span></label>
                         <input type="tel" class="form-control" id="phone" name="phone" required placeholder="{{ translate('register.phone_placeholder') }}" pattern="1[3-9][0-9]{9}" maxlength="11" minlength="11">
                         <small class="form-text text-muted">{{ translate('register.phone_hint') }}</small>
-                    </div>
-                    <div class="mb-4">
-                        <label for="email_code" class="form-label">邮箱验证码 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="email_code" name="email_code" required placeholder="请输入邮箱验证码" maxlength="6">
                     </div>
                     <div class="mb-4">
                         <label for="password" class="form-label">{{ translate('register.password') }} <span class="text-danger">{{ translate('register.required') }}</span></label>

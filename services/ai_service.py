@@ -29,7 +29,7 @@ def call_ai_model(prompt, ai_config):
         }
         
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=60)
+            response = requests.post(url, headers=headers, json=data, timeout=120)
             response.raise_for_status()
             result = response.json()
             return result["choices"][0]["message"]["content"]
@@ -54,7 +54,7 @@ def call_ai_model(prompt, ai_config):
         }
         
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=120)
+            response = requests.post(url, headers=headers, json=data, timeout=180)
             response.raise_for_status()
             result = response.json()
             return result["choices"][0]["message"]["content"]
@@ -84,7 +84,7 @@ def call_ai_model(prompt, ai_config):
         
         try:
             logger.info(f"调用阿里云百炼API，模型: qwen-plus")
-            response = requests.post(url, headers=headers, json=data, timeout=120)
+            response = requests.post(url, headers=headers, json=data, timeout=180)
             
             if response.status_code != 200:
                 raise Exception(f"阿里云百炼API调用失败，状态码: {response.status_code}，响应: {response.text[:200]}")
@@ -150,7 +150,7 @@ def call_ai_model(prompt, ai_config):
             ]
         }
         try:
-            resp = _requests.post(url, headers=headers, json=payload, timeout=(5, 120))
+            resp = _requests.post(url, headers=headers, json=payload, timeout=(10, 240))
             if resp.status_code != 200:
                 raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
             data = resp.json()

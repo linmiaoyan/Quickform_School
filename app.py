@@ -227,8 +227,13 @@ def handle_uncaught_exception(error):
 @app.errorhandler(413)
 def request_entity_too_large(error):
     from flask import flash, request
-    app.logger.warning(f"413错误 - 请求实体过大")
-    flash('文件大小超过服务器限制（最大16MB）', 'danger')
+    app.logger.warning("413错误 - 请求实体过大")
+    # 若来自认证申请页，则回到认证页并给出针对性提示
+    referrer = (request.referrer or '') if request.referrer else ''
+    if 'certification' in referrer or (request.path and 'certification' in request.path):
+        flash('认证材料文件过大，请压缩或更换为更小的文件后重试（单文件最大 16MB）。', 'danger')
+        return redirect(url_for('quickform.certification_request'))
+    flash('文件大小超过服务器限制（最大16MB），请压缩后重试。', 'danger')
     return redirect(url_for('quickform.dashboard'))
 
 

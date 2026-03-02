@@ -19,13 +19,16 @@
             <i class="bi bi-file-earmark-code" style="margin-right: 0.75rem;"></i> {{ translate('admin.html_review') }}
         </a>
         <a href="#cert-review" class="sidebar-item" data-tab="cert-review" onclick="switchTab('cert-review'); return false;">
-            <i class="bi bi-shield-check" style="margin-right: 0.75rem;"></i> {{ translate('admin.cert_review') }}
+            <i class="bi bi-shield-check" style="margin-right: 0.75rem;"></i> 教师认证审核
         </a>
         <a href="#public-review" class="sidebar-item" data-tab="public-review" onclick="switchTab('public-review'); return false;">
             <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> 项目公开审核
         </a>
         <a href="#open-source" class="sidebar-item" data-tab="open-source" onclick="switchTab('open-source'); return false;">
-            <i class="bi bi-github" style="margin-right: 0.75rem;"></i> 开源项目管理
+            <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> 管理公开项目
+        </a>
+        <a href="#tutorials-edit" class="sidebar-item" data-tab="tutorials-edit" onclick="switchTab('tutorials-edit'); return false;">
+            <i class="bi bi-book" style="margin-right: 0.75rem;"></i> 开源教程
         </a>
         <a href="#data" class="sidebar-item" data-tab="data" onclick="switchTab('data'); return false;">
             <i class="bi bi-graph-up" style="margin-right: 0.75rem;"></i> {{ translate('admin.data_report') }}
@@ -85,7 +88,7 @@
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="cert-review-tab" data-bs-toggle="tab" data-bs-target="#cert-review" type="button" role="tab">
-                    认证审核
+                    教师认证审核
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -95,7 +98,12 @@
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="open-source-tab" data-bs-toggle="tab" data-bs-target="#open-source" type="button" role="tab">
-                    开源项目管理
+                    管理公开项目
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tutorials-edit-tab" data-bs-toggle="tab" data-bs-target="#tutorials-edit" type="button" role="tab">
+                    开源教程
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -364,14 +372,14 @@
                 </div>
             </div>
 
-            <!-- 开源项目管理标签页 -->
+            <!-- 管理公开项目标签页 -->
             <div class="tab-pane fade" id="open-source" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">开源项目管理</h5>
+                        <h5 class="mb-0">管理公开项目</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted mb-3">管理已在项目交流页展示的公开项目，可取消展示或设置加精。</p>
+                        <p class="text-muted mb-3">管理已在项目交流页展示的公开项目，可加精或取消展示。</p>
                         {% if open_source_tasks_with_author and open_source_tasks_with_author|length > 0 %}
                         <div class="table-responsive">
                             <table class="table table-striped table-hover">
@@ -420,6 +428,25 @@
                         {% else %}
                         <p class="text-muted mb-0">暂无已在项目交流展示的公开项目。</p>
                         {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 开源教程标签页：编辑 tutorials 菜单的 JSON -->
+            <div class="tab-pane fade" id="tutorials-edit" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">开源教程</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">编辑顶部导航「开源教程」菜单中的链接文档，每项需包含 <code>title</code>、<code>author</code>、<code>author_link</code>、<code>description</code>，保存为 JSON 数组格式。</p>
+                        <form method="POST" action="{{ url_for('quickform.admin_tutorials_json_save') }}">
+                            <div class="mb-3">
+                                <label for="tutorials_json" class="form-label">tutorials.json 内容</label>
+                                <textarea name="tutorials_json" id="tutorials_json" class="form-control font-monospace" rows="18" style="font-size: 13px;">{{ tutorials_json_content }}</textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">保存</button>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -722,82 +749,109 @@
                             <strong>待审核教师认证：</strong> {{ pending_cert_count }}
                         </div>
                         {% if cert_requests %}
-                        <div class="table-responsive">
-                            <table class="table table-striped align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>申请人</th>
-                                        <th>学校</th>
-                                        <th>提交时间</th>
-                                        <th>状态</th>
-                                        <th>审核时间</th>
-                                        <th>材料</th>
-                                        <th>审核备注</th>
-                                        <th style="width: 220px;">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for req in cert_requests %}
-                                    <tr>
-                                        <td>{{ req.user.username if req.user else '未知用户' }}</td>
-                                        <td>{{ req.user.school if req.user else '-' }}</td>
-                                        <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                                        <td>
-                                            {% if req.status == 1 %}
-                                            <span class="status-badge featured">已通过</span>
-                                            {% elif req.status == -1 %}
-                                            <span class="status-badge rejected">已拒绝</span>
-                                            {% else %}
-                                            <span class="status-badge pending">待审核</span>
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            {% if req.reviewed_at %}
-                                                {{ req.reviewed_at.strftime('%Y-%m-%d %H:%M') }}
-                                            {% else %}
+                        {% set has_pending_cert = (cert_requests | selectattr('status','equalto',0) | list | length) > 0 %}
+                        <form id="certBatchForm" method="POST" action="{{ url_for('quickform.admin_cert_batch_approve') }}">
+                            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="certSelectAll" {% if not has_pending_cert %}disabled{% endif %}>
+                                    <label class="form-check-label" for="certSelectAll">
+                                        全选当前列表
+                                    </label>
+                                </div>
+                                <button type="submit" id="certBatchApproveBtn" class="btn btn-sm" 
+                                        style="background-color: #10b981; color: white; border: none;"
+                                        {% if not has_pending_cert %}disabled{% endif %}>
+                                    <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
+                                    批量通过
+                                </button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-striped align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 40px;">选择</th>
+                                            <th>申请人</th>
+                                            <th>学校</th>
+                                            <th>提交时间</th>
+                                            <th>状态</th>
+                                            <th>审核时间</th>
+                                            <th>材料</th>
+                                            <th>审核备注</th>
+                                            <th style="width: 240px;">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for req in cert_requests %}
+                                        <tr>
+                                            <td>
+                                                {% if req.status == 0 %}
+                                                <input type="checkbox" class="form-check-input cert-check" name="request_ids" value="{{ req.id }}">
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ req.user.username if req.user else '未知用户' }}</td>
+                                            <td>{{ req.user.school if req.user else '-' }}</td>
+                                            <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                            <td>
+                                                {% if req.status == 1 %}
+                                                <span class="status-badge featured">已通过</span>
+                                                {% elif req.status == -1 %}
+                                                <span class="status-badge rejected">已拒绝</span>
+                                                {% else %}
+                                                <span class="status-badge pending">待审核</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if req.reviewed_at %}
+                                                    {{ req.reviewed_at.strftime('%Y-%m-%d %H:%M') }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if req.file_path %}
+                                                <a class="btn btn-sm" 
+                                                   style="background-color: #2563eb; color: white; border: none; white-space: nowrap;"
+                                                   href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank">
+                                                    <i class="bi bi-eye" style="margin-right: 0.25rem;"></i>
+                                                    查看材料
+                                                </a>
+                                                {% else %}
                                                 -
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            {% if req.file_path %}
-                                            <a class="btn btn-sm" 
-                                               style="background-color: #2563eb; color: white; border: none; white-space: nowrap;"
-                                               href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank">
-                                                <i class="bi bi-eye" style="margin-right: 0.25rem;"></i>
-                                                查看材料
-                                            </a>
-                                            {% else %}
-                                            -
-                                            {% endif %}
-                                        </td>
-                                        <td>{{ req.review_note or '-' }}</td>
-                                        <td>
-                                            {% if req.status == 0 %}
-                                            <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="d-flex flex-wrap gap-2 align-items-center">
-                                                <input type="text" class="form-control form-control-sm" name="note" placeholder="备注（可选）" style="min-width: 150px; max-width: 250px;">
-                                                <button type="submit" name="action" value="approve" 
-                                                        class="btn btn-sm" 
-                                                        style="background-color: #10b981; color: white; border: none; white-space: nowrap;">
-                                                    <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
-                                                    通过
-                                                </button>
-                                                <button type="submit" name="action" value="reject" 
-                                                        class="btn btn-sm" 
-                                                        style="background-color: #ef4444; color: white; border: none; white-space: nowrap;"
-                                                        onclick="return confirm('确定要拒绝该认证申请吗？')">
-                                                    <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>
-                                                    拒绝
-                                                </button>
-                                            </form>
-                                            {% else %}
-                                            <span class="text-muted">—</span>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ req.review_note or '-' }}</td>
+                                            <td>
+                                                {% if req.status == 0 %}
+                                                <div class="d-flex align-items-center gap-2 flex-nowrap">
+                                                    <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="m-0">
+                                                        <button type="submit" name="action" value="approve" 
+                                                                class="btn btn-sm" 
+                                                                style="background-color: #10b981; color: white; border: none; white-space: nowrap;">
+                                                            <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
+                                                            通过
+                                                        </button>
+                                                    </form>
+                                                    <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="m-0 cert-reject-form">
+                                                        <input type="hidden" name="note" value="">
+                                                        <button type="button"
+                                                                class="btn btn-sm"
+                                                                style="background-color: #ef4444; color: white; border: none; white-space: nowrap;"
+                                                                onclick="handleCertReject(this)">
+                                                            <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>
+                                                            拒绝
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                                {% else %}
+                                                <span class="text-muted">—</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </form>
                         
                         <!-- 分页 -->
                         {% if cert_review_pages > 1 %}
@@ -1087,6 +1141,75 @@
         });
     })();
     
+    // 教师认证批量通过选择
+    (function(){
+        const selectAll = document.getElementById('certSelectAll');
+        const checkboxes = Array.from(document.querySelectorAll('.cert-check'));
+        const submitBtn = document.getElementById('certBatchApproveBtn');
+        if (!selectAll || !submitBtn) return;
+
+        function updateButton() {
+            if (!checkboxes.length) {
+                submitBtn.disabled = true;
+                return;
+            }
+            const hasChecked = checkboxes.some(cb => cb.checked);
+            submitBtn.disabled = !hasChecked;
+        }
+
+        selectAll.addEventListener('change', function(){
+            const checked = this.checked;
+            checkboxes.forEach(cb => {
+                if (!cb.disabled) cb.checked = checked;
+            });
+            updateButton();
+        });
+
+        checkboxes.forEach(cb => cb.addEventListener('change', function(){
+            if (!this.checked && selectAll.checked) {
+                selectAll.checked = false;
+            } else if (this.checked) {
+                const allChecked = checkboxes.every(item => item.checked || item.disabled);
+                if (allChecked) selectAll.checked = true;
+            }
+            updateButton();
+        }));
+
+        updateButton();
+    })();
+
+    // 教师认证单条拒绝：点击时再输入原因
+    function handleCertReject(button) {
+        var reason = prompt('请输入拒绝原因（必填）：');
+        if (reason === null) {
+            return;
+        }
+        reason = reason.trim();
+        if (!reason) {
+            alert('拒绝原因不能为空');
+            return;
+        }
+        if (!confirm('确定要拒绝该认证申请吗？')) {
+            return;
+        }
+        var form = button.closest('form');
+        if (!form) return;
+        var noteInput = form.querySelector('input[name=\"note\"]');
+        if (!noteInput) {
+            noteInput = document.createElement('input');
+            noteInput.type = 'hidden';
+            noteInput.name = 'note';
+            form.appendChild(noteInput);
+        }
+        noteInput.value = reason;
+        var actionInput = document.createElement('input');
+        actionInput.type = 'hidden';
+        actionInput.name = 'action';
+        actionInput.value = 'reject';
+        form.appendChild(actionInput);
+        form.submit();
+    }
+
     // HTML审核批量选择功能
     (function(){
         const selectAll = document.getElementById('selectAllTasks');
