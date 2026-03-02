@@ -299,8 +299,12 @@ def migrate_database(engine):
 
             if 'email_verified' not in columns:
                 try:
-                    # MySQL: BOOLEAN 即 TINYINT(1)；已有用户默认 1 视为已验证，新注册用户由应用设为 0
-                    conn.execute(text("ALTER TABLE user ADD COLUMN email_verified TINYINT(1) DEFAULT 1"))
+                    # MySQL: TINYINT(1)；SQLite: BOOLEAN。已有用户默认 1 视为已验证
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE user ADD COLUMN email_verified TINYINT(1) DEFAULT 1"))
+                    else:
+                        conn.execute(text("ALTER TABLE user ADD COLUMN email_verified BOOLEAN DEFAULT 1"))
                     conn.execute(text("UPDATE user SET email_verified = 1 WHERE email_verified IS NULL"))
                     logger.info("成功为user表添加email_verified字段")
                 except Exception as e:

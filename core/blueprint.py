@@ -377,30 +377,52 @@ def cases():
 
 @quickform_bp.route('/community')
 def community():
-    """项目交流 - 留言板 + 公开项目展示（最新发布、最高点赞）"""
+    """项目交流 - 留言板 + 公开项目展示（最新发布、最高点赞），支持分页"""
     db = SessionLocal()
     try:
-        posts = db.query(Post).order_by(Post.created_at.desc()).all()
-        # 公开项目：仅展示管理员审核通过的（public_approved==1）
+        per_project = max(1, min(20, request.args.get('per_project', 8, type=int)))
+        per_post = max(1, min(50, request.args.get('per_post', 10, type=int)))
+        page_latest = max(1, request.args.get('latest_page', 1, type=int))
+        page_liked = max(1, request.args.get('liked_page', 1, type=int))
+        page_posts = max(1, request.args.get('post_page', 1, type=int))
+
+        base_public = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1)
+        total_latest = base_public.count()
+        total_liked = total_latest  # 同一批数据不同排序
         public_tasks_latest = (
-            db.query(Task)
-            .filter(Task.sharing_type == 'public', Task.public_approved == 1)
-            .order_by(Task.created_at.desc())
-            .limit(12)
+            base_public.order_by(Task.created_at.desc())
+            .offset((page_latest - 1) * per_project)
+            .limit(per_project)
             .all()
         )
         public_tasks_liked = (
             db.query(Task)
             .filter(Task.sharing_type == 'public', Task.public_approved == 1)
             .order_by(func.coalesce(Task.like_count, 0).desc(), Task.created_at.desc())
-            .limit(12)
+            .offset((page_liked - 1) * per_project)
+            .limit(per_project)
             .all()
         )
+        pages_latest = max(1, (total_latest + per_project - 1) // per_project) if total_latest else 1
+        pages_liked = max(1, (total_liked + per_project - 1) // per_project) if total_liked else 1
+
+        posts_query = db.query(Post).order_by(Post.created_at.desc())
+        total_posts = posts_query.count()
+        posts = posts_query.offset((page_posts - 1) * per_post).limit(per_post).all()
+        pages_posts = max(1, (total_posts + per_post - 1) // per_post) if total_posts else 1
+
+        pagination_latest = {'page': page_latest, 'per_page': per_project, 'pages': pages_latest, 'total': total_latest}
+        pagination_liked = {'page': page_liked, 'per_page': per_project, 'pages': pages_liked, 'total': total_liked}
+        pagination_posts = {'page': page_posts, 'per_page': per_post, 'pages': pages_posts, 'total': total_posts}
+
         return render_template(
             'community.html',
             posts=posts,
             public_tasks_latest=public_tasks_latest,
-            public_tasks_liked=public_tasks_liked
+            public_tasks_liked=public_tasks_liked,
+            pagination_latest=pagination_latest,
+            pagination_liked=pagination_liked,
+            pagination_posts=pagination_posts
         )
     finally:
         db.close()
@@ -1158,11 +1180,7 @@ def task_detail(task_id):
                 'saved_name': saved_filename
             }]
 
-        pagination = {
-            'page': page,
-            'per_page': per_page,
-            'pages': total_pages
-        }
+        # 任务详情页不展示分页列表，pagination 仅用于模板兼容（见上方已赋初值）
         
         # 仅登录用户需要组织列表与共享列表（用于分配任务/共享管理）
         user_organizations = []

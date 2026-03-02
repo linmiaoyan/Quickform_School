@@ -131,6 +131,95 @@
     color: #6b7280;
 }
 
+/* 项目展示卡片 */
+.community-projects-section {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid #e2e8f0;
+}
+.community-projects-section h5 {
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.project-card-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.project-card-link:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    color: inherit;
+}
+.project-card {
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+    background: #fff;
+    height: 100%;
+}
+.project-card .card-body {
+    padding: 0.85rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.project-card .project-title {
+    font-weight: 500;
+    color: #1e293b;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.project-card .project-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+.project-card .badge {
+    font-size: 0.75rem;
+}
+
+/* 分页 */
+.community-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e2e8f0;
+}
+.community-pagination .page-link {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.875rem;
+    border-radius: 6px;
+}
+.community-pagination .page-item.active .page-link {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+.community-pagination .page-item.disabled .page-link {
+    color: #94a3b8;
+}
+.pagination-info {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-right: 0.5rem;
+}
+
 .issue-collector {
     background: #ffffff;
     border: 1px solid #e5e7eb;
@@ -206,50 +295,86 @@
         <div class="col-12 col-lg-8 mx-auto">
             <h1 class="mb-4">{{ translate('nav.community') if translate('nav.community') != 'nav.community' else '项目交流' }}</h1>
             
-            <!-- 项目展示：公开项目（最新发布、最高点赞） -->
+            <!-- 项目展示：公开项目（最新发布、最高点赞）带分页 -->
             <section class="mb-5">
                 <h3 class="mb-3"><i class="bi bi-collection-play"></i> 项目展示</h3>
                 <p class="text-muted mb-3">公开项目所有人可浏览，登录用户可点赞。未注册用户也可点进查看，但无分析和导出功能。</p>
-                <div class="row g-3 mb-4">
+                <div class="row g-4">
                     <div class="col-md-6">
-                        <h5 class="text-secondary mb-2"><i class="bi bi-clock-history"></i> 最新发布</h5>
-                        {% if public_tasks_latest and public_tasks_latest|length > 0 %}
-                        <div class="d-flex flex-column gap-2">
-                            {% for t in public_tasks_latest %}
-                            <a href="{{ url_for('quickform.task_detail', task_id=t.id) }}" class="text-decoration-none">
-                                <div class="card border hover-shadow-sm" style="transition: box-shadow 0.2s;">
-                                    <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
-                                        <span class="text-dark fw-medium text-truncate flex-grow-1">{{ t.title }}</span>
-                                        <span class="text-muted small">{{ t.created_at.strftime('%m-%d') }}</span>
-                                        <span class="badge bg-secondary ms-1"><i class="bi bi-heart"></i> {{ t.like_count or 0 }}</span>
+                        <div class="community-projects-section">
+                            <h5><i class="bi bi-clock-history text-primary"></i> 最新发布</h5>
+                            {% if public_tasks_latest and public_tasks_latest|length > 0 %}
+                            <div class="d-flex flex-column gap-2">
+                                {% for t in public_tasks_latest %}
+                                <a href="{{ url_for('quickform.task_detail', task_id=t.id) }}" class="project-card-link">
+                                    <div class="project-card">
+                                        <div class="card-body">
+                                            <span class="project-title">{{ t.title }}</span>
+                                            <span class="project-meta">
+                                                <span class="text-muted small">{{ t.created_at.strftime('%m-%d') }}</span>
+                                                <span class="badge bg-secondary"><i class="bi bi-heart"></i> {{ t.like_count or 0 }}</span>
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                            </a>
-                            {% endfor %}
+                                </a>
+                                {% endfor %}
+                            </div>
+                            {% if pagination_latest.pages > 1 %}
+                            <nav class="community-pagination" aria-label="最新发布分页">
+                                <span class="pagination-info">共 {{ pagination_latest.total }} 个，第 {{ pagination_latest.page }}/{{ pagination_latest.pages }} 页</span>
+                                <ul class="pagination pagination-sm mb-0">
+                                    <li class="page-item {% if pagination_latest.page <= 1 %}disabled{% endif %}">
+                                        <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page - 1, liked_page=pagination_liked.page, post_page=pagination_posts.page, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">&laquo;</a>
+                                    </li>
+                                    <li class="page-item disabled"><span class="page-link">{{ pagination_latest.page }} / {{ pagination_latest.pages }}</span></li>
+                                    <li class="page-item {% if pagination_latest.page >= pagination_latest.pages %}disabled{% endif %}">
+                                        <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page + 1, liked_page=pagination_liked.page, post_page=pagination_posts.page, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">&raquo;</a>
+                                    </li>
+                                </ul>
+                            </nav>
+                            {% endif %}
+                            {% else %}
+                            <p class="text-muted small mb-0">暂无公开项目</p>
+                            {% endif %}
                         </div>
-                        {% else %}
-                        <p class="text-muted small">暂无公开项目</p>
-                        {% endif %}
                     </div>
                     <div class="col-md-6">
-                        <h5 class="text-secondary mb-2"><i class="bi bi-heart-fill text-danger"></i> 最高点赞</h5>
-                        {% if public_tasks_liked and public_tasks_liked|length > 0 %}
-                        <div class="d-flex flex-column gap-2">
-                            {% for t in public_tasks_liked %}
-                            <a href="{{ url_for('quickform.task_detail', task_id=t.id) }}" class="text-decoration-none">
-                                <div class="card border hover-shadow-sm" style="transition: box-shadow 0.2s;">
-                                    <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
-                                        <span class="text-dark fw-medium text-truncate flex-grow-1">{{ t.title }}</span>
-                                        <span class="badge bg-danger"><i class="bi bi-heart-fill"></i> {{ t.like_count or 0 }}</span>
-                                        <span class="text-muted small ms-1">{{ t.created_at.strftime('%m-%d') }}</span>
+                        <div class="community-projects-section">
+                            <h5><i class="bi bi-heart-fill text-danger"></i> 最高点赞</h5>
+                            {% if public_tasks_liked and public_tasks_liked|length > 0 %}
+                            <div class="d-flex flex-column gap-2">
+                                {% for t in public_tasks_liked %}
+                                <a href="{{ url_for('quickform.task_detail', task_id=t.id) }}" class="project-card-link">
+                                    <div class="project-card">
+                                        <div class="card-body">
+                                            <span class="project-title">{{ t.title }}</span>
+                                            <span class="project-meta">
+                                                <span class="badge bg-danger"><i class="bi bi-heart-fill"></i> {{ t.like_count or 0 }}</span>
+                                                <span class="text-muted small">{{ t.created_at.strftime('%m-%d') }}</span>
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                            </a>
-                            {% endfor %}
+                                </a>
+                                {% endfor %}
+                            </div>
+                            {% if pagination_liked.pages > 1 %}
+                            <nav class="community-pagination" aria-label="最高点赞分页">
+                                <span class="pagination-info">共 {{ pagination_liked.total }} 个，第 {{ pagination_liked.page }}/{{ pagination_liked.pages }} 页</span>
+                                <ul class="pagination pagination-sm mb-0">
+                                    <li class="page-item {% if pagination_liked.page <= 1 %}disabled{% endif %}">
+                                        <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page - 1, post_page=pagination_posts.page, per_project=pagination_liked.per_page, per_post=pagination_posts.per_page) }}">&laquo;</a>
+                                    </li>
+                                    <li class="page-item disabled"><span class="page-link">{{ pagination_liked.page }} / {{ pagination_liked.pages }}</span></li>
+                                    <li class="page-item {% if pagination_liked.page >= pagination_liked.pages %}disabled{% endif %}">
+                                        <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page + 1, post_page=pagination_posts.page, per_project=pagination_liked.per_page, per_post=pagination_posts.per_page) }}">&raquo;</a>
+                                    </li>
+                                </ul>
+                            </nav>
+                            {% endif %}
+                            {% else %}
+                            <p class="text-muted small mb-0">暂无公开项目</p>
+                            {% endif %}
                         </div>
-                        {% else %}
-                        <p class="text-muted small">暂无公开项目</p>
-                        {% endif %}
                     </div>
                 </div>
             </section>
@@ -295,8 +420,13 @@
             </div>
             {% endif %}
             
-            <!-- 留言列表（提问 + 回答） -->
-            <h3 class="mb-3">留言列表</h3>
+            <!-- 留言列表（提问 + 回答）带分页 -->
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                <h3 class="mb-0">留言列表</h3>
+                {% if pagination_posts.total > 0 %}
+                <span class="text-muted small">共 {{ pagination_posts.total }} 条</span>
+                {% endif %}
+            </div>
             {% if posts and posts|length > 0 %}
                 {% for post in posts %}
                 <div class="post-item">
@@ -365,6 +495,19 @@
                     {% endif %}
                 </div>
                 {% endfor %}
+                {% if pagination_posts.pages > 1 %}
+                <nav class="community-pagination mt-4" aria-label="留言列表分页">
+                    <span class="pagination-info">第 {{ pagination_posts.page }}/{{ pagination_posts.pages }} 页</span>
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item {% if pagination_posts.page <= 1 %}disabled{% endif %}">
+                            <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page, post_page=pagination_posts.page - 1, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">&laquo; 上一页</a>
+                        </li>
+                        <li class="page-item {% if pagination_posts.page >= pagination_posts.pages %}disabled{% endif %}">
+                            <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page, post_page=pagination_posts.page + 1, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">下一页 &raquo;</a>
+                        </li>
+                    </ul>
+                </nav>
+                {% endif %}
             {% else %}
                 <div class="empty-state">
                     <p class="lead">暂无留言</p>
