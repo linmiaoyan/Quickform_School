@@ -13,7 +13,8 @@ import threading
 import html
 import base64
 import uuid
-from urllib.parse import unquote_plus
+from urllib.parse import unquote_plus, quote as url_quote
+import zipfile
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app
 from sqlalchemy import create_engine, or_, text, func
 from sqlalchemy.orm import sessionmaker
@@ -38,9 +39,9 @@ from email.utils import formataddr
 # 导入分离的模块
 from .models import Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply, Organization, OrganizationMember, TaskShare, TaskLike
 from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file, CERTIFICATION_ALLOWED_EXTENSIONS
-from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file
+from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file, generate_html_page_from_prompt, revise_html_with_ai
 from services.report_service import (
-    save_analysis_report, generate_report_image, perform_analysis_with_custom_prompt,
+    save_analysis_report, generate_report_image, build_report_html, perform_analysis_with_custom_prompt,
     analysis_progress, analysis_results, completed_reports, progress_lock, timeout
 )
 
@@ -576,39 +577,39 @@ def register():
     try:
         if request.method == 'POST':
             username = request.form.get('username', '').strip()
-            email = request.form.get('email', '').strip()
+            email = (request.form.get('email') or '').strip()  # 注册时不要求邮箱（空字符串表示未填），创建第二个任务时再要求
             password = request.form.get('password', '').strip()
             school = request.form.get('school', '').strip()
-            phone = request.form.get('phone', '').strip()
-            email_code = request.form.get('email_code', '').strip()
+            phone = (request.form.get('phone') or '').strip() or None
             
-            if not username or not email or not password or not school:
-                flash('请填写所有必填字段', 'danger')
+            if not username or not password or not school:
+                flash('请填写用户名、学校与密码', 'danger')
                 return redirect(url_for('quickform.register'))
 
             if not request.form.get('agree_disclaimer'):
                 flash('请先阅读并同意《免责声明》', 'danger')
                 return redirect(url_for('quickform.register'))
 
-            # 自由注册：不再要求邮箱验证码；创建第二个任务时再验证邮箱
             db = SessionLocal()
             try:
-                existing_user = db.query(User).filter(
-                    (User.username == username) | (User.email == email) | (User.phone == phone)
-                ).first()
+                from sqlalchemy import or_
+                conditions = [User.username == username, User.phone == phone]
+                if email:
+                    conditions.append(User.email == email)
+                existing_user = db.query(User).filter(or_(*conditions)).first()
                 
                 if existing_user:
                     if existing_user.username == username:
                         flash('用户名已存在', 'danger')
-                    elif existing_user.email == email:
+                    elif email and existing_user.email == email:
                         flash('邮箱已存在', 'danger')
                     else:
                         flash('手机号已被注册', 'danger')
                     return redirect(url_for('quickform.register'))
                 
                 hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-                user = User(username=username, email=email, password=hashed_password, 
-                           school=school, phone=phone)
+                user = User(username=username, email=email or '', password=hashed_password, 
+                           school=school, phone=phone or '')
                 
                 ai_config = AIConfig(user=user, selected_model='chat_server')
                 
@@ -861,9 +862,13 @@ def forgot_username():
 
 @quickform_bp.route('/logout')
 def logout():
-    """登出"""
+    """登出：清除当前会话与「记住我」cookie，并删除旧版默认 cookie 名，避免串号"""
     logout_user()
-    return redirect(url_for('quickform.login'))
+    resp = make_response(redirect(url_for('quickform.login')))
+    # 清除可能存在的旧版默认 cookie 名，避免部署新配置后仍用旧 cookie 恢复成他人会话
+    for name in ('session', 'remember_token'):
+        resp.set_cookie(name, '', max_age=0, path='/', samesite='Lax', secure=request.is_secure)
+    return resp
 
 @quickform_bp.route('/dashboard')
 @login_required
@@ -917,6 +922,110 @@ def dashboard():
         db.close()
 
 
+# 一键生成新任务：可勾选追加的说明文案（API地址 会在提交时替换为真实地址）
+# 数据获取接口 GET API地址/all 返回格式：{ submissions: 数组, total_submissions: 数字 }，前端应用 data.submissions 或 data.total_submissions，不要用 data.length
+ONECLICK_PROMPT_OPTIONS = [
+    ('opt_upload', '数据上传', '创建完应用后，向API地址发送post格式的json数据。'),
+    ('opt_fetch', '数据获取', 'GET 请求 API地址/all 可获取已提交数据。接口返回 JSON 对象格式为：{ submissions: 数组, total_submissions: 数字 }。前端用 data.submissions 得到记录数组，用 data.total_submissions 得到人数，不要用 response.json() 后直接 .length（因为根对象不是数组）。'),
+    ('opt_responsive', '响应式布局', '页面需要响应式布局，适配手机和电脑。'),
+    ('opt_validate', '表单校验', '需要表单必填项校验与提交前错误提示。'),
+    ('opt_success_tip', '提交成功提示', '提交成功后显示成功提示，并可选清空表单。'),
+    ('opt_decorate', '内置页面装饰', '页面需要内置简洁的 CSS 装饰：卡片/表单区域使用圆角、轻微阴影与适当留白，配色清爽，整体美观易读。'),
+]
+
+
+@quickform_bp.route('/oneclick_create_task', methods=['GET', 'POST'])
+@login_required
+def oneclick_create_task():
+    """一键生成新任务（内测）：仅认证教师可用，根据描述生成 HTML 并自动上传到新任务"""
+    if not (current_user.is_admin() or getattr(current_user, 'is_certified', False)):
+        flash('一键生成新任务仅对认证教师开放，请先完成教师认证。', 'warning')
+        return redirect(url_for('quickform.dashboard'))
+    if request.method == 'GET':
+        return render_template(
+            'oneclick_create_task.html',
+            prompt_options=ONECLICK_PROMPT_OPTIONS,
+        )
+    # POST
+    title = (request.form.get('title') or '').strip()
+    requirements = (request.form.get('requirements') or '').strip()
+    if not title or not requirements:
+        flash('请填写任务标题和具体页面需求。', 'danger')
+        return redirect(url_for('quickform.oneclick_create_task'))
+    db = SessionLocal()
+    try:
+        task_count = db.query(Task).filter_by(user_id=current_user.id).count()
+        if not current_user.is_admin() and not current_user.can_create_task(SessionLocal, Task):
+            flash('您已达到任务数量上限，无法创建新任务。', 'warning')
+            return redirect(url_for('quickform.dashboard'))
+        refreshed_user = db.get(User, current_user.id)
+        if task_count >= 1:
+            if not (refreshed_user.email and refreshed_user.email.strip()):
+                flash('创建第二个数据任务前请先在个人资料中绑定邮箱。', 'warning')
+                return redirect(url_for('quickform.profile', next=url_for('quickform.oneclick_create_task')))
+            if not getattr(refreshed_user, 'email_verified', True):
+                flash('创建第二个数据任务前请先验证邮箱。', 'warning')
+                return redirect(url_for('quickform.verify_email', next=url_for('quickform.oneclick_create_task')))
+        # 创建新任务以得到 task_id 与 API 地址
+        task = Task(title=title, description='', user_id=current_user.id, sharing_type='private')
+        db.add(task)
+        db.flush()
+        api_base = (request.host_url or request.url_root or '').rstrip('/')
+        api_url = f"{api_base}/api/{task.task_id}"
+        # 拼接用户需求与勾选说明，作为发给 AI 的完整提示词
+        lines = [requirements]
+        for key, _label, text in ONECLICK_PROMPT_OPTIONS:
+            if request.form.get(key) == 'on':
+                lines.append(text.replace('API地址', api_url))
+        full_prompt = '\n\n'.join(lines)
+        task.description = full_prompt  # 一键生成：将提示词作为项目简介
+        # 获取用户 AI 配置
+        ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
+        if not ai_config:
+            db.rollback()
+            flash('请先在个人中心配置 AI 模型和 API 密钥后再使用一键生成。', 'danger')
+            return redirect(url_for('quickform.oneclick_create_task'))
+        if ai_config.selected_model == 'chat_server' and not (ai_config.chat_server_api_token or '').strip():
+            db.rollback()
+            flash('请先在个人中心配置硅基流动 API Token。', 'danger')
+            return redirect(url_for('quickform.oneclick_create_task'))
+        try:
+            html_content = generate_html_page_from_prompt(full_prompt, call_ai_model, ai_config)
+        except Exception as e:
+            db.rollback()
+            logger.exception("一键生成 HTML 失败")
+            flash(f'生成 HTML 失败：{str(e)}。请检查 API 配置或稍后重试。', 'danger')
+            return redirect(url_for('quickform.oneclick_create_task'))
+        # 保存 HTML 到任务（单文件）
+        unique_filename = str(uuid.uuid4()) + '_oneclick.html'
+        filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
+        if not os.path.exists(UPLOAD_FOLDER):
+            os.makedirs(UPLOAD_FOLDER)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        task.file_name = 'oneclick.html'
+        task.file_path = filepath
+        task.html_files = json.dumps([{'original_name': 'oneclick.html', 'saved_name': unique_filename}])
+        task.ai_generated = True
+        task.html_ai_edit_remaining = 3
+        if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+            task.html_approved = 1
+            task.html_approved_by = current_user.id
+            task.html_approved_at = datetime.now()
+        else:
+            task.html_approved = 0
+        db.commit()
+        flash('任务已创建，HTML 已生成并上传。您可在任务详情中查看或继续修改（剩余 3 次）。', 'success')
+        return redirect(url_for('quickform.task_detail', task_id=task.id))
+    except Exception as e:
+        db.rollback()
+        logger.exception("一键创建任务失败")
+        flash(f'创建失败：{str(e)}', 'danger')
+        return redirect(url_for('quickform.oneclick_create_task'))
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/create_task', methods=['GET', 'POST'])
 @login_required
 def create_task():
@@ -929,12 +1038,16 @@ def create_task():
                 task_limit = current_user.task_limit if current_user.task_limit != -1 else "无限制"
                 flash(f'您已达到任务数量上限（{task_limit}个，当前{task_count}个）。如需创建更多任务，请联系管理员：wzlinmiaoyan@163.com', 'warning')
                 return redirect(url_for('quickform.dashboard'))
-            # 创建第二个任务时需已验证邮箱（旧用户无 email_verified 字段时视为已验证）
+            # 创建第二个任务时需先绑定邮箱并验证
             refreshed_user = db.get(User, current_user.id)
-            email_verified = getattr(refreshed_user, 'email_verified', True)
-            if task_count >= 1 and not email_verified:
-                flash('创建第二个数据任务前请先验证邮箱。', 'warning')
-                return redirect(url_for('quickform.verify_email', next=url_for('quickform.create_task')))
+            if task_count >= 1:
+                email_verified = getattr(refreshed_user, 'email_verified', True)
+                if not (refreshed_user.email and refreshed_user.email.strip()):
+                    flash('创建第二个数据任务前请先在个人资料中绑定邮箱。', 'warning')
+                    return redirect(url_for('quickform.profile', next=url_for('quickform.create_task')))
+                if not email_verified:
+                    flash('创建第二个数据任务前请先验证邮箱。', 'warning')
+                    return redirect(url_for('quickform.verify_email', next=url_for('quickform.create_task')))
         
         if request.method == 'POST':
             title = request.form.get('title')
@@ -1315,12 +1428,98 @@ def edit_task(task_id):
             return redirect(url_for('quickform.dashboard'))
         
         if request.method == 'POST':
+            # 一键生成任务：AI 继续修改（在现有 HTML 基础上按说明修订）
+            if request.form.get('action') == 'ai_revise_html':
+                instructions = (request.form.get('revision_instructions') or '').strip()
+                if not instructions:
+                    flash('请填写修改说明。', 'warning')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+                if not getattr(task, 'ai_generated', False) or getattr(task, 'html_ai_edit_remaining', None) is None or task.html_ai_edit_remaining <= 0:
+                    flash('该任务不支持 AI 继续修改或修改次数已用完。', 'warning')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+                current_html_path = None
+                if task.file_path and os.path.exists(task.file_path):
+                    current_html_path = task.file_path
+                if not current_html_path and task.html_files:
+                    try:
+                        files_list = json.loads(task.html_files)
+                        if files_list:
+                            first_saved = files_list[0].get('saved_name')
+                            if first_saved:
+                                current_html_path = os.path.join(UPLOAD_FOLDER, first_saved)
+                                if not os.path.exists(current_html_path):
+                                    current_html_path = None
+                    except Exception:
+                        pass
+                if not current_html_path:
+                    flash('未找到当前 HTML 文件，无法继续修改。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+                current_html = read_file_content(current_html_path)
+                if not current_html or '<' not in current_html:
+                    flash('当前 HTML 内容无效，无法继续修改。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+                ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
+                if not ai_config:
+                    flash('请先在个人中心配置 AI 后再使用「AI 继续修改」。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+                try:
+                    new_html = revise_html_with_ai(current_html, instructions, call_ai_model, ai_config)
+                except Exception as e:
+                    logger.exception('AI 继续修改 HTML 失败')
+                    flash(f'AI 修改失败：{str(e)}', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+                unique_filename = str(uuid.uuid4()) + '_revised.html'
+                new_filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
+                if not os.path.exists(UPLOAD_FOLDER):
+                    os.makedirs(UPLOAD_FOLDER)
+                with open(new_filepath, 'w', encoding='utf-8') as f:
+                    f.write(new_html)
+                if task.file_path and os.path.exists(task.file_path):
+                    try:
+                        os.remove(task.file_path)
+                    except Exception:
+                        pass
+                task.file_path = new_filepath
+                task.file_name = 'revised.html'
+                task.html_files = json.dumps([{'original_name': 'revised.html', 'saved_name': unique_filename}])
+                task.html_ai_edit_remaining = task.html_ai_edit_remaining - 1
+                if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                    task.html_approved = 1
+                    task.html_approved_by = current_user.id
+                    task.html_approved_at = datetime.now()
+                else:
+                    task.html_approved = 0
+                task.html_analysis = None
+                db.commit()
+                flash(f'已按您的说明完成修改，剩余可修改 {task.html_ai_edit_remaining} 次。', 'success')
+                return redirect(url_for('quickform.edit_task', task_id=task.id))
+
             title = request.form.get('title')
             description = request.form.get('description')
             remove_file = request.form.get('remove_file')
             files_to_remove = request.form.get('files_to_remove')
             html_files_data = request.form.get('html_files_data')
-            
+            file_content_base64 = request.form.get('file_content_base64')
+            file_name_base64 = request.form.get('file_name')
+            file_upload = request.files.get('file')
+            # 是否本请求会保存新的 HTML 内容（用于一键生成任务的 3 次修改上限）
+            has_new_html = False
+            if html_files_data:
+                try:
+                    nf = json.loads(html_files_data)
+                    if isinstance(nf, list) and len(nf) > 0:
+                        has_new_html = True
+                except Exception:
+                    pass
+            if not has_new_html and file_content_base64 and file_name_base64:
+                has_new_html = True
+            if not has_new_html and file_upload and file_upload.filename and (file_upload.filename or '').strip():
+                has_new_html = True
+            if has_new_html and getattr(task, 'ai_generated', False) and getattr(task, 'html_ai_edit_remaining', None) is not None and task.html_ai_edit_remaining <= 0:
+                flash('一键生成的 HTML 最多可修改 3 次，您已达到上限，无法继续修改。', 'warning')
+                return redirect(url_for('quickform.edit_task', task_id=task.id))
+            html_was_saved = False  # 本请求是否成功保存了 HTML，用于扣减剩余次数
+
             task.title = title
             task.description = description
             task.share_url = (request.form.get('share_url') or '').strip() or None
@@ -1354,7 +1553,7 @@ def edit_task(task_id):
                         })
                     
                     task.html_files = json.dumps(existing_files)
-                    
+                    html_was_saved = True
                     # 更新审核状态
                     if current_user.is_admin() or getattr(current_user, 'is_certified', False):
                         task.html_approved = 1
@@ -1386,9 +1585,6 @@ def edit_task(task_id):
                     logger.error(f"文件删除失败: {str(e)}")
             
             # 优先检查Base64上传（用于公网环境，向后兼容旧的单文件上传）
-            file_content_base64 = request.form.get('file_content_base64')
-            file_name_base64 = request.form.get('file_name')
-            
             if file_content_base64 and file_name_base64:
                 # Base64上传方式
                 try:
@@ -1436,14 +1632,15 @@ def edit_task(task_id):
                             analyze_html_file(task.id, current_user.id, filepath, SessionLocal, Task, AIConfig, read_file_content, call_ai_model)
                         except Exception as e:
                             logger.error(f"启动HTML文件分析失败(编辑): {str(e)}", exc_info=True)
+                    html_was_saved = True
                 except Exception as e:
                     logger.error(f"Base64文件上传失败: {str(e)}", exc_info=True)
                     flash('文件上传失败，请重试。', 'danger')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
             else:
                 # 传统文件上传方式（向后兼容）
-                file = request.files.get('file')
-                if file and file.filename.strip():
+                file = file_upload
+                if file and file.filename and (file.filename or '').strip():
                     unique_filename, filepath = save_uploaded_file(file, UPLOAD_FOLDER)
                     if not unique_filename:
                         flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大16MB。', 'danger')
@@ -1475,6 +1672,7 @@ def edit_task(task_id):
                             analyze_html_file(task.id, current_user.id, filepath, SessionLocal, Task, AIConfig, read_file_content, call_ai_model)
                         except Exception as e:
                             logger.error(f"启动HTML文件分析失败(编辑): {str(e)}", exc_info=True)
+                        html_was_saved = True
             if remove_file:
                 if task.file_path and os.path.exists(task.file_path):
                     os.remove(task.file_path)
@@ -1493,6 +1691,9 @@ def edit_task(task_id):
             elif visibility == 'private':
                 task.sharing_type = 'organization' if task.organization_id else 'private'
             
+            # 一键生成任务：每保存一次 HTML 扣减一次剩余修改次数
+            if html_was_saved and getattr(task, 'ai_generated', False) and getattr(task, 'html_ai_edit_remaining', None) is not None:
+                task.html_ai_edit_remaining = task.html_ai_edit_remaining - 1
             db.commit()
             
             flash('任务更新成功', 'success')
@@ -1520,7 +1721,10 @@ def edit_task(task_id):
                 'saved_name': os.path.basename(task.file_path)
             }]
         
-        return render_template('edit_task.html', task=task, saved_filename=saved_filename, html_files=html_files)
+        task_ai_generated = getattr(task, 'ai_generated', False)
+        task_html_ai_edit_remaining = getattr(task, 'html_ai_edit_remaining', None)
+        return render_template('edit_task.html', task=task, saved_filename=saved_filename, html_files=html_files,
+                               task_ai_generated=task_ai_generated, task_html_ai_edit_remaining=task_html_ai_edit_remaining)
     finally:
         db.close()
 
@@ -2353,9 +2557,6 @@ def smart_analyze(task_id):
         
         if ai_config.selected_model not in SUPPORTED_AI_MODELS:
             return render_template('smart_analyze.html', task=task, error=f"{model_label} 暂未集成，敬请期待后续版本", ai_config=ai_config, now=datetime.now(), model_label=model_label)
-        if ai_config.selected_model == 'chat_server':
-            if not current_app.config.get('CHAT_SERVER_API_TOKEN'):
-                flash('当前使用默认 ChatServer 调用，建议在配置中设置专属 API Token（非必填）。', 'warning')
         elif ai_config.selected_model == 'deepseek' and not ai_config.deepseek_api_key:
             return render_template('smart_analyze.html', task=task, error="请先配置DeepSeek API密钥", ai_config=ai_config, now=datetime.now(), model_label=model_label)
         elif ai_config.selected_model == 'doubao' and not ai_config.doubao_api_key:
@@ -2513,7 +2714,8 @@ def smart_analyze(task_id):
 @quickform_bp.route('/download_report/<int:task_id>')
 @login_required
 def download_report(task_id):
-    """下载报告 - 图片格式（PNG）"""
+    """下载报告 - 支持 PNG（长报告分多张）、HTML、PDF"""
+    fmt = (request.args.get('format') or 'png').strip().lower()
     db = SessionLocal()
     try:
         task = db.get(Task, task_id)
@@ -2526,7 +2728,6 @@ def download_report(task_id):
         if current_user.is_admin() or task.user_id == current_user.id:
             has_access = True
         elif task.organization_id:
-            # 检查是否是组织成员
             is_org_member = db.query(OrganizationMember).filter_by(
                 organization_id=task.organization_id,
                 user_id=current_user.id
@@ -2534,7 +2735,6 @@ def download_report(task_id):
             if is_org_member:
                 has_access = True
         else:
-            # 检查是否被共享
             is_shared = db.query(TaskShare).filter_by(
                 task_id=task.id,
                 user_id=current_user.id
@@ -2546,22 +2746,70 @@ def download_report(task_id):
             flash('无权访问此任务', 'danger')
             return redirect(url_for('quickform.dashboard'))
         
-        # 获取报告内容
         report_content = task.analysis_report or "暂无报告内容"
+        safe_title = re.sub(r'[^a-zA-Z0-9_\u4e00-\u9fa5]', '_', task.title)[:50]
         
-        # 使用report_service中的函数生成图片
-        buffer, encoded_filename = generate_report_image(task, report_content)
+        if fmt == 'html':
+            # HTML 导出：始终从当前报告内容动态生成，确保 Markdown 被渲染为 HTML（不依赖旧缓存文件）
+            html_str = build_report_html(task, report_content)
+            response = make_response(html_str)
+            response.headers['Content-Type'] = 'text/html; charset=utf-8'
+            response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{url_quote((safe_title + '_report.html').encode('utf-8'))}"
+            return response
         
-        # 返回图片文件
-        response = make_response(buffer.getvalue())
-        response.headers['Content-Type'] = 'image/png'
-        # 使用RFC 2231编码处理文件名，避免latin-1编码错误
-        response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_filename}"
+        if fmt == 'pdf':
+            # PDF 导出：优先 weasyprint，在 Windows 上若出现 gobject/GTK 错误则回退到 xhtml2pdf；使用中文字体以正确显示中文
+            html_str = build_report_html(task, report_content, for_pdf=True)
+            pdf_io = io.BytesIO()
+            pdf_ok = False
+            try:
+                from weasyprint import HTML as WeasyHTML
+                WeasyHTML(string=html_str).write_pdf(pdf_io)
+                pdf_ok = True
+            except (ImportError, OSError, Exception) as e:
+                logger.warning(f"weasyprint 不可用（{e}），尝试 xhtml2pdf")
+                try:
+                    from xhtml2pdf import pisa
+                    pdf_io = io.BytesIO()
+                    pisa_status = pisa.CreatePDF(html_str, dest=pdf_io, encoding='utf-8')
+                    if not pisa_status.err:
+                        pdf_ok = True
+                except ImportError:
+                    flash('PDF 导出需要安装 weasyprint 或 xhtml2pdf。Windows 推荐: pip install xhtml2pdf', 'warning')
+                    return redirect(url_for('quickform.smart_analyze', task_id=task_id))
+                except Exception as e2:
+                    logger.error(f"xhtml2pdf 生成 PDF 失败: {str(e2)}", exc_info=True)
+                    flash(f'生成 PDF 时出错: {str(e2)}', 'danger')
+                    return redirect(url_for('quickform.smart_analyze', task_id=task_id))
+            if pdf_ok:
+                pdf_io.seek(0)
+                response = make_response(pdf_io.getvalue())
+                response.headers['Content-Type'] = 'application/pdf'
+                response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{url_quote((safe_title + '_report.pdf').encode('utf-8'))}"
+                return response
+            flash('PDF 生成失败', 'danger')
+            return redirect(url_for('quickform.smart_analyze', task_id=task_id))
+        
+        # 默认：PNG 图片（长报告分多张，打包为 zip）
+        buffers, filenames = generate_report_image(task, report_content)
+        if len(buffers) == 1:
+            response = make_response(buffers[0].getvalue())
+            response.headers['Content-Type'] = 'image/png'
+            response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{url_quote(filenames[0].encode('utf-8'))}"
+            return response
+        zip_io = io.BytesIO()
+        with zipfile.ZipFile(zip_io, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for i, (buf, name) in enumerate(zip(buffers, filenames)):
+                zf.writestr(name, buf.getvalue())
+        zip_io.seek(0)
+        response = make_response(zip_io.getvalue())
+        response.headers['Content-Type'] = 'application/zip'
+        response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{url_quote((safe_title + '_report_图片.zip').encode('utf-8'))}"
         return response
         
     except Exception as e:
-        logger.error(f"生成图片报告失败: {str(e)}", exc_info=True)
-        flash(f'生成图片报告时出错: {str(e)}', 'danger')
+        logger.error(f"下载报告失败: {str(e)}", exc_info=True)
+        flash(f'下载报告时出错: {str(e)}', 'danger')
         return redirect(url_for('quickform.dashboard'))
     finally:
         db.close()
@@ -2888,6 +3136,29 @@ def admin_panel():
         tasks_with_reports = db.query(Task).filter(Task.analysis_report.isnot(None)).count()
         report_generation_rate = (tasks_with_reports / total_tasks * 100) if total_tasks > 0 else 0
         
+        # 组织统计
+        total_organizations = db.query(Organization).count()
+        total_org_members = db.query(OrganizationMember).count()
+        tasks_in_organizations = db.query(Task).filter(Task.organization_id.isnot(None)).count()
+        org_list_with_task_count = (
+            db.query(Organization, func.count(Task.id).label('task_count'))
+            .outerjoin(Task, Task.organization_id == Organization.id)
+            .group_by(Organization.id)
+            .order_by(func.count(Task.id).desc())
+            .all()
+        )
+        # 认证与公开
+        certified_users = db.query(User).filter(User.is_certified == True).count()
+        public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
+        public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
+        total_task_shares = db.query(TaskShare).count()
+        total_task_likes = db.query(TaskLike).count()
+        # 一键生成、留言板等
+        ai_generated_tasks = db.query(Task).filter(Task.ai_generated == True).count()
+        cert_requests_pending = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
+        total_posts = db.query(Post).count()
+        total_post_replies = db.query(PostReply).count()
+        
         stats = {
             'total_users': total_users,
             'admin_users': admin_users,
@@ -2900,7 +3171,20 @@ def admin_panel():
             'new_submissions_today': new_submissions_today,
             'avg_submissions_per_task': avg_submissions_per_task,
             'tasks_with_reports': tasks_with_reports,
-            'report_generation_rate': report_generation_rate
+            'report_generation_rate': report_generation_rate,
+            'total_organizations': total_organizations,
+            'total_org_members': total_org_members,
+            'tasks_in_organizations': tasks_in_organizations,
+            'org_list_with_task_count': org_list_with_task_count,
+            'certified_users': certified_users,
+            'public_tasks': public_tasks,
+            'public_approved_tasks': public_approved_tasks,
+            'total_task_shares': total_task_shares,
+            'total_task_likes': total_task_likes,
+            'ai_generated_tasks': ai_generated_tasks,
+            'cert_requests_pending': cert_requests_pending,
+            'total_posts': total_posts,
+            'total_post_replies': total_post_replies,
         }
 
         # 项目公开审核：sharing_type=public 且 public_approved=0

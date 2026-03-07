@@ -25,7 +25,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": 4000
+            "max_tokens": 16384
         }
         
         try:
@@ -50,7 +50,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": 4000
+            "max_tokens": 16384
         }
         
         try:
@@ -78,7 +78,7 @@ def call_ai_model(prompt, ai_config):
             },
             "parameters": {
                 "temperature": 0.7,
-                "max_tokens": 4000
+                "max_tokens": 16384
             }
         }
         
@@ -147,7 +147,8 @@ def call_ai_model(prompt, ai_config):
             'messages': [
                 {"role": "system", "content": "你面向的用户一般是教师和学生"},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            'max_tokens': 16384
         }
         try:
             resp = _requests.post(url, headers=headers, json=payload, timeout=(10, 240))
@@ -274,37 +275,9 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                 
                 data_section += "\n"
         
-        # 智能采样：根据数据量决定显示多少条
-        sample_size = min(20, total_count)  # 最多显示20条
-        if total_count > 3:
-            # 如果有大量数据，均匀采样（首、中、尾）
-            if total_count <= sample_size:
-                sample_indices = list(range(total_count))
-            else:
-                # 均匀采样：取前几条、中间几条、后几条
-                sample_indices = list(range(0, min(5, total_count)))  # 前5条
-                if total_count > 10:
-                    mid_start = total_count // 2 - 3
-                    mid_end = total_count // 2 + 3
-                    sample_indices.extend(range(mid_start, mid_end))
-                sample_indices.extend(range(max(0, total_count - 5), total_count))  # 后5条
-                sample_indices = sorted(list(set(sample_indices)))[:sample_size]
-            
-            data_section += f"数据样例（共显示 {len(sample_indices)} 条，占总数的 {len(sample_indices)/total_count*100:.1f}%）：\n"
-            for idx, i in enumerate(sample_indices, 1):
-                try:
-                    data = all_data[i]
-                    data_section += f"\n样例 #{idx} (第 {i+1} 条记录):\n"
-                    for key, value in data.items():
-                        # 限制单个值长度，避免过长
-                        value_str = str(value)
-                        if len(value_str) > 100:
-                            value_str = value_str[:100] + "...[截断]"
-                        data_section += f"  - {key}: {value_str}\n"
-                except:
-                    if i < len(submission):
-                        data_section += f"\n样例 #{idx}: {submission[i].data[:100]}...\n"
-        else:
+        # 智能采样：默认至少显示 100 条，超过 100 条后开始均匀抽样（仍显示约 100 条）
+        SAMPLE_DISPLAY_MIN = 100  # 不超过此数量时全部显示；超过则抽样显示约 100 条
+        if total_count <= 3:
             # 数据量少，全部显示
             data_section += "完整数据：\n"
             for i, data in enumerate(all_data, 1):
@@ -314,6 +287,36 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                     if len(value_str) > 100:
                         value_str = value_str[:100] + "...[截断]"
                     data_section += f"  - {key}: {value_str}\n"
+        else:
+            if total_count <= SAMPLE_DISPLAY_MIN:
+                sample_indices = list(range(total_count))
+                data_section += f"数据样例（共 {total_count} 条，全部显示）：\n"
+            else:
+                sample_size = SAMPLE_DISPLAY_MIN  # 超过 100 条时抽样显示 100 条
+                head_n = min(35, total_count)
+                sample_indices = list(range(0, head_n))
+                if total_count > 80:
+                    mid_start = total_count // 2 - 15
+                    mid_end = total_count // 2 + 15
+                    mid_start = max(head_n, mid_start)
+                    mid_end = min(total_count - 35, mid_end)
+                    if mid_end > mid_start:
+                        sample_indices.extend(range(mid_start, mid_end))
+                sample_indices.extend(range(max(0, total_count - 35), total_count))
+                sample_indices = sorted(list(set(sample_indices)))[:sample_size]
+                data_section += f"数据样例（共显示 {len(sample_indices)} 条，占总数的 {len(sample_indices)/total_count*100:.1f}%）：\n"
+            for idx, i in enumerate(sample_indices, 1):
+                try:
+                    data = all_data[i]
+                    data_section += f"\n样例 #{idx} (第 {i+1} 条记录):\n"
+                    for key, value in data.items():
+                        value_str = str(value)
+                        if len(value_str) > 100:
+                            value_str = value_str[:100] + "...[截断]"
+                        data_section += f"  - {key}: {value_str}\n"
+                except:
+                    if i < len(submission):
+                        data_section += f"\n样例 #{idx}: {submission[i].data[:100]}...\n"
     else:
         data_section += "暂无提交数据\n"
     
@@ -412,4 +415,59 @@ HTML内容：
     # 在后台线程中执行分析
     t = threading.Thread(target=analyze_in_background, daemon=True)
     t.start()
+
+
+def generate_html_page_from_prompt(full_user_prompt, call_ai_model_func, ai_config):
+    """
+    根据用户需求描述生成完整单页 HTML。用于一键生成新任务。
+    full_user_prompt: 用户输入的页面需求 + 已拼接的接口说明（含真实 API 地址）
+    返回: 完整 HTML 字符串，若失败则抛出异常。
+    """
+    import re
+    system = "你是一名前端开发助手。用户会给你一段需求描述，请你生成一个完整的、可直接在浏览器中运行的单一 HTML 文件。要求：只输出 HTML 代码，不要输出任何解释或 markdown 标记；不要用 ```html 包裹；文件需包含 <!DOCTYPE html>、<html>、<head>、<body>，样式可写在 <style> 或内联；确保表单提交、数据获取等逻辑与用户描述中的 API 地址一致。若需求中提到「获取已提交数据」或调用「API地址/all」：该接口返回的是 JSON 对象 { submissions: 数组, total_submissions: 数字 }，不是直接返回数组。前端必须用 data = await response.json() 后，用 data.submissions 取记录列表、用 data.total_submissions 取人数（或 data.submissions.length），切勿使用 data.length（根对象没有 length）。"
+    prompt = f"""请根据以下需求生成一个完整的单页 HTML 文件（只输出 HTML，不要其他内容）：
+
+{full_user_prompt}
+
+请直接输出完整 HTML 代码，从 <!DOCTYPE html> 开始，到 </html> 结束。"""
+    raw = call_ai_model_func(prompt, ai_config)
+    if not raw or not raw.strip():
+        raise Exception("AI 未返回有效内容")
+    html = raw.strip()
+    # 若被 markdown 代码块包裹则去掉
+    m = re.search(r'```(?:html)?\s*([\s\S]*?)```', html, re.IGNORECASE)
+    if m:
+        html = m.group(1).strip()
+    if '<!DOCTYPE' not in html.upper() and '<html' not in html:
+        raise Exception("返回内容不是有效的 HTML")
+    return html
+
+
+def revise_html_with_ai(current_html, revision_instructions, call_ai_model_func, ai_config):
+    """
+    在现有 HTML 基础上按用户说明进行修改。用于编辑任务时的「AI 继续修改」。
+    current_html: 当前完整 HTML 字符串
+    revision_instructions: 用户输入的修改说明（如「把标题改成学生登记表，增加班级下拉框」）
+    返回: 修改后的完整 HTML 字符串。
+    """
+    import re
+    prompt = f"""下面是一段完整的单页 HTML 代码。请根据用户的「修改说明」在现有代码基础上进行修改，保持原有结构和 API 地址不变，只做用户要求的变化。只输出修改后的完整 HTML，不要用 markdown 代码块包裹，不要输出任何解释。
+
+【当前 HTML】
+{current_html}
+
+【用户的修改说明】
+{revision_instructions}
+
+请直接输出从 <!DOCTYPE html> 到 </html> 的完整 HTML。"""
+    raw = call_ai_model_func(prompt, ai_config)
+    if not raw or not raw.strip():
+        raise Exception("AI 未返回有效内容")
+    html = raw.strip()
+    m = re.search(r'```(?:html)?\s*([\s\S]*?)```', html, re.IGNORECASE)
+    if m:
+        html = m.group(1).strip()
+    if '<!DOCTYPE' not in html.upper() and '<html' not in html:
+        raise Exception("返回内容不是有效的 HTML")
+    return html
 

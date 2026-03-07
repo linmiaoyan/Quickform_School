@@ -16,11 +16,6 @@
                         <input type="text" class="form-control" id="username" name="username" required placeholder="{{ translate('register.username_placeholder') }}" minlength="3" maxlength="20">
                     </div>
                     <div class="mb-4">
-                        <label for="email" class="form-label">{{ translate('register.email') }} <span class="text-danger">{{ translate('register.required') }}</span></label>
-                        <input type="email" class="form-control" id="email" name="email" required placeholder="{{ translate('register.email_placeholder') }}">
-                        <small class="form-text text-muted">请填写可用邮箱；创建第二个数据任务时需验证该邮箱。</small>
-                    </div>
-                    <div class="mb-4">
                         <label for="school" class="form-label">{{ translate('register.school') }} <span class="text-danger">{{ translate('register.required') }}</span></label>
                         <input type="text" class="form-control" id="school" name="school" required placeholder="{{ translate('register.school_placeholder') }}">
                     </div>
@@ -51,68 +46,4 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-    let emailCooldown = 0;
-    let emailCooldownTimer = null;
-
-    function startEmailCooldown(btn) {
-        emailCooldown = 60;
-        const originalText = btn.dataset.originalText || btn.textContent;
-        btn.dataset.originalText = originalText;
-        btn.disabled = true;
-
-        function tick() {
-            if (emailCooldown <= 0) {
-                btn.disabled = false;
-                btn.textContent = btn.dataset.originalText || '发送验证码';
-                emailCooldownTimer = null;
-                return;
-            }
-            btn.textContent = '重新发送(' + emailCooldown + 's)';
-            emailCooldown--;
-            emailCooldownTimer = setTimeout(tick, 1000);
-        }
-
-        tick();
-    }
-
-    async function sendEmailCode() {
-        const emailInput = document.getElementById('email');
-        const email = emailInput.value.trim();
-        const btn = document.getElementById('sendEmailCodeBtn');
-
-        if (emailCooldown > 0) {
-            return;
-        }
-
-        if (!email) {
-            alert('请先填写邮箱地址');
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = '发送中...';
-
-        try {
-            const resp = await fetch('/api/email/send_code', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email })
-            });
-            const data = await resp.json();
-            if (data.success) {
-                alert('验证码已发送到邮箱，请在10分钟内完成验证');
-                startEmailCooldown(btn);
-            } else {
-                alert(data.message || '发送失败');
-                btn.disabled = false;
-                btn.textContent = '发送验证码';
-            }
-        } catch (e) {
-            alert('请求失败：' + e.message);
-            btn.disabled = false;
-            btn.textContent = '发送验证码';
-        }
-    }
-</script>
 {% endblock %}

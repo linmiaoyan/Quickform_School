@@ -7,12 +7,6 @@
     .smart-analyze-wrapper {
         position: relative;
     }
-    .smart-back-button {
-        position: absolute;
-        top: -3.5rem;
-        left: 0;
-        z-index: 10;
-    }
     .smart-card {
         border-radius: 10px;
         box-shadow: 0 4px 8px rgba(15, 23, 42, 0.08);
@@ -106,15 +100,14 @@
 </style>
 
 <div class="smart-analyze-wrapper">
-    <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-secondary smart-back-button">
-        ← {{ translate('smart_analyze.back_to_task') }}
-    </a>
-
     <div class="card smart-card">
-        <div class="card-header smart-card-header">
+        <div class="card-header smart-card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h4 class="mb-0">
                 🤖 {{ translate('smart_analyze.header') }} - {{ task.title }}
             </h4>
+            <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-light btn-sm">
+                ← {{ translate('smart_analyze.back_to_task') }}
+            </a>
         </div>
         <div class="card-body">
                 <div id="processingOverlay" style="display:none; position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 2000;">
@@ -154,11 +147,16 @@
                     </div>
                     
                     <div class="card mb-4">
-                        <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <h5 class="mb-0">{{ translate('smart_analyze.current_report') }}</h5>
-                            <a href="{{ url_for('quickform.download_report', task_id=task.id) }}" class="btn btn-light btn-sm">
-                                <i class="bi bi-download"></i> {{ translate('smart_analyze.download_report') }}
-                            </a>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('quickform.download_report', task_id=task.id) }}" class="btn btn-light btn-sm" title="图片（长报告自动分多张）">
+                                    <i class="bi bi-image"></i> 图片
+                                </a>
+                                <a href="{{ url_for('quickform.download_report', task_id=task.id, format='html') }}" class="btn btn-light btn-sm" title="HTML 文件">
+                                    <i class="bi bi-file-earmark-code"></i> HTML
+                                </a>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="alert alert-info mb-3">
@@ -426,15 +424,6 @@
                 
                 // 代码高亮
                 hljs.highlightAll();
-
-                // 显示完成提示并建议刷新（本页已是最新）
-                try {
-                    var done = document.createElement('div');
-                    done.className = 'alert alert-success mt-3';
-                    done.innerText = '{{ translate("smart_analyze.report_done") }}';
-                    var target = document.querySelector('.card-body');
-                    if (target) { target.prepend(done); }
-                } catch (e) {}
             }
         });
     </script>

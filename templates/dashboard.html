@@ -38,11 +38,18 @@
 {% block content %}
 <div class="row">
     <div class="col-md-12">
-        <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
             <h2 class="mb-0" style="color: #111827; font-weight: 700;">{{ translate('dashboard.my_tasks') }}</h2>
-            <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary" style="font-weight: 500;">
-                <i class="bi bi-plus-circle" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.create_new_task') }}
-            </a>
+            <div class="d-flex gap-2">
+                <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary" style="font-weight: 500;">
+                    <i class="bi bi-plus-circle" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.create_new_task') }}
+                </a>
+                {% if is_certified %}
+                <a href="{{ url_for('quickform.oneclick_create_task') }}" class="btn btn-outline-primary" style="font-weight: 500;" title="仅认证教师可用，会消耗较多 token">
+                    <i class="bi bi-magic" style="margin-right: 0.375rem;"></i>一键生成新任务（内测中）
+                </a>
+                {% endif %}
+            </div>
         </div>
         
         {% if tasks %}

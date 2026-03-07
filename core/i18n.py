@@ -257,6 +257,7 @@ TRANSLATIONS = {
         'task_detail.description': '任务描述',
         'task_detail.select_file': '选择文件',
         'task_detail.uploaded_file': '已上传文件',
+        'edit_task.uploaded_files': '已上传的HTML文件：',
         'task_detail.remove_file': '删除此文件',
         'task_detail.drag_drop': '拖拽文件到此处上传，或',
         'task_detail.html_file': 'HTML文件',
@@ -276,7 +277,8 @@ TRANSLATIONS = {
         'task_detail.simple_prompt_text': '创建完应用后，向',
         'task_detail.simple_prompt_send': '发送post格式的json数据',
         'task_detail.copy': '复制',
-        'task_detail.data_query_tip': '访问下方 URL 可查看已收集的数据；制作实时统计页面时，需向大模型提供该 URL 及数据样例。提交接口：POST 到该 URL；查询全部数据：GET 访问该 URL 加 /all，如 xxx/api/任务ID/all 可获取所有提交记录的 JSON 列表。',
+        'task_detail.data_query_tip': '访问下方 URL 可查看已收集的数据；制作实时统计页面时可向大模型提供该 URL 及数据样例。',
+        'task_detail.test_submit_hint': '在此输入 JSON 格式的数据进行测试提交。请使用 JSON 格式，例如：{"name":"张三","score":85} 或 {"字段1": "值1", "字段2": "值2"}。',
         'task_detail.full_prompt_label': '完整版提示词：',
         'task_detail.expand_collapse': '展开/收起',
         
@@ -793,7 +795,8 @@ TRANSLATIONS = {
         'task_detail.simple_prompt_text': '創建完應用後，向',
         'task_detail.simple_prompt_send': '發送post格式的json數據',
         'task_detail.copy': '複製',
-        'task_detail.data_query_tip': '數據查詢功能：直接訪問上面的URL就能看到已收集的數據，可以用它繼續製作實時反饋排名頁面。',
+        'task_detail.data_query_tip': '訪問下方 URL 可查看已收集的數據；製作實時統計頁面時可將該 URL 及數據樣例提供給大模型使用。',
+        'task_detail.test_submit_hint': '在此輸入 JSON 格式的數據進行測試提交。請使用 JSON 格式，例如：{"name":"張三","score":85} 或 {"字段1": "值1", "字段2": "值2"}。',
         'task_detail.full_prompt_label': '完整版提示詞：',
         'task_detail.expand_collapse': '展開/收起',
         
@@ -1375,7 +1378,8 @@ TRANSLATIONS = {
         'task_detail.simple_prompt_text': 'After creating the application, send',
         'task_detail.simple_prompt_send': 'POST format JSON data to',
         'task_detail.copy': 'Copy',
-        'task_detail.data_query_tip': 'Data Query: You can directly access this URL to view collected data, and use it to create real-time feedback ranking pages.',
+        'task_detail.data_query_tip': 'Access the URL below to view collected data; provide this URL and data samples to the AI when building a real-time stats page.',
+        'task_detail.test_submit_hint': 'Enter JSON data here for a test submission. Use JSON format, e.g. {"name":"John","score":85} or {"field1": "value1", "field2": "value2"}.',
         'task_detail.full_prompt_label': 'Full Prompt (collapsed by default, click to expand/copy):',
         'task_detail.expand_collapse': 'Expand/Collapse',
         
@@ -1696,12 +1700,12 @@ def set_locale(locale):
 
 
 def translate(key, locale=None):
-    """翻译文本"""
+    """翻译文本。当前语言缺少 key 时回退到 zh-simple，避免页面显示 key 占位符。"""
     if locale is None:
         locale = get_locale()
-    
-    translations = TRANSLATIONS.get(locale, TRANSLATIONS['zh-simple'])
-    return translations.get(key, key)
+    fallback = TRANSLATIONS['zh-simple']
+    translations = TRANSLATIONS.get(locale, fallback)
+    return translations.get(key, fallback.get(key, key))
 
 
 def get_available_locales():

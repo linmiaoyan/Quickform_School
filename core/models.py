@@ -27,7 +27,7 @@ class User(UserMixin, Base):
     __tablename__ = 'user'
     id = Column(Integer, primary_key=True)
     username = Column(String(50), unique=True, nullable=False)
-    email = Column(String(100), unique=True, nullable=False)
+    email = Column(String(100), unique=True, nullable=False)  # 注册可不填时存空字符串；创建第二个任务时需绑定并验证
     password = Column(String(200), nullable=False)
     school = Column(String(200))
     phone = Column(String(20))
@@ -105,6 +105,8 @@ class Task(Base):
     # 外部URL与教程链接（扣子/豆包等分享链接）
     share_url = Column(String(500))  # 扣子编程、豆包编程等提供的分享URL
     tutorial_link = Column(String(500))  # 提示词分享链接，便于分享和后期查找
+    ai_generated = Column(Boolean, default=False)  # 是否为一键生成任务
+    html_ai_edit_remaining = Column(Integer, nullable=True)  # 剩余可修改次数（3→2→1→0），非一键生成为 None
     approver = relationship('User', foreign_keys=[html_approved_by], backref='approved_tasks')
     organization = relationship('Organization', back_populates='tasks')
     shares = relationship('TaskShare', back_populates='task', cascade='all, delete-orphan')
@@ -393,6 +395,18 @@ def migrate_database(engine):
                     logger.info("成功为task添加color_tag字段（任务卡片颜色标签）")
                 except Exception as e:
                     logger.warning(f"添加color_tag失败（可能已存在）: {str(e)}")
+            if task_cols and 'ai_generated' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN ai_generated BOOLEAN DEFAULT 0"))
+                    logger.info("成功为task添加ai_generated字段（一键生成任务）")
+                except Exception as e:
+                    logger.warning(f"添加ai_generated失败（可能已存在）: {str(e)}")
+            if task_cols and 'html_ai_edit_remaining' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN html_ai_edit_remaining INTEGER"))
+                    logger.info("成功为task添加html_ai_edit_remaining字段")
+                except Exception as e:
+                    logger.warning(f"添加html_ai_edit_remaining失败（可能已存在）: {str(e)}")
 
             # 创建认证申请表
             if 'certification_request' not in inspector.get_table_names():

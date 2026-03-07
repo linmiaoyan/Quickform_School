@@ -55,6 +55,20 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 # 由 Nginx 做 HTTPS 时，仍生成 https 链接（依赖 ProxyFix 传递 X-Forwarded-Proto）
 app.config['PREFERRED_URL_SCHEME'] = 'https'
 
+# ---------- Session/Cookie 配置（避免未登录却显示他人账号的 cookie 串号问题）----------
+# 使用独立 cookie 名，避免同域名下其他应用共用/覆盖 session
+app.config['SESSION_COOKIE_NAME'] = 'quickform_session'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'   # 防止跨站请求携带 cookie，减少串号与 CSRF
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'true').lower() == 'true'  # HTTPS 时建议为 True
+# Flask-Login「记住我」cookie 独立命名与安全属性
+app.config['REMEMBER_COOKIE_NAME'] = 'quickform_remember'
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
+app.config['REMEMBER_COOKIE_SECURE'] = os.getenv('REMEMBER_COOKIE_SECURE', 'true').lower() == 'true'
+# 不设置 REMEMBER_COOKIE_DOMAIN，保持仅当前主机，避免子域共用导致看到别人账号
+# 会话保护：strong 会在 User-Agent/IP 变化时要求重新登录，降低共用电脑时的误用
+
 # 邮件发送配置（用于邮箱验证码）
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.163.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', '587'))
@@ -74,6 +88,7 @@ def inject_locale():
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'quickform.login'
+login_manager.session_protection = 'strong'  # User-Agent/IP 变化时要求重新登录，减少共用电脑串号
 
 bcrypt = Bcrypt(app)
 

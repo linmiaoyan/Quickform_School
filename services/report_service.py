@@ -2,6 +2,7 @@
 import os
 import io
 import re
+import zipfile
 import urllib.parse
 import threading
 import logging
@@ -10,6 +11,9 @@ from functools import wraps
 from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
+
+# 单张图片最大高度，超过则分多张输出，避免长图右侧被截断
+MAX_IMAGE_HEIGHT = 4000
 
 # 用于存储分析任务进度的字典
 analysis_progress = {}
@@ -56,7 +60,9 @@ def save_analysis_report(task_id, report_content, SessionLocal, Task, upload_fol
         if task:
             if not report_content or not report_content.strip():
                 report_content = "<div class='alert alert-info' role='alert'><h4>报告内容为空</h4><p>本次分析未能生成有效内容。可能是由于以下原因：</p><ul><li>提交的数据量不足</li><li>数据质量问题</li><li>AI模型处理异常</li></ul><p>请尝试提交更多数据或修改提示词后重新分析。</p></div>"
-            
+                body_html = report_content
+            else:
+                body_html = markdown_to_html(report_content)
             html_report = f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -107,7 +113,7 @@ def save_analysis_report(task_id, report_content, SessionLocal, Task, upload_fol
         <p><strong>创建时间：</strong>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         
         <div class="markdown-body">
-            {report_content}
+            {body_html}
         </div>
         
         <div class="footer">
@@ -141,6 +147,66 @@ def save_analysis_report(task_id, report_content, SessionLocal, Task, upload_fol
         logger.error(f"保存分析报告失败: {str(e)}")
     finally:
         db.close()
+
+
+def markdown_to_html(text):
+    """将 Markdown 文本转为 HTML，用于报告展示与导出。若转换失败则返回原文。"""
+    if not text or not text.strip():
+        return text
+    try:
+        import markdown
+        return markdown.markdown(text, extensions=['extra', 'nl2br'])
+    except Exception:
+        return text
+
+
+def build_report_html(task, report_content, for_pdf=False):
+    """构建报告完整 HTML 字符串，用于 HTML 下载或 PDF 生成；报告正文中的 Markdown 会被渲染为 HTML。
+    for_pdf=True 时使用中文字体（如 STSong-Light），以便 xhtml2pdf/weasyprint 正确显示中文。"""
+    if not report_content or not report_content.strip():
+        body_html = "<div class='alert alert-info' role='alert'><h4>报告内容为空</h4><p>暂无有效报告内容。</p></div>"
+    else:
+        body_html = markdown_to_html(report_content)
+    created_str = task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else '未知'
+    # PDF 导出需指定支持中文的字体：xhtml2pdf 内置 STSong-Light
+    if for_pdf:
+        font_css = (
+            "body { font-family: STSong-Light, 'SimSun', 'Microsoft YaHei', 'PingFang SC', serif; "
+            "line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 40px 20px; background-color: #f8f9fa; }"
+        )
+    else:
+        font_css = (
+            "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; "
+            "line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 40px 20px; background-color: #f8f9fa; }"
+        )
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分析报告 - {task.title}</title>
+    <style>
+        {font_css}
+        .container {{ background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }}
+        .markdown-body {{ font-size: 16px; }}
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 {{ color: #2c3e50; }}
+        .markdown-body pre {{ background-color: #f6f8fa; border-radius: 6px; padding: 12px; }}
+        .markdown-body ul, .markdown-body ol {{ margin: 0.5em 0; padding-left: 1.5em; }}
+        .markdown-body table {{ border-collapse: collapse; width: 100%; }}
+        .markdown-body th, .markdown-body td {{ border: 1px solid #ddd; padding: 8px; }}
+        .footer {{ text-align: center; margin-top: 40px; padding: 20px; color: #6c757d; font-size: 0.9rem; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">数据分析报告</h1>
+        <p><strong>任务标题：</strong>{task.title}</p>
+        <p><strong>创建时间：</strong>{created_str}</p>
+        <div class="markdown-body">{body_html}</div>
+        <div class="footer"><p>由 QuickForm 智能分析功能生成</p></div>
+    </div>
+</body>
+</html>"""
 
 
 def generate_report_image(task, report_content):
@@ -288,15 +354,32 @@ def generate_report_image(task, report_content):
             x = padding
         draw.text((x, y), text, font=font, fill=fill)
     
-    buffer = io.BytesIO()
-    img.save(buffer, format='PNG', optimize=True)
-    buffer.seek(0)
-    
     safe_title = re.sub(r'[^a-zA-Z0-9_]', '_', task.title)
-    safe_filename = f"{safe_title}_report.png"
-    encoded_filename = urllib.parse.quote(safe_filename.encode('utf-8'))
+    buffers = []
+    filenames = []
     
-    return buffer, encoded_filename
+    if img_height <= MAX_IMAGE_HEIGHT:
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG', optimize=True)
+        buffer.seek(0)
+        buffers.append(buffer)
+        filenames.append(f"{safe_title}_report.png")
+    else:
+        # 分多张输出，每张高度不超过 MAX_IMAGE_HEIGHT
+        y_start = 0
+        page = 1
+        while y_start < img_height:
+            y_end = min(y_start + MAX_IMAGE_HEIGHT, img_height)
+            chunk = img.crop((0, y_start, img_width, y_end))
+            buf = io.BytesIO()
+            chunk.save(buf, format='PNG', optimize=True)
+            buf.seek(0)
+            buffers.append(buf)
+            filenames.append(f"{safe_title}_report_{page}.png")
+            y_start = y_end
+            page += 1
+    
+    return buffers, filenames
 
 
 def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_prompt, 
