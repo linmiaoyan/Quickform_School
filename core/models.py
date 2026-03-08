@@ -27,7 +27,7 @@ class User(UserMixin, Base):
     __tablename__ = 'user'
     id = Column(Integer, primary_key=True)
     username = Column(String(50), unique=True, nullable=False)
-    email = Column(String(100), unique=True, nullable=False)  # 注册可不填时存空字符串；创建第二个任务时需绑定并验证
+    email = Column(String(100), unique=True, nullable=False)  # 注册可不填时存占位邮箱 {username}@noreply.local；创建第二个任务时需绑定并验证
     password = Column(String(200), nullable=False)
     school = Column(String(200))
     phone = Column(String(20))

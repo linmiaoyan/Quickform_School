@@ -59,6 +59,14 @@ logger = logging.getLogger(__name__)
 # 加载环境变量
 load_dotenv()
 
+
+def _is_placeholder_or_empty_email(email):
+    """未填邮箱或占位邮箱（注册时未填则存 username@noreply.local）视为未绑定"""
+    if not email or not (email or '').strip():
+        return True
+    return (email or '').strip().endswith('@noreply.local')
+
+
 # 简单的邮箱验证码存储（开发环境用，生产建议换成 Redis）
 EMAIL_CODE_STORE = {}
 
@@ -577,7 +585,7 @@ def register():
     try:
         if request.method == 'POST':
             username = request.form.get('username', '').strip()
-            email = (request.form.get('email') or '').strip()  # 注册时不要求邮箱（空字符串表示未填），创建第二个任务时再要求
+            email = (request.form.get('email') or '').strip()  # 注册可不填，空时用占位邮箱避免违反唯一约束
             password = request.form.get('password', '').strip()
             school = request.form.get('school', '').strip()
             phone = (request.form.get('phone') or '').strip() or None
@@ -608,7 +616,9 @@ def register():
                     return redirect(url_for('quickform.register'))
                 
                 hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-                user = User(username=username, email=email or '', password=hashed_password, 
+                # 邮箱未填时使用唯一占位符，避免多个空字符串违反 unique 约束
+                email_value = email if email else f"{username}@noreply.local"
+                user = User(username=username, email=email_value, password=hashed_password, 
                            school=school, phone=phone or '')
                 
                 ai_config = AIConfig(user=user, selected_model='chat_server')
@@ -960,7 +970,7 @@ def oneclick_create_task():
             return redirect(url_for('quickform.dashboard'))
         refreshed_user = db.get(User, current_user.id)
         if task_count >= 1:
-            if not (refreshed_user.email and refreshed_user.email.strip()):
+            if _is_placeholder_or_empty_email(refreshed_user.email):
                 flash('创建第二个数据任务前请先在个人资料中绑定邮箱。', 'warning')
                 return redirect(url_for('quickform.profile', next=url_for('quickform.oneclick_create_task')))
             if not getattr(refreshed_user, 'email_verified', True):
@@ -1042,7 +1052,7 @@ def create_task():
             refreshed_user = db.get(User, current_user.id)
             if task_count >= 1:
                 email_verified = getattr(refreshed_user, 'email_verified', True)
-                if not (refreshed_user.email and refreshed_user.email.strip()):
+                if _is_placeholder_or_empty_email(refreshed_user.email):
                     flash('创建第二个数据任务前请先在个人资料中绑定邮箱。', 'warning')
                     return redirect(url_for('quickform.profile', next=url_for('quickform.create_task')))
                 if not email_verified:
