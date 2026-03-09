@@ -1045,7 +1045,7 @@ def create_task():
         if not current_user.is_admin():
             if not current_user.can_create_task(SessionLocal, Task):
                 task_limit = current_user.task_limit if current_user.task_limit != -1 else "无限制"
-                flash(f'您已达到任务数量上限（{task_limit}个，当前{task_count}个）。如需创建更多任务，请联系管理员：wzlinmiaoyan@163.com', 'warning')
+                flash(f'您已达到任务数量上限（{task_limit}个，当前{task_count}个）。如需创建更多任务，请在右上角个人中心申请教师认证', 'warning')
                 return redirect(url_for('quickform.dashboard'))
             # 创建第二个任务时需先绑定邮箱并验证
             refreshed_user = db.get(User, current_user.id)
@@ -2063,6 +2063,27 @@ def submit_form_all(task_id):
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         response.headers['Content-Type'] = 'text/plain; charset=utf-8'
         return response
+        
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    now_ts = datetime.utcnow().timestamp()
+
+    ip_info = rate_limit_cache.setdefault(client_ip, {
+        'events': deque(),
+        'blacklist_until': 0,
+        'blocked_tasks': {},
+        'last_all_access': 0  # 记录上次访问 /all 接口的时间
+    })
+    
+    # 限制 /all 接口1秒最多访问1次
+    if now_ts - ip_info.get('last_all_access', 0) < 1.0:
+        logger.warning(f"IP {client_ip} 访问 /all 接口过快，被限流")
+        response = jsonify({'error': '请求过于频繁', 'message': '接口调用频率过高，请控制在每秒1次以内。'})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response, 429
+        
+    ip_info['last_all_access'] = now_ts
     
     db = SessionLocal()
     try:
@@ -3667,6 +3688,8 @@ CITY_TO_PROVINCE = {
     '巴音郭楞': '新疆维吾尔自治区', '阿克苏': '新疆维吾尔自治区', '克孜勒苏': '新疆维吾尔自治区',
     '喀什': '新疆维吾尔自治区', '和田': '新疆维吾尔自治区', '伊犁': '新疆维吾尔自治区',
     '塔城': '新疆维吾尔自治区', '阿勒泰': '新疆维吾尔自治区',
+    # 港澳台
+    '香港': '香港特别行政区', '澳门': '澳门特别行政区', '澳門': '澳门特别行政区', '台北': '台湾省', '臺北': '台湾省', '高雄': '台湾省', '新北': '台湾省', '台中': '台湾省', '臺中': '台湾省', '台南': '台湾省', '臺南': '台湾省', '桃园': '台湾省', '桃園': '台湾省',
 }
 
 SCHOOL_TYPES = {
@@ -3705,7 +3728,7 @@ def extract_city_and_province(school_name):
     for city_name, prov in sorted_cities:
         if city_name in school_name:
             province = prov
-            if province in ['北京市', '上海市', '天津市', '重庆市']:
+            if province in ['北京市', '上海市', '天津市', '重庆市', '香港特别行政区', '澳门特别行政区']:
                 city = province
             else:
                 if city_name + '市' in school_name:
@@ -3731,16 +3754,17 @@ def extract_city_and_province(school_name):
         '福建': '福建省', '江西': '江西省', '山东': '山东省', '河南': '河南省',
         '湖北': '湖北省', '湖南': '湖南省', '广东': '广东省', '海南': '海南省',
         '四川': '四川省', '贵州': '贵州省', '云南': '云南省', '陕西': '陕西省',
-        '甘肃': '甘肃省', '青海': '青海省', '台湾': '台湾省',
+        '甘肃': '甘肃省', '青海': '青海省', '台湾': '台湾省', '台灣': '台湾省', '臺灣': '台湾省',
         '内蒙古': '内蒙古自治区', '广西': '广西壮族自治区', '西藏': '西藏自治区',
         '宁夏': '宁夏回族自治区', '新疆': '新疆维吾尔自治区',
         '北京': '北京市', '天津': '天津市', '上海': '上海市', '重庆': '重庆市',
+        '香港': '香港特别行政区', '澳门': '澳门特别行政区', '澳門': '澳门特别行政区',
     }
     
     for key, full_name in province_keywords.items():
         if key in school_name or full_name in school_name:
             province = full_name
-            if province in ['北京市', '上海市', '天津市', '重庆市']:
+            if province in ['北京市', '上海市', '天津市', '重庆市', '香港特别行政区', '澳门特别行政区']:
                 city = province
             break
     

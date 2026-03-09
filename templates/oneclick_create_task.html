@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}一键生成新任务（内测中） - QuickForm{% endblock %}
+{% block title %}{{ translate('oneclick.title') }} - QuickForm{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -8,7 +8,7 @@
         <div class="card">
             <div class="card-header">
                 <h3 class="text-center mb-0" style="color: white; font-weight: 600;">
-                    <i class="bi bi-magic"></i> 一键生成新任务（内测中）
+                    <i class="bi bi-magic"></i> {{ translate('oneclick.title') }}
                 </h3>
             </div>
             <div class="card-body">
@@ -16,28 +16,28 @@
                 <div id="processingOverlay" style="display:none; position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 2000;">
                     <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); text-align:center;">
                         <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
-                        <h5 class="mt-3" id="processingTitle">正在生成页面，请稍候…</h5>
-                        <p class="text-muted" id="processingTip">大模型正在根据您的需求生成 HTML，通常需要 30 秒～2 分钟。</p>
-                        <p class="mt-2 text-muted small">已等待 <span id="elapsedSeconds">0</span> 秒</p>
+                        <h5 class="mt-3" id="processingTitle">{{ translate('oneclick.generating') }}</h5>
+                        <p class="text-muted" id="processingTip">{{ translate('oneclick.generating_tip') }}</p>
+                        <p class="mt-2 text-muted small">{{ translate('oneclick.elapsed') }} <span id="elapsedSeconds">0</span> {{ translate('oneclick.seconds') }}</p>
                     </div>
                 </div>
                 <div class="alert alert-warning mb-4">
-                    <strong>说明：</strong>此功能会消耗较多 token，建议在
-                    <a href="{{ url_for('quickform.profile') }}">个人中心</a>
-                    配置自己的 AI 模型与 API 信息后再使用。
+                    <strong>{{ translate('oneclick.notice') }}</strong>{{ translate('oneclick.notice_text') }}
+                    <a href="{{ url_for('quickform.profile') }}">{{ translate('oneclick.profile_link') }}</a>
+                    {{ translate('oneclick.notice_text_2') }}
                 </div>
                 <form method="POST" action="{{ url_for('quickform.oneclick_create_task') }}" id="oneclick-form" onsubmit="return startOneclickProcessingOverlay()">
                     <div class="mb-4">
-                        <label for="title" class="form-label">任务标题</label>
-                        <input type="text" class="form-control" id="title" name="title" required placeholder="例如：学生信息登记表">
+                        <label for="title" class="form-label">{{ translate('oneclick.task_title') }}</label>
+                        <input type="text" class="form-control" id="title" name="title" required placeholder="{{ translate('oneclick.title_placeholder') }}">
                     </div>
                     <div class="mb-4">
-                        <label for="requirements" class="form-label">具体页面需求</label>
-                        <textarea class="form-control" id="requirements" name="requirements" rows="6" required placeholder="请详细描述你希望生成的页面功能、字段、样式等，例如：需要一个学生信息登记表单，包含姓名、学号、班级、联系电话，表单项要有标签和输入框。"></textarea>
-                        <div class="form-text">描述越清晰，生成效果越好。</div>
+                        <label for="requirements" class="form-label">{{ translate('oneclick.requirements') }}</label>
+                        <textarea class="form-control" id="requirements" name="requirements" rows="6" required placeholder="{{ translate('oneclick.requirements_placeholder') }}"></textarea>
+                        <div class="form-text">{{ translate('oneclick.requirements_help') }}</div>
                     </div>
                     <div class="mb-4">
-                        <label class="form-label">追加到需求后的说明（勾选后会自动拼接到上方需求末尾，提交时「API地址」会替换为真实地址）</label>
+                        <label class="form-label">{{ translate('oneclick.options_label') }}</label>
                         <div class="border rounded p-3 bg-light">
                             {% for key, label, text in prompt_options %}
                             <div class="form-check mb-2">
@@ -48,13 +48,13 @@
                         </div>
                     </div>
                     <div class="mb-4" id="preview-wrap" style="display: none;">
-                        <label class="form-label text-muted">当前将追加的说明（只读预览）</label>
+                        <label class="form-label text-muted">{{ translate('oneclick.preview_label') }}</label>
                         <div class="border rounded p-3 bg-light small text-secondary" id="preview-text" style="white-space: pre-wrap;">—</div>
                     </div>
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                        <a href="{{ url_for('quickform.dashboard') }}" class="btn btn-outline-secondary">返回数据任务</a>
+                        <a href="{{ url_for('quickform.dashboard') }}" class="btn btn-outline-secondary">{{ translate('oneclick.back_to_tasks') }}</a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-magic"></i> 生成并创建任务
+                            <i class="bi bi-magic"></i> {{ translate('oneclick.generate_btn') }}
                         </button>
                     </div>
                 </form>

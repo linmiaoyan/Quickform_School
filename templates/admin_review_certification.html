@@ -1,22 +1,22 @@
 {% extends 'base.html' %}
 
-{% block title %}教师认证审核 - QuickForm{% endblock %}
+{% block title %}教师认证{{ translate('admin.audit') }} - QuickForm{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-md-12">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2 class="mb-0">教师认证审核</h2>
-            <a href="{{ url_for('quickform.admin_panel') }}" class="btn btn-secondary">返回管理面板</a>
+            <h2 class="mb-0">教师认证{{ translate('admin.audit') }}</h2>
+            <a href="{{ url_for('quickform.admin_panel') }}" class="btn btn-secondary">{{ translate('admin.back_to_panel') }}</a>
         </div>
 
         <div class="alert alert-primary mb-4">
-            <strong>待审核教师认证：</strong> {{ pending_cert_count }}
+            <strong>待{{ translate('admin.audit') }}教师认证：</strong> {{ pending_cert_count }}
         </div>
 
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0">教师认证审核</h5>
+                <h5 class="mb-0">教师认证{{ translate('admin.audit') }}</h5>
             </div>
             <div class="card-body">
                 {% if cert_requests %}
@@ -24,29 +24,29 @@
                     <table class="table table-striped align-middle">
                         <thead>
                             <tr>
-                                <th>申请人</th>
-                                <th>学校</th>
-                                <th>提交时间</th>
-                                <th>状态</th>
-                                <th>审核时间</th>
-                                <th>材料</th>
-                                <th>审核备注</th>
-                                <th style="width: 220px;">操作</th>
+                                <th>{{ translate('admin.applicant') }}</th>
+                                <th>{{ translate('admin.school') }}</th>
+                                <th>{{ translate('admin.submit_time') }}</th>
+                                <th>{{ translate('admin.status') }}</th>
+                                <th>{{ translate('admin.audit') }}时间</th>
+                                <th>{{ translate('admin.materials') }}</th>
+                                <th>{{ translate('admin.audit') }}备注</th>
+                                <th style="width: 220px;">{{ translate('admin.actions') }}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for req in cert_requests %}
                             <tr>
-                                <td>{{ req.user.username if req.user else '未知用户' }}</td>
+                                <td>{{ req.user.username if req.user else '{{ translate('admin.unknown_user') }}' }}</td>
                                 <td>{{ req.user.school if req.user else '-' }}</td>
                                 <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                 <td>
                                     {% if req.status == 1 %}
-                                    <span class="badge bg-success">已通过</span>
+                                    <span class="badge bg-success">{{ translate('admin.passed') }}</span>
                                     {% elif req.status == -1 %}
-                                    <span class="badge bg-danger">已拒绝</span>
+                                    <span class="badge bg-danger">{{ translate('admin.rejected') }}</span>
                                     {% else %}
-                                    <span class="badge bg-warning text-dark">待审核</span>
+                                    <span class="badge bg-warning text-dark">待{{ translate('admin.audit') }}</span>
                                     {% endif %}
                                 </td>
                                 <td>
@@ -62,10 +62,10 @@
                                         {% set _ext = (req.file_path|lower).split('.')[-1] if '.' in (req.file_path|lower) else '' %}
                                         {% if _ext in ['jpg', 'jpeg', 'png', 'gif', 'webp'] %}
                                         <a href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank" class="d-inline-block text-decoration-none">
-                                            <img src="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" alt="证明材料" class="rounded border" style="max-width: 48px; max-height: 48px; object-fit: cover;">
+                                            <img src="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" alt="证明{{ translate('admin.materials') }}" class="rounded border" style="max-width: 48px; max-height: 48px; object-fit: cover;">
                                         </a>
                                         {% endif %}
-                                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank">查看材料</a>
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank">查看{{ translate('admin.materials') }}</a>
                                     </div>
                                     {% else %}
                                     -
@@ -77,8 +77,8 @@
                                     <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center">
                                         <input type="text" class="form-control form-control-sm" name="note" placeholder="备注（可选）">
                                         <div class="btn-group">
-                                            <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">通过</button>
-                                            <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" onclick="return confirm('确定要拒绝该认证申请吗？')">拒绝</button>
+                                            <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">{{ translate('admin.pass') }}</button>
+                                            <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" onclick="return confirm('{{ translate('admin.confirm_reject_cert') }}')">{{ translate('admin.reject') }}</button>
                                         </div>
                                     </form>
                                     {% else %}
@@ -93,10 +93,10 @@
                 
                 <!-- 分页 -->
                 {% if pages > 1 %}
-                <nav aria-label="认证审核分页" class="mt-3">
+                <nav aria-label="认证{{ translate('admin.audit') }}分页" class="mt-3">
                     <ul class="pagination justify-content-center">
                         <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-                            <a class="page-link" href="{{ url_for('quickform.admin_review_certification', page=page-1) }}" aria-label="上一页">
+                            <a class="page-link" href="{{ url_for('quickform.admin_review_certification', page=page-1) }}" aria-label="{{ translate('admin.prev_page') }}">
                                 <span aria-hidden="true">&laquo;</span>
                             </a>
                         </li>
@@ -124,7 +124,7 @@
                         {% endif %}
 
                         <li class="page-item {% if page >= pages %}disabled{% endif %}">
-                            <a class="page-link" href="{{ url_for('quickform.admin_review_certification', page=page+1) }}" aria-label="下一页">
+                            <a class="page-link" href="{{ url_for('quickform.admin_review_certification', page=page+1) }}" aria-label="{{ translate('admin.next_page') }}">
                                 <span aria-hidden="true">&raquo;</span>
                             </a>
                         </li>

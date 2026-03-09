@@ -19,16 +19,16 @@
             <i class="bi bi-file-earmark-code" style="margin-right: 0.75rem;"></i> {{ translate('admin.html_review') }}
         </a>
         <a href="#cert-review" class="sidebar-item" data-tab="cert-review" onclick="switchTab('cert-review'); return false;">
-            <i class="bi bi-shield-check" style="margin-right: 0.75rem;"></i> 教师认证审核
+            <i class="bi bi-shield-check" style="margin-right: 0.75rem;"></i> {{ translate('admin.cert_review') }}
         </a>
         <a href="#public-review" class="sidebar-item" data-tab="public-review" onclick="switchTab('public-review'); return false;">
-            <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> 项目公开审核
+            <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> {{ translate('admin.public_review') }}
         </a>
         <a href="#open-source" class="sidebar-item" data-tab="open-source" onclick="switchTab('open-source'); return false;">
-            <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> 管理公开项目
+            <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> {{ translate('admin.open_source') }}
         </a>
         <a href="#tutorials-edit" class="sidebar-item" data-tab="tutorials-edit" onclick="switchTab('tutorials-edit'); return false;">
-            <i class="bi bi-book" style="margin-right: 0.75rem;"></i> 开源教程
+            <i class="bi bi-book" style="margin-right: 0.75rem;"></i> {{ translate('admin.tutorials_edit') }}
         </a>
         <a href="#data" class="sidebar-item" data-tab="data" onclick="switchTab('data'); return false;">
             <i class="bi bi-graph-up" style="margin-right: 0.75rem;"></i> {{ translate('admin.data_report') }}
@@ -41,7 +41,7 @@
             <h2 class="mb-0" style="color: #111827; font-weight: 700;">{{ translate('admin.title') }}</h2>
         </div>
         
-        <!-- 数据统计卡片 -->
+        <!-- {{ translate('admin.export_data') }}卡片 -->
         <div class="row mb-4 g-3">
             <div class="col-md-3 col-sm-6">
                 <div class="stat-card" style="border-left: 4px solid #2563eb;">
@@ -88,22 +88,22 @@
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="cert-review-tab" data-bs-toggle="tab" data-bs-target="#cert-review" type="button" role="tab">
-                    教师认证审核
+                    {{ translate('admin.cert_audit') }}
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="public-review-tab" data-bs-toggle="tab" data-bs-target="#public-review" type="button" role="tab">
-                    项目公开审核
+                    {{ translate('admin.public_review') }}
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="open-source-tab" data-bs-toggle="tab" data-bs-target="#open-source" type="button" role="tab">
-                    管理公开项目
+                    {{ translate('admin.open_source') }}
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="tutorials-edit-tab" data-bs-toggle="tab" data-bs-target="#tutorials-edit" type="button" role="tab">
-                    开源教程
+                    {{ translate('admin.tutorials_edit') }}
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -122,10 +122,10 @@
                         <h5 class="mb-0" style="color: white;">{{ translate('admin.user_list_title') }}</h5>
                         <div>
                             <a href="{{ url_for('quickform.admin_users_statistics') }}" class="btn btn-sm me-2" style="font-weight: 500; background-color: #3b82f6; color: white; border: none;">
-                                <i class="bi bi-graph-up"></i> 数据统计
+                                <i class="bi bi-graph-up"></i> {{ translate('admin.export_data') }}
                             </a>
                             <a href="{{ url_for('quickform.admin_export_users') }}" class="btn btn-sm" style="font-weight: 500; background-color: #10b981; color: white; border: none;">
-                                <i class="bi bi-download"></i> 导出Excel
+                                <i class="bi bi-download"></i> {{ translate('admin.export_excel') }}
                             </a>
                         </div>
                     </div>
@@ -133,15 +133,15 @@
                         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mb-3 gap-3">
                             <form class="w-100 w-lg-auto" method="get" action="{{ url_for('quickform.admin_panel') }}">
                                 <div class="input-group">
-                                    <input type="text" class="form-control" name="q" value="{{ user_search }}" placeholder="搜索用户名 / 邮箱 / 学校 / 手机号">
+                                    <input type="text" class="form-control" name="q" value="{{ user_search }}" placeholder="{{ translate('admin.search_placeholder_full') }}">
                                     {% if user_search %}
-                                    <a class="btn btn-outline-secondary" href="{{ url_for('quickform.admin_panel') }}">重置</a>
+                                    <a class="btn btn-outline-secondary" href="{{ url_for('quickform.admin_panel') }}">{{ translate('admin.reset') }}</a>
                                     {% endif %}
-                                    <button class="btn" type="submit" style="background-color: #2563eb; color: white; border: none;">搜索</button>
+                                    <button class="btn" type="submit" style="background-color: #2563eb; color: white; border: none;">{{ translate('admin.search_btn') }}</button>
                                 </div>
                             </form>
                             <div class="text-muted small text-lg-end w-100 w-lg-auto">
-                                共 {{ user_total }} 位用户，当前第 {{ user_page|int }} / {{ user_pages|int }} 页
+                                {{ translate('admin.total_users_page').format(total=user_total, page=user_page|int, pages=user_pages|int) }}
                             </div>
                         </div>
 
@@ -153,13 +153,13 @@
                                         <th style="width: 50px;">ID</th>
                                         <th style="width: 100px;">用户名</th>
                                         <th style="width: 180px;">邮箱</th>
-                                        <th style="width: 220px; min-width: 180px;">学校</th>
+                                        <th style="width: 220px; min-width: 180px;">{{ translate('admin.school') }}</th>
                                         <th style="width: 120px;">手机号</th>
                                         <th style="width: 80px;">角色</th>
-                                        <th style="width: 90px;">认证状态</th>
-                                        <th style="width: 100px;">任务数/上限</th>
-                                        <th style="width: 150px;">注册时间</th>
-                                        <th style="width: 100px;">操作</th>
+                                        <th style="width: 90px;">{{ translate('admin.auth_status') }}</th>
+                                        <th style="width: 100px;">{{ translate('admin.task_limit') }}</th>
+                                        <th style="width: 150px;">{{ translate('admin.register_time') }}</th>
+                                        <th style="width: 100px;">{{ translate('admin.actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -168,21 +168,21 @@
                                         <td style="white-space: nowrap;">{{ user.id }}</td>
                                         <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.username }}">{{ user.username }}</td>
                                         <td style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.email }}">{{ user.email }}</td>
-                                        <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.school or '未填写' }}">{{ user.school or '未填写' }}</td>
-                                        <td style="white-space: nowrap;">{{ user.phone or '未填写' }}</td>
+                                        <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.school or '{{ translate('admin.not_filled') }}' }}">{{ user.school or '{{ translate('admin.not_filled') }}' }}</td>
+                                        <td style="white-space: nowrap;">{{ user.phone or '{{ translate('admin.not_filled') }}' }}</td>
                                         <td>
                                             <span class="badge {% if user.role == 'admin' %}bg-danger{% else %}bg-secondary{% endif %}">
-                                                {% if user.role == 'admin' %}管理员{% else %}普通用户{% endif %}
+                                                {% if user.role == 'admin' %}{{ translate('admin.admin_role') }}{% else %}{{ translate('admin.user_role') }}{% endif %}
                                             </span>
                                         </td>
                                         <td>
                                             {% set pending_req = user.certification_requests | selectattr('status', 'equalto', 0) | list %}
                                             {% if user.is_certified %}
-                                            <span class="status-badge featured">已认证</span>
+                                            <span class="status-badge featured">{{ translate('admin.certified') }}</span>
                                             {% elif pending_req %}
-                                            <span class="status-badge pending">审核中</span>
+                                            <span class="status-badge pending">{{ translate('admin.reviewing') }}</span>
                                             {% else %}
-                                            <span class="badge bg-secondary">未认证</span>
+                                            <span class="badge bg-secondary">{{ translate('admin.unverified') }}</span>
                                             {% endif %}
                                         </td>
                                         <td>
@@ -198,26 +198,26 @@
                                             {% if user.id != current_user.id %}
                                             <div class="dropdown">
                                                 <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="white-space: nowrap;">
-                                                    <i class="bi bi-three-dots-vertical"></i> 操作
+                                                    <i class="bi bi-three-dots-vertical"></i> {{ translate('admin.actions') }}
                                                 </button>
                                                 <ul class="dropdown-menu">
                                                     <li>
-                                                        <form action="{{ url_for('quickform.admin_change_role', user_id=user.id) }}" method="POST" onsubmit="return confirm('确定要{% if user.role == 'admin' %}取消管理员{% else %}设为管理员{% endif %}权限吗？')">
+                                                        <form action="{{ url_for('quickform.admin_change_role', user_id=user.id) }}" method="POST" onsubmit="return confirm('确定要{% if user.role == 'admin' %}{{ translate('admin.cancel_admin') }}{% else %}设为管理员{% endif %}权限吗？')">
                                                             <button type="submit" class="dropdown-item">
                                                                 <i class="bi bi-{% if user.role == 'admin' %}x-circle text-warning{% else %}shield-check text-success{% endif %}"></i>
-                                                                {% if user.role == 'admin' %}取消管理员{% else %}设为管理员{% endif %}
+                                                                {% if user.role == 'admin' %}{{ translate('admin.cancel_admin') }}{% else %}设为管理员{% endif %}
                                                             </button>
                                                         </form>
                                                     </li>
                                                     <li>
                                                         <a class="dropdown-item" href="#" onclick="resetPassword({{ user.id }}, '{{ user.username }}'); return false;">
-                                                            <i class="bi bi-key text-primary"></i> 重置密码
+                                                            <i class="bi bi-key text-primary"></i> {{ translate('admin.reset_pwd') }}
                                                         </a>
                                                     </li>
                                                     {% if user.role != 'admin' %}
                                                     <li><hr class="dropdown-divider"></li>
                                                     <li>
-                                                        <form action="{{ url_for('quickform.admin_delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('确定要删除用户 {{ user.username }} 吗？\n\n这将同时删除该用户的：\n- 所有任务\n- 所有提交数据\n- AI配置\n- 认证申请\n\n此操作不可恢复！')">
+                                                        <form action="{{ url_for('quickform.admin_delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('{{ translate('admin.confirm_delete_user').format(username=user.username) }}\n\n这将同时删除该用户的：\n- 所有任务\n- 所有提交数据\n- AI配置\n- 认证申请\n\n此操作不可恢复！')">
                                                             <button type="submit" class="dropdown-item text-danger">
                                                                 <i class="bi bi-trash"></i> 删除用户
                                                             </button>
@@ -236,7 +236,7 @@
                             </table>
                             {% else %}
                             <div class="text-center py-5 text-muted">
-                                <p class="mb-1">未找到满足条件的用户。</p>
+                                <p class="mb-1">{{ translate('admin.no_users_found') }}。</p>
                                 <p class="mb-0">可以尝试更换关键词或清空搜索条件。</p>
                             </div>
                             {% endif %}
@@ -245,7 +245,7 @@
                         <nav aria-label="用户分页" class="mt-3">
                             <ul class="pagination pagination-sm justify-content-center mb-0">
                                 <li class="page-item {% if user_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_page-1, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}" aria-label="上一页">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_page-1, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
                                         <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
@@ -273,7 +273,7 @@
                                 {% endif %}
 
                                 <li class="page-item {% if user_page >= user_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_page+1, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}" aria-label="下一页">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_page+1, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
                                         <span aria-hidden="true">&raquo;</span>
                                     </a>
                                 </li>
@@ -303,9 +303,9 @@
                                         <th>任务ID</th>
                                         <th>标题</th>
                                         <th>创建者</th>
-                                        <th>提交数</th>
+                                        <th>{{ translate('common.submit') }}数</th>
                                         <th>创建时间</th>
-                                        <th>操作</th>
+                                        <th>{{ translate('admin.actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -333,7 +333,7 @@
                         <nav aria-label="任务列表分页" class="mt-3">
                             <ul class="pagination pagination-sm justify-content-center mb-0">
                                 <li class="page-item {% if task_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page-1, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="上一页">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page-1, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
                                         <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
@@ -361,7 +361,7 @@
                                 {% endif %}
 
                                 <li class="page-item {% if task_page >= task_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page+1, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="下一页">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page+1, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
                                         <span aria-hidden="true">&raquo;</span>
                                     </a>
                                 </li>
@@ -372,14 +372,14 @@
                 </div>
             </div>
 
-            <!-- 管理公开项目标签页 -->
+            <!-- {{ translate('admin.open_source') }}标签页 -->
             <div class="tab-pane fade" id="open-source" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">管理公开项目</h5>
+                        <h5 class="mb-0">{{ translate('admin.open_source') }}</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted mb-3">管理已在项目交流页展示的公开项目，可加精或取消展示。</p>
+                        <p class="text-muted mb-3">{{ translate('admin.public_manage_desc') }}。</p>
                         {% if open_source_tasks_with_author and open_source_tasks_with_author|length > 0 %}
                         <div class="table-responsive">
                             <table class="table table-striped table-hover">
@@ -388,10 +388,10 @@
                                         <th>任务ID</th>
                                         <th>标题</th>
                                         <th>创建者</th>
-                                        <th>加精</th>
-                                        <th>点赞数</th>
+                                        <th>{{ translate('admin.feature') }}</th>
+                                        <th>{{ translate('admin.like_count') }}</th>
                                         <th>创建时间</th>
-                                        <th>操作</th>
+                                        <th>{{ translate('admin.actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -402,7 +402,7 @@
                                         <td>{{ item.author.username if item.author else '-' }}</td>
                                         <td>
                                             {% if item.task.is_featured %}
-                                            <span class="badge bg-warning">已加精</span>
+                                            <span class="badge bg-warning">已{{ translate('admin.feature') }}</span>
                                             {% else %}
                                             —
                                             {% endif %}
@@ -413,11 +413,11 @@
                                             <a href="{{ url_for('quickform.task_detail', task_id=item.task.id) }}" class="btn btn-sm btn-outline-secondary me-1" target="_blank">查看</a>
                                             <form method="POST" action="{{ url_for('quickform.admin_open_source_feature', task_id=item.task.id) }}" style="display: inline;">
                                                 <button type="submit" class="btn btn-sm {{ 'btn-warning' if item.task.is_featured else 'btn-info' }}">
-                                                    {% if item.task.is_featured %}取消加精{% else %}加精{% endif %}
+                                                    {% if item.task.is_featured %}{{ translate('admin.unfeature') }}{% else %}{{ translate('admin.feature') }}{% endif %}
                                                 </button>
                                             </form>
-                                            <form method="POST" action="{{ url_for('quickform.admin_open_source_revoke', task_id=item.task.id) }}" style="display: inline;" onsubmit="return confirm('确定要取消该项目在项目交流的展示吗？');">
-                                                <button type="submit" class="btn btn-sm btn-danger">取消展示</button>
+                                            <form method="POST" action="{{ url_for('quickform.admin_open_source_revoke', task_id=item.task.id) }}" style="display: inline;" onsubmit="return confirm('{{ translate('admin.confirm_hide') }}');">
+                                                <button type="submit" class="btn btn-sm btn-danger">{{ translate('admin.hide') }}</button>
                                             </form>
                                         </td>
                                     </tr>
@@ -426,20 +426,20 @@
                             </table>
                         </div>
                         {% else %}
-                        <p class="text-muted mb-0">暂无已在项目交流展示的公开项目。</p>
+                        <p class="text-muted mb-0">{{ translate('admin.no_public_projects') }}。</p>
                         {% endif %}
                     </div>
                 </div>
             </div>
 
-            <!-- 开源教程标签页：编辑 tutorials 菜单的 JSON -->
+            <!-- {{ translate('admin.tutorials_edit') }}标签页：编辑 tutorials 菜单的 JSON -->
             <div class="tab-pane fade" id="tutorials-edit" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">开源教程</h5>
+                        <h5 class="mb-0">{{ translate('admin.tutorials_edit') }}</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted mb-3">编辑顶部导航「开源教程」菜单中的链接文档，每项需包含 <code>title</code>、<code>author</code>、<code>author_link</code>、<code>description</code>，保存为 JSON 数组格式。</p>
+                        <p class="text-muted mb-3">编辑顶部导航「{{ translate('admin.tutorials_edit') }}」菜单中的链接文档，每项需包含 <code>title</code>、<code>author</code>、<code>author_link</code>、<code>description</code>，保存为 JSON 数组格式。</p>
                         <form method="POST" action="{{ url_for('quickform.admin_tutorials_json_save') }}">
                             <div class="mb-3">
                                 <label for="tutorials_json" class="form-label">tutorials.json 内容</label>
@@ -451,14 +451,14 @@
                 </div>
             </div>
 
-            <!-- 项目公开审核标签页 -->
+            <!-- {{ translate('admin.public_review') }}标签页 -->
             <div class="tab-pane fade" id="public-review" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">项目公开审核</h5>
+                        <h5 class="mb-0">{{ translate('admin.public_review') }}</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted mb-3">用户申请公开到项目交流的任务需在此审核，通过后才会在「项目交流」页展示（仅展示任务名称、简介与网页）。</p>
+                        <p class="text-muted mb-3">{{ translate('admin.public_audit_desc') }}。</p>
                         {% if public_pending_with_author and public_pending_with_author|length > 0 %}
                         <div class="table-responsive">
                             <table class="table table-striped table-hover">
@@ -466,9 +466,9 @@
                                     <tr>
                                         <th>任务ID</th>
                                         <th>标题</th>
-                                        <th>申请者</th>
+                                        <th>{{ translate('admin.applicant') }}</th>
                                         <th>创建时间</th>
-                                        <th>操作</th>
+                                        <th>{{ translate('admin.actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -481,10 +481,10 @@
                                         <td>
                                             <a href="{{ url_for('quickform.task_detail', task_id=item.task.id) }}" class="btn btn-sm btn-outline-secondary me-1" target="_blank">查看</a>
                                             <form method="POST" action="{{ url_for('quickform.admin_public_approve', task_id=item.task.id) }}" style="display: inline;">
-                                                <button type="submit" class="btn btn-sm btn-success">通过</button>
+                                                <button type="submit" class="btn btn-sm btn-success">{{ translate('admin.pass') }}</button>
                                             </form>
-                                            <form method="POST" action="{{ url_for('quickform.admin_public_reject', task_id=item.task.id) }}" style="display: inline;" onsubmit="return confirm('确定拒绝该项目的公开申请？');">
-                                                <button type="submit" class="btn btn-sm btn-danger">拒绝</button>
+                                            <form method="POST" action="{{ url_for('quickform.admin_public_reject', task_id=item.task.id) }}" style="display: inline;" onsubmit="return confirm('{{ translate('admin.confirm_reject_public') }}');">
+                                                <button type="submit" class="btn btn-sm btn-danger">{{ translate('admin.reject') }}</button>
                                             </form>
                                         </td>
                                     </tr>
@@ -493,7 +493,7 @@
                             </table>
                         </div>
                         {% else %}
-                        <p class="text-muted mb-0">暂无待审核的项目公开申请。</p>
+                        <p class="text-muted mb-0">{{ translate('admin.no_pending_public') }}。</p>
                         {% endif %}
                     </div>
                 </div>
@@ -507,7 +507,7 @@
                     </div>
                     <div class="card-body">
                         <div class="alert alert-info mb-4">
-                            <strong>待审核 HTML 页面：</strong> {{ pending_html_count }}
+                            <strong>{{ translate('admin.pending') }} HTML 页面：</strong> {{ pending_html_count }}
                         </div>
                         {% if html_tasks_with_review %}
                         {% set has_pending = pending_html_count > 0 %}
@@ -516,14 +516,14 @@
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" value="" id="selectAllTasks" {% if not has_pending %}disabled{% endif %}>
                                     <label class="form-check-label" for="selectAllTasks">
-                                        全选当前列表
+                                        {{ translate('admin.select_all_list') }}
                                     </label>
                                 </div>
                                 <button type="submit" id="batchApproveBtn" class="btn btn-sm" 
                                         style="background-color: #10b981; color: white; border: none;"
                                         {% if not has_pending %}disabled{% endif %}>
                                     <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
-                                    批量通过
+                                    {{ translate('admin.batch_pass') }}
                                 </button>
                             </div>
                             <div class="table-responsive">
@@ -535,10 +535,10 @@
                                             <th style="min-width: 120px;">任务标题</th>
                                             <th style="min-width: 120px;">上传用户</th>
                                             <th style="min-width: 140px;">文件名</th>
-                                            <th style="min-width: 95px;">审核状态</th>
+                                            <th style="min-width: 95px;">{{ translate('admin.audit_status') }}</th>
                                             <th style="min-width: 90px;">审核人</th>
                                             <th style="min-width: 160px;">审核时间</th>
-                                            <th style="min-width: 280px;">操作</th>
+                                            <th style="min-width: 280px;">{{ translate('admin.actions') }}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -555,7 +555,7 @@
                                                 <div>
                                                     {{ item.author.username if item.author else '未知' }}
                                                     {% if item.author and item.author.is_certified %}
-                                                    <span class="badge bg-success ms-1">已认证</span>
+                                                    <span class="badge bg-success ms-1">{{ translate('admin.certified') }}</span>
                                                     {% endif %}
                                                 </div>
                                             </td>
@@ -571,11 +571,11 @@
                                             </td>
                                             <td class="align-middle" style="padding: 14px 12px;">
                                             {% if item.task.html_approved == 1 %}
-                                            <span class="status-badge featured">已通过</span>
+                                            <span class="status-badge featured">{{ translate('admin.passed') }}</span>
                                             {% elif item.task.html_approved == -1 %}
-                                            <span class="status-badge rejected">已拒绝</span>
+                                            <span class="status-badge rejected">{{ translate('admin.rejected') }}</span>
                                             {% else %}
-                                            <span class="status-badge pending">待审核</span>
+                                            <span class="status-badge pending">{{ translate('admin.pending') }}</span>
                                             {% endif %}
                                             </td>
                                             <td class="align-middle" style="padding: 14px 12px;">{{ item.approver.username if item.approver else '-' }}</td>
@@ -606,14 +606,14 @@
                                                                     class="btn btn-sm" 
                                                                     style="background-color: #f59e0b; color: white; border: none; white-space: nowrap;">
                                                                 <i class="bi bi-star" style="margin-right: 0.25rem;"></i>
-                                                                取消加精
+                                                                {{ translate('admin.unfeature') }}
                                                             </button>
                                                             {% else %}
                                                             <button type="submit" name="action" value="feature" 
                                                                     class="btn btn-sm" 
                                                                     style="background-color: #3b82f6; color: white; border: none; white-space: nowrap;">
                                                                 <i class="bi bi-star-fill" style="margin-right: 0.25rem;"></i>
-                                                                加精
+                                                                {{ translate('admin.feature') }}
                                                             </button>
                                                             {% endif %}
                                                         </form>
@@ -622,7 +622,7 @@
                                                     {% if item.task.html_approved != -1 %}
                                                     <form method="POST" action="{{ url_for('quickform.admin_review_html_action', task_id=item.task.id) }}" class="d-flex gap-2 align-items-center flex-wrap mt-1">
                                                         <input type="text" name="note" class="form-control form-control-sm" 
-                                                               placeholder="拒绝原因" required 
+                                                               placeholder="{{ translate('admin.reject_reason') }}" required 
                                                                style="min-width: 140px; max-width: 220px; flex: 1;">
                                                         <button type="submit" name="action" value="reject" 
                                                                 class="btn btn-sm flex-shrink-0" 
@@ -630,10 +630,10 @@
                                                                 onclick="
                                                                     const note = this.form.querySelector('input[name=\"note\"]').value;
                                                                     if (!note || note.trim() === '') {
-                                                                        alert('请输入拒绝原因');
+                                                                        alert('{{ translate('admin.input_reject_reason') }}');
                                                                         return false;
                                                                     }
-                                                                    return confirm('确定要拒绝该页面吗？');
+                                                                    return confirm('{{ translate('admin.confirm_reject_page') }}');
                                                                 ">
                                                             <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>
                                                             拒绝
@@ -654,7 +654,7 @@
                         <nav aria-label="HTML审核分页" class="mt-3">
                             <ul class="pagination justify-content-center">
                                 <li class="page-item {% if html_review_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page-1, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab='html-review', q=user_search if user_search else None) }}" aria-label="上一页">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page-1, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab='html-review', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
                                         <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
@@ -682,7 +682,7 @@
                                 {% endif %}
 
                                 <li class="page-item {% if html_review_page >= html_review_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page+1, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab=current_tab, q=user_search if user_search else None) }}" aria-label="下一页">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page+1, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab=current_tab, q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
                                         <span aria-hidden="true">&raquo;</span>
                                     </a>
                                 </li>
@@ -691,7 +691,7 @@
                         {% endif %}
                         {% else %}
                         <div class="text-center text-muted py-4">
-                            暂无需要审核的 HTML 页面。
+                            {{ translate('admin.no_pending_html') }} HTML 页面。
                         </div>
                         {% endif %}
                     </div>
@@ -713,8 +713,8 @@
                                     <ul>
                                         <li>任务标题：{{ item.task.title }}</li>
                                         <li>上传用户：{{ item.author.username if item.author else '未知' }}</li>
-                                        <li>用户邮箱：{{ item.author.email if item.author else '-' }}</li>
-                                        <li>用户学校：{{ item.author.school if item.author else '-' }}</li>
+                                        <li>{{ translate('admin.user_email') }}：{{ item.author.email if item.author else '-' }}</li>
+                                        <li>用户{{ translate('admin.school') }}：{{ item.author.school if item.author else '-' }}</li>
                                         <li>创建时间：{{ item.task.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.task.created_at else '-' }}</li>
                                     </ul>
                                 </div>
@@ -742,12 +742,12 @@
             <div class="tab-pane fade" id="cert-review" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">教师认证审核</h5>
+                        <h5 class="mb-0">{{ translate('admin.cert_audit') }}</h5>
                     </div>
                     <div class="card-body">
                         <p class="text-muted small mb-3">认证材料上传允许最大 16MB（PNG / JPG / PDF 等）。</p>
                         <div class="alert alert-primary mb-4">
-                            <strong>待审核教师认证：</strong> {{ pending_cert_count }}
+                            <strong>{{ translate('admin.pending_cert') }}：</strong> {{ pending_cert_count }}
                         </div>
                         {% if cert_requests %}
                         {% set has_pending_cert = (cert_requests | selectattr('status','equalto',0) | list | length) > 0 %}
@@ -756,14 +756,14 @@
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="certSelectAll" {% if not has_pending_cert %}disabled{% endif %}>
                                     <label class="form-check-label" for="certSelectAll">
-                                        全选当前列表
+                                        {{ translate('admin.select_all_list') }}
                                     </label>
                                 </div>
                                 <button type="submit" id="certBatchApproveBtn" class="btn btn-sm" 
                                         style="background-color: #10b981; color: white; border: none;"
                                         {% if not has_pending_cert %}disabled{% endif %}>
                                     <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
-                                    批量通过
+                                    {{ translate('admin.batch_pass') }}
                                 </button>
                             </div>
                             <div class="table-responsive">
@@ -771,14 +771,14 @@
                                     <thead>
                                         <tr>
                                             <th style="width: 40px;">选择</th>
-                                            <th>申请人</th>
-                                            <th>学校</th>
-                                            <th>提交时间</th>
-                                            <th>状态</th>
-                                            <th>审核时间</th>
-                                            <th>材料</th>
-                                            <th>审核备注</th>
-                                            <th style="width: 240px;">操作</th>
+                                            <th>{{ translate('admin.applicant') }}</th>
+                                            <th>{{ translate('admin.school') }}</th>
+                                            <th>{{ translate('common.submit') }}时间</th>
+                                            <th>{{ translate('admin.status') }}</th>
+                                            <th>{{ translate('admin.audit_time') }}</th>
+                                            <th>{{ translate('admin.materials') }}</th>
+                                            <th>{{ translate('admin.audit_note') }}</th>
+                                            <th style="width: 240px;">{{ translate('admin.actions') }}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -789,16 +789,16 @@
                                                 <input type="checkbox" class="form-check-input cert-check" name="request_ids" value="{{ req.id }}">
                                                 {% endif %}
                                             </td>
-                                            <td>{{ req.user.username if req.user else '未知用户' }}</td>
+                                            <td>{{ req.user.username if req.user else '{{ translate('admin.unknown_user') }}' }}</td>
                                             <td>{{ req.user.school if req.user else '-' }}</td>
                                             <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                             <td>
                                                 {% if req.status == 1 %}
-                                                <span class="status-badge featured">已通过</span>
+                                                <span class="status-badge featured">{{ translate('admin.passed') }}</span>
                                                 {% elif req.status == -1 %}
-                                                <span class="status-badge rejected">已拒绝</span>
+                                                <span class="status-badge rejected">{{ translate('admin.rejected') }}</span>
                                                 {% else %}
-                                                <span class="status-badge pending">待审核</span>
+                                                <span class="status-badge pending">{{ translate('admin.pending') }}</span>
                                                 {% endif %}
                                             </td>
                                             <td>
@@ -814,7 +814,7 @@
                                                    style="background-color: #2563eb; color: white; border: none; white-space: nowrap;"
                                                    href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank">
                                                     <i class="bi bi-eye" style="margin-right: 0.25rem;"></i>
-                                                    查看材料
+                                                    {{ translate('admin.view_materials') }}
                                                 </a>
                                                 {% else %}
                                                 -
@@ -859,7 +859,7 @@
                         <nav aria-label="认证审核分页" class="mt-3">
                             <ul class="pagination justify-content-center">
                                 <li class="page-item {% if cert_review_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=cert_review_page-1, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}" aria-label="上一页">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=cert_review_page-1, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
                                         <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
@@ -887,7 +887,7 @@
                                 {% endif %}
 
                                 <li class="page-item {% if cert_review_page >= cert_review_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=cert_review_page+1, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}" aria-label="下一页">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=cert_review_page+1, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
                                         <span aria-hidden="true">&raquo;</span>
                                     </a>
                                 </li>
@@ -896,7 +896,7 @@
                         {% endif %}
                         {% else %}
                         <div class="text-center text-muted py-4">
-                            暂无认证申请记录。
+                            {{ translate('admin.no_cert_records') }}。
                         </div>
                         {% endif %}
                     </div>
@@ -908,7 +908,7 @@
             <div class="tab-pane fade" id="data" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">数据统计报表</h5>
+                        <h5 class="mb-0">{{ translate('admin.export_data') }}报表</h5>
                     </div>
                     <div class="card-body">
                         <div class="row mb-4">
@@ -916,15 +916,15 @@
                                 <h6>用户统计</h6>
                                 <ul class="list-group">
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>管理员用户数：</span>
+                                        <span>{{ translate('admin.admin_users') }}：</span>
                                         <strong>{{ stats.admin_users }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>普通用户数：</span>
+                                        <span>{{ translate('admin.normal_users') }}：</span>
                                         <strong>{{ stats.normal_users }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>今日新注册：</span>
+                                        <span>{{ translate('admin.today_registers') }}：</span>
                                         <strong>{{ stats.new_users_today }}</strong>
                                     </li>
                                 </ul>
@@ -933,15 +933,15 @@
                                 <h6>任务统计</h6>
                                 <ul class="list-group">
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>总任务数：</span>
+                                        <span>{{ translate('admin.total_tasks') }}：</span>
                                         <strong>{{ stats.total_tasks }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>今日新增任务：</span>
+                                        <span>{{ translate('admin.today_tasks') }}：</span>
                                         <strong>{{ stats.new_tasks_today }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>平均每个用户任务数：</span>
+                                        <span>{{ translate('admin.avg_user_tasks') }}：</span>
                                         <strong>{{ "%.2f"|format(stats.avg_tasks_per_user) }}</strong>
                                     </li>
                                 </ul>
@@ -949,18 +949,18 @@
                         </div>
                         <div class="row mb-4">
                             <div class="col-md-6">
-                                <h6>提交统计</h6>
+                                <h6>{{ translate('common.submit') }}统计</h6>
                                 <ul class="list-group">
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>总提交数：</span>
+                                        <span>{{ translate('admin.total_submissions') }}：</span>
                                         <strong>{{ stats.total_submissions }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>今日新增提交：</span>
+                                        <span>{{ translate('admin.today_submissions') }}：</span>
                                         <strong>{{ stats.new_submissions_today }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>平均每个任务提交数：</span>
+                                        <span>{{ translate('admin.avg_task_submissions') }}：</span>
                                         <strong>{{ "%.2f"|format(stats.avg_submissions_per_task) }}</strong>
                                     </li>
                                 </ul>
@@ -969,15 +969,15 @@
                                 <h6>组织统计</h6>
                                 <ul class="list-group">
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>组织总数：</span>
+                                        <span>{{ translate('admin.total_organizations') }}：</span>
                                         <strong>{{ stats.total_organizations }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>组织成员总数：</span>
+                                        <span>{{ translate('admin.total_org_members') }}：</span>
                                         <strong>{{ stats.total_org_members }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>归属组织的任务数：</span>
+                                        <span>{{ translate('admin.org_tasks') }}：</span>
                                         <strong>{{ stats.tasks_in_organizations }}</strong>
                                     </li>
                                 </ul>
@@ -1005,23 +1005,23 @@
                                 <h6>其他统计</h6>
                                 <ul class="list-group">
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>已生成报告数：</span>
+                                        <span>{{ translate('admin.generated_reports') }}：</span>
                                         <strong>{{ stats.tasks_with_reports }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>报告生成率：</span>
+                                        <span>{{ translate('admin.report_gen_rate') }}：</span>
                                         <strong>{{ "%.1f"|format(stats.report_generation_rate) }}%</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>认证教师数：</span>
+                                        <span>{{ translate('admin.certified_teachers') }}：</span>
                                         <strong>{{ stats.certified_users }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>公开任务数：</span>
+                                        <span>{{ translate('admin.public_tasks') }}：</span>
                                         <strong>{{ stats.public_tasks }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>已审核公开任务数：</span>
+                                        <span>已审核{{ translate('admin.public_tasks') }}：</span>
                                         <strong>{{ stats.public_approved_tasks }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
@@ -1037,15 +1037,15 @@
                                         <strong>{{ stats.ai_generated_tasks }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>待审核认证申请：</span>
+                                        <span>{{ translate('admin.pending') }}认证申请：</span>
                                         <strong>{{ stats.cert_requests_pending }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>留言帖数：</span>
+                                        <span>{{ translate('admin.forum_posts') }}：</span>
                                         <strong>{{ stats.total_posts }}</strong>
                                     </li>
                                     <li class="list-group-item d-flex justify-content-between">
-                                        <span>留言回复数：</span>
+                                        <span>{{ translate('admin.forum_replies') }}：</span>
                                         <strong>{{ stats.total_post_replies }}</strong>
                                     </li>
                                 </ul>
@@ -1089,7 +1089,7 @@
         min-width: 800px;
     }
     
-    /* 操作列固定宽度 */
+    /* {{ translate('admin.actions') }}列固定宽度 */
     .table td:last-child {
         min-width: 100px !important;
     }
@@ -1253,7 +1253,7 @@
 
     // 教师认证单条拒绝：点击时再输入原因
     function handleCertReject(button) {
-        var reason = prompt('请输入拒绝原因（必填）：');
+        var reason = prompt('{{ translate('admin.input_reject_reason') }}（必填）：');
         if (reason === null) {
             return;
         }
@@ -1262,7 +1262,7 @@
             alert('拒绝原因不能为空');
             return;
         }
-        if (!confirm('确定要拒绝该认证申请吗？')) {
+        if (!confirm('{{ translate('admin.confirm_reject_cert') }}')) {
             return;
         }
         var form = button.closest('form');
@@ -1351,13 +1351,13 @@
                     <div class="modal-dialog">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <h5 class="modal-title">密码重置成功</h5>
+                                <h5 class="modal-title">{{ translate('admin.reset_pwd_success') }}</h5>
                                 <button type="button" class="btn-close" onclick="this.closest('.modal').remove()"></button>
                             </div>
                             <div class="modal-body">
-                                <p>用户 "${username}" 的密码已重置为：<strong>123456</strong></p>
+                                <p>用户 "${username}" {{ translate('admin.pwd_reset_to') }}：<strong>123456</strong></p>
                                 <div class="mb-3">
-                                    <label class="form-label">请复制以下信息：</label>
+                                    <label class="form-label">{{ translate('admin.copy_info') }}：</label>
                                     <textarea class="form-control" id="passwordInfo" rows="3" readonly>用户名：${username}
 密码：123456</textarea>
                                 </div>

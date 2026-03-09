@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}用户数据统计 - QuickForm管理后台{% endblock %}
+{% block title %}{{ translate('admin_stats.title') }}{% endblock %}
 
 {% block content %}
 <style>
@@ -403,16 +403,16 @@ const schoolData = {{ school_data|tojson }};
 // 初始化统计信息
 document.getElementById('total-schools').textContent = schoolData.length;
 
-// 计算省份数量（过滤掉未知等）
-const provinces = [...new Set(schoolData.map(item => item.province).filter(p => p && p !== '未知'))];
+// 计算省份数量（过滤掉{{ translate('admin_stats.unknown') }}等）
+const provinces = [...new Set(schoolData.map(item => item.province).filter(p => p && p !== '{{ translate('admin_stats.unknown') }}'))];
 document.getElementById('total-provinces').textContent = provinces.length;
 
 // 计算学校类型数量
 const schoolTypes = [...new Set(schoolData.map(item => item.type || '其他'))];
 document.getElementById('school-types').textContent = schoolTypes.length;
 
-// 计算城市数量（过滤掉未知等）
-const cities = [...new Set(schoolData.map(item => item.city).filter(c => c && c !== '未知'))];
+// 计算城市数量（过滤掉{{ translate('admin_stats.unknown') }}等）
+const cities = [...new Set(schoolData.map(item => item.city).filter(c => c && c !== '{{ translate('admin_stats.unknown') }}'))];
 document.getElementById('total-cities').textContent = cities.length;
 
 // 填充筛选器选项
@@ -421,7 +421,7 @@ const typeFilter = document.getElementById('type-filter');
 const cityFilter = document.getElementById('city-filter');
 
 provinces.sort().forEach(province => {
-    if (province && province !== '未知') {
+    if (province && province !== '{{ translate('admin_stats.unknown') }}') {
         const option = document.createElement('option');
         option.value = province;
         option.textContent = province;
@@ -439,7 +439,7 @@ schoolTypes.sort().forEach(type => {
 });
 
 cities.sort().forEach(city => {
-    if (city && city !== '未知') {
+    if (city && city !== '{{ translate('admin_stats.unknown') }}') {
         const option = document.createElement('option');
         option.value = city;
         option.textContent = city;
@@ -474,19 +474,19 @@ function renderTable() {
             const row = document.createElement('tr');
             
             const nameCell = document.createElement('td');
-            nameCell.textContent = school.name || '未知';
+            nameCell.textContent = school.name || '{{ translate('admin_stats.unknown') }}';
             row.appendChild(nameCell);
             
             const provinceCell = document.createElement('td');
-            provinceCell.textContent = school.province || '未知';
+            provinceCell.textContent = school.province || '{{ translate('admin_stats.unknown') }}';
             row.appendChild(provinceCell);
             
             const cityCell = document.createElement('td');
-            cityCell.textContent = school.city || '未知';
+            cityCell.textContent = school.city || '{{ translate('admin_stats.unknown') }}';
             row.appendChild(cityCell);
             
             const districtCell = document.createElement('td');
-            districtCell.textContent = school.district || '未知';
+            districtCell.textContent = school.district || '{{ translate('admin_stats.unknown') }}';
             row.appendChild(districtCell);
             
             const typeCell = document.createElement('td');
@@ -615,7 +615,7 @@ function initCharts() {
     const provinceSchoolCount = {};
     schoolData.forEach(school => {
         if (school.province && 
-            school.province !== "未知" && 
+            school.province !== "{{ translate('admin_stats.unknown') }}" && 
             school.province !== "海外" && 
             school.province !== "其他") {
             let province = school.province;

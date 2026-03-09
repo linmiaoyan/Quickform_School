@@ -150,10 +150,10 @@
                         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <h5 class="mb-0">{{ translate('smart_analyze.current_report') }}</h5>
                             <div class="btn-group btn-group-sm">
-                                <a href="{{ url_for('quickform.download_report', task_id=task.id) }}" class="btn btn-light btn-sm" title="图片（长报告自动分多张）">
+                                <a href="{{ url_for('quickform.download_report', task_id=task.id) }}" class="btn btn-light btn-sm" title="{{ translate('smart_analyze.download_pic') }}">
                                     <i class="bi bi-image"></i> 图片
                                 </a>
-                                <a href="{{ url_for('quickform.download_report', task_id=task.id, format='html') }}" class="btn btn-light btn-sm" title="HTML 文件">
+                                <a href="{{ url_for('quickform.download_report', task_id=task.id, format='html') }}" class="btn btn-light btn-sm" title="{{ translate('smart_analyze.download_html') }}">
                                     <i class="bi bi-file-earmark-code"></i> HTML
                                 </a>
                             </div>
@@ -173,37 +173,37 @@
                     <!-- 生成报告: 解读需求（统一配置界面） -->
                     <div class="card">
                         <div class="card-header bg-primary text-white">
-                            <h5 class="mb-0">生成报告：解读需求</h5>
+                            <h5 class="mb-0">{{ translate('smart_analyze.report_req_title') }}</h5>
                         </div>
                         <div class="card-body">
-                            <p class="text-muted mb-4">AI 会结合「接口描述 + 你补充的解读关注点 + 最近 1~3 条记录」先做润色，你确认后再生成 HTML 解读报告。</p>
+                            <p class="text-muted mb-4">{{ translate('smart_analyze.report_req_desc') }}</p>
                             
                             <form id="promptForm" action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" onsubmit="startProcessingOverlay()">
                                 <input type="hidden" name="action" value="generate">
                                 
                                 <!-- 数据范围 -->
                                 <div class="mb-4">
-                                    <label class="form-label fw-semibold">数据范围（仅分析选中范围内的数据）</label>
+                                    <label class="form-label fw-semibold">{{ translate('smart_analyze.data_range_label') }}</label>
                                     <div class="btn-group w-100" role="group">
                                         <input type="radio" class="btn-check" name="data_range" id="data_range_all" value="all" checked>
-                                        <label class="btn btn-outline-secondary" for="data_range_all">全部数据</label>
+                                        <label class="btn btn-outline-secondary" for="data_range_all">{{ translate('smart_analyze.data_range_all') }}</label>
                                         <input type="radio" class="btn-check" name="data_range" id="data_range_single" value="single_day">
-                                        <label class="btn btn-outline-secondary" for="data_range_single">单日</label>
+                                        <label class="btn btn-outline-secondary" for="data_range_single">{{ translate('smart_analyze.data_range_single') }}</label>
                                         <input type="radio" class="btn-check" name="data_range" id="data_range_interval" value="date_range">
-                                        <label class="btn btn-outline-secondary" for="data_range_interval">日期区间</label>
+                                        <label class="btn btn-outline-secondary" for="data_range_interval">{{ translate('smart_analyze.data_range_interval') }}</label>
                                     </div>
                                     <div id="data_range_extras" class="mt-2 d-none">
                                         <div id="single_day_input" class="d-none">
-                                            <label class="form-label small">选择日期</label>
+                                            <label class="form-label small">{{ translate('smart_analyze.select_date') }}</label>
                                             <input type="date" name="single_date" class="form-control form-control-sm" style="max-width: 200px;">
                                         </div>
                                         <div id="date_range_input" class="d-none row g-2">
                                             <div class="col-auto">
-                                                <label class="form-label small">开始日期</label>
+                                                <label class="form-label small">{{ translate('smart_analyze.start_date') }}</label>
                                                 <input type="date" name="date_start" class="form-control form-control-sm">
                                             </div>
                                             <div class="col-auto">
-                                                <label class="form-label small">结束日期</label>
+                                                <label class="form-label small">{{ translate('smart_analyze.end_date') }}</label>
                                                 <input type="date" name="date_end" class="form-control form-control-sm">
                                             </div>
                                         </div>
@@ -212,45 +212,45 @@
                                 
                                 <!-- 接口描述 -->
                                 <div class="mb-4">
-                                    <label for="interface_desc" class="form-label fw-semibold">接口描述（将作为背景信息参与生成）</label>
+                                    <label for="interface_desc" class="form-label fw-semibold">{{ translate('smart_analyze.interface_desc_label') }}</label>
                                     <textarea name="interface_desc" id="interface_desc" class="form-control" rows="3" placeholder="(空)">{{ task.description or '' }}</textarea>
                                 </div>
                                 
                                 <!-- 解读类型 + 优化轮次 -->
                                 <div class="row mb-4">
                                     <div class="col-md-6">
-                                        <label for="interpretation_type" class="form-label fw-semibold">解读类型</label>
+                                        <label for="interpretation_type" class="form-label fw-semibold">{{ translate('smart_analyze.interpretation_type') }}</label>
                                         <select name="interpretation_type" id="interpretation_type" class="form-select">
-                                            <option value="data_analysis" selected>数据分析</option>
-                                            <option value="summary">总结归纳</option>
-                                            <option value="trend">趋势预测</option>
+                                            <option value="data_analysis" selected>{{ translate('smart_analyze.type_data_analysis') }}</option>
+                                            <option value="summary">{{ translate('smart_analyze.type_summary') }}</option>
+                                            <option value="trend">{{ translate('smart_analyze.type_trend') }}</option>
                                         </select>
                                     </div>
                                     <div class="col-md-6">
-                                        <label for="optimization_rounds" class="form-label fw-semibold">优化轮次</label>
+                                        <label for="optimization_rounds" class="form-label fw-semibold">{{ translate('smart_analyze.opt_rounds') }}</label>
                                         <select name="optimization_rounds" id="optimization_rounds" class="form-select">
-                                            <option value="1" selected>1（推荐）</option>
+                                            <option value="1" selected>{{ translate('smart_analyze.opt_rounds_1') }}</option>
                                             <option value="2">2</option>
                                             <option value="3">3</option>
                                         </select>
-                                        <small class="form-text text-muted">轮次越多越慢；可用于多轮优化迭代。</small>
+                                        <small class="form-text text-muted">{{ translate('smart_analyze.opt_rounds_help') }}</small>
                                     </div>
                                 </div>
                                 
                                 <!-- 你的补充关注点 -->
                                 <div class="mb-4">
-                                    <label for="user_prompt_template" class="form-label fw-semibold">你的补充关注点（可选）</label>
-                                    <textarea name="user_prompt_template" id="user_prompt_template" class="form-control" rows="4" placeholder="例如：我想要分析一下各个题目的得分率情况">{{ user_prompt_template }}</textarea>
-                                    <small class="form-text text-muted">可填写你希望报告重点关注的方面，AI 将据此调整分析侧重。</small>
+                                    <label for="user_prompt_template" class="form-label fw-semibold">{{ translate('smart_analyze.focus_points') }}</label>
+                                    <textarea name="user_prompt_template" id="user_prompt_template" class="form-control" rows="4" placeholder="{{ translate('smart_analyze.focus_placeholder') }}">{{ user_prompt_template }}</textarea>
+                                    <small class="form-text text-muted">{{ translate('smart_analyze.focus_hint') }}</small>
                                 </div>
                                 
                                 <!-- 高级：完整提示词（可折叠） -->
                                 <div class="mb-4">
                                     <button type="button" class="btn btn-link p-0 text-secondary" data-bs-toggle="collapse" data-bs-target="#advancedPromptSection" aria-expanded="false">
-                                        <i class="bi bi-chevron-down"></i> 高级：编辑完整提示词
+                                        <i class="bi bi-chevron-down"></i> {{ translate('smart_analyze.advanced_edit_full') }}
                                     </button>
                                     <div class="collapse mt-2" id="advancedPromptSection">
-                                        <label for="custom_prompt" class="form-label small">完整提示词（由上方配置自动生成，也可手动编辑）</label>
+                                        <label for="custom_prompt" class="form-label small">{{ translate('smart_analyze.full_prompt_label') }}</label>
                                         <textarea name="custom_prompt" id="custom_prompt" class="form-control" rows="10" style="font-family: monospace; font-size: 13px;">{{ preview_prompt }}</textarea>
                                     </div>
                                 </div>
@@ -259,7 +259,7 @@
                                 <div class="d-flex justify-content-end gap-2">
                                     <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-secondary">{{ translate('common.cancel') }}</a>
                                     <button type="submit" class="btn btn-primary btn-lg">
-                                        <i class="bi bi-magic"></i> AI 润色并预览
+                                        <i class="bi bi-magic"></i> {{ translate('smart_analyze.ai_polish_preview') }}
                                     </button>
                                 </div>
                                 <p class="text-center text-muted mt-2 small">{{ translate('smart_analyze.wait_tip') }}</p>

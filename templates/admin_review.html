@@ -1,40 +1,40 @@
 {% extends 'base.html' %}
 
-{% block title %}审核中心 - QuickForm{% endblock %}
+{% block title %}{{ translate('admin.audit_center', '{{ translate('admin.audit') }}中心') }} - QuickForm{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-md-12">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2 class="mb-0">审核中心</h2>
-            <a href="{{ url_for('quickform.admin_panel') }}" class="btn btn-secondary">返回管理面板</a>
+            <h2 class="mb-0">{{ translate('admin.audit_center', '{{ translate('admin.audit') }}中心') }}</h2>
+            <a href="{{ url_for('quickform.admin_panel') }}" class="btn btn-secondary">{{ translate('admin.back_to_panel') }}</a>
         </div>
 
         <ul class="nav nav-tabs mb-4">
             <li class="nav-item">
-                <a class="nav-link active text-dark" aria-current="page" href="javascript:void(0);">审核</a>
+                <a class="nav-link active text-dark" aria-current="page" href="javascript:void(0);">{{ translate('admin.audit') }}</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link text-dark" href="{{ url_for('quickform.admin_panel') }}">管理员面板</a>
+                <a class="nav-link text-dark" href="{{ url_for('quickform.admin_panel') }}">{{ translate('admin.title') }}</a>
             </li>
         </ul>
 
         <div class="row g-3 mb-4">
             <div class="col-md-6">
                 <div class="alert alert-info mb-0">
-                    <strong>待审核 HTML 页面：</strong> {{ pending_html_count }}
+                    <strong>待{{ translate('admin.audit') }} HTML 页面：</strong> {{ pending_html_count }}
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="alert alert-primary mb-0">
-                    <strong>待审核教师认证：</strong> {{ pending_cert_count }}
+                    <strong>待{{ translate('admin.audit') }}教师认证：</strong> {{ pending_cert_count }}
                 </div>
             </div>
         </div>
 
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0">HTML 页面审核</h5>
+                <h5 class="mb-0">HTML 页面{{ translate('admin.audit') }}</h5>
             </div>
             <div class="card-body">
                 {% if tasks_with_review %}
@@ -44,24 +44,24 @@
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" value="" id="selectAllTasks" {% if not has_pending %}disabled{% endif %}>
                             <label class="form-check-label" for="selectAllTasks">
-                                全选当前列表
+                                {{ translate('admin.select_all_list') }}
                             </label>
                         </div>
-                        <button type="submit" id="batchApproveBtn" class="btn btn-success btn-sm" {% if not has_pending %}disabled{% endif %}>批量通过</button>
+                        <button type="submit" id="batchApproveBtn" class="btn btn-success btn-sm" {% if not has_pending %}disabled{% endif %}>{{ translate('admin.batch_pass') }}</button>
                     </div>
                     <div class="table-responsive">
                         <table class="table table-striped align-middle">
                             <thead>
                                 <tr>
-                                    <th scope="col" style="width: 40px;">选择</th>
-                                    <th>任务ID</th>
-                                    <th>任务标题</th>
-                                    <th>上传用户</th>
-                                    <th>文件名</th>
-                                    <th>审核状态</th>
-                                    <th>审核人</th>
-                                    <th>审核时间</th>
-                                    <th>操作</th>
+                                    <th scope="col" style="width: 40px;">{{ translate('admin.select') }}</th>
+                                    <th>{{ translate('admin.task_id') }}</th>
+                                    <th>{{ translate('admin.task_title') }}</th>
+                                    <th>{{ translate('admin.html_uploader') }}</th>
+                                    <th>{{ translate('admin.html_file_name') }}</th>
+                                    <th>{{ translate('admin.audit') }}{{ translate('admin.status') }}</th>
+                                    <th>{{ translate('admin.audit') }}人</th>
+                                    <th>{{ translate('admin.audit') }}时间</th>
+                                    <th>{{ translate('admin.actions') }}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -77,7 +77,7 @@
                                     <td>
                                         {{ item.author.username if item.author else '未知' }}
                                         {% if item.author and item.author.is_certified %}
-                                        <span class="badge bg-success ms-1">已认证</span>
+                                        <span class="badge bg-success ms-1">{{ translate('admin.certified') }}</span>
                                         {% endif %}
                                     </td>
                                     <td>
@@ -92,11 +92,11 @@
                                     </td>
                                     <td>
                                         {% if item.task.html_approved == 1 %}
-                                        <span class="badge bg-success">已通过</span>
+                                        <span class="badge bg-success">{{ translate('admin.passed') }}</span>
                                         {% elif item.task.html_approved == -1 %}
-                                        <span class="badge bg-danger">已拒绝</span>
+                                        <span class="badge bg-danger">{{ translate('admin.rejected') }}</span>
                                         {% else %}
-                                        <span class="badge bg-warning text-dark">待审核</span>
+                                        <span class="badge bg-warning text-dark">待{{ translate('admin.audit') }}</span>
                                         {% endif %}
                                     </td>
                                     <td>{{ item.approver.username if item.approver else '-' }}</td>
@@ -109,14 +109,14 @@
                                                 </button>
                                                 {% if item.task.html_approved != 1 %}
                                                 <form method="POST" action="{{ url_for('quickform.admin_review_html_action', task_id=item.task.id) }}" class="d-inline">
-                                                    <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">通过</button>
+                                                    <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">{{ translate('admin.pass') }}</button>
                                                 </form>
                                                 {% endif %}
                                             </div>
                                             {% if item.task.html_approved != -1 %}
                                             <form method="POST" action="{{ url_for('quickform.admin_review_html_action', task_id=item.task.id) }}" class="d-flex gap-2 align-items-center">
-                                                <input type="text" name="note" class="form-control form-control-sm" placeholder="拒绝原因" required>
-                                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" onclick="return confirm('确定要拒绝该页面吗？')">拒绝</button>
+                                                <input type="text" name="note" class="form-control form-control-sm" placeholder="{{ translate('admin.reject_reason') }}" required>
+                                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" onclick="return confirm('{{ translate('admin.confirm_reject_page') }}')">{{ translate('admin.reject') }}</button>
                                             </form>
                                             {% endif %}
                                         </div>
@@ -129,7 +129,7 @@
                 </form>
                 {% else %}
                 <div class="text-center text-muted py-4">
-                    暂无需要审核的 HTML 页面。
+                    暂无需要{{ translate('admin.audit') }}的 HTML 页面。
                 </div>
                 {% endif %}
             </div>
@@ -137,7 +137,7 @@
 
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0">教师认证审核</h5>
+                <h5 class="mb-0">教师认证{{ translate('admin.audit') }}</h5>
             </div>
             <div class="card-body">
                 {% if cert_requests %}
@@ -145,29 +145,29 @@
                     <table class="table table-striped align-middle">
                         <thead>
                             <tr>
-                                <th>申请人</th>
-                                <th>学校</th>
-                                <th>提交时间</th>
-                                <th>状态</th>
-                                <th>审核时间</th>
-                                <th>材料</th>
-                                <th>审核备注</th>
-                                <th style="width: 220px;">操作</th>
+                                <th>{{ translate('admin.applicant') }}</th>
+                                <th>{{ translate('admin.school') }}</th>
+                                <th>{{ translate('admin.submit_time') }}</th>
+                                <th>{{ translate('admin.status') }}</th>
+                                <th>{{ translate('admin.audit') }}时间</th>
+                                <th>{{ translate('admin.materials') }}</th>
+                                <th>{{ translate('admin.audit') }}备注</th>
+                                <th style="width: 220px;">{{ translate('admin.actions') }}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for req in cert_requests %}
                             <tr>
-                                <td>{{ req.user.username if req.user else '未知用户' }}</td>
+                                <td>{{ req.user.username if req.user else '{{ translate('admin.unknown_user') }}' }}</td>
                                 <td>{{ req.user.school if req.user else '-' }}</td>
                                 <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                 <td>
                                     {% if req.status == 1 %}
-                                    <span class="badge bg-success">已通过</span>
+                                    <span class="badge bg-success">{{ translate('admin.passed') }}</span>
                                     {% elif req.status == -1 %}
-                                    <span class="badge bg-danger">已拒绝</span>
+                                    <span class="badge bg-danger">{{ translate('admin.rejected') }}</span>
                                     {% else %}
-                                    <span class="badge bg-warning text-dark">待审核</span>
+                                    <span class="badge bg-warning text-dark">待{{ translate('admin.audit') }}</span>
                                     {% endif %}
                                 </td>
                                 <td>
@@ -179,7 +179,7 @@
                                 </td>
                                 <td>
                                     {% if req.file_path %}
-                                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank">查看材料</a>
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank">查看{{ translate('admin.materials') }}</a>
                                     {% else %}
                                     -
                                     {% endif %}
@@ -190,8 +190,8 @@
                                     <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center">
                                         <input type="text" class="form-control form-control-sm" name="note" placeholder="备注（可选）">
                                         <div class="btn-group">
-                                            <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">通过</button>
-                                            <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" onclick="return confirm('确定要拒绝该认证申请吗？')">拒绝</button>
+                                            <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">{{ translate('admin.pass') }}</button>
+                                            <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" onclick="return confirm('{{ translate('admin.confirm_reject_cert') }}')">{{ translate('admin.reject') }}</button>
                                         </div>
                                     </form>
                                     {% else %}
@@ -226,10 +226,10 @@
                 <div class="mb-3">
                     <strong>任务信息：</strong>
                     <ul>
-                        <li>任务标题：{{ item.task.title }}</li>
-                        <li>上传用户：{{ item.author.username if item.author else '未知' }}</li>
+                        <li>{{ translate('admin.task_title') }}：{{ item.task.title }}</li>
+                        <li>{{ translate('admin.html_uploader') }}：{{ item.author.username if item.author else '未知' }}</li>
                         <li>用户邮箱：{{ item.author.email if item.author else '-' }}</li>
-                        <li>用户学校：{{ item.author.school if item.author else '-' }}</li>
+                        <li>用户{{ translate('admin.school') }}：{{ item.author.school if item.author else '-' }}</li>
                         <li>创建时间：{{ item.task.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.task.created_at else '-' }}</li>
                     </ul>
                 </div>

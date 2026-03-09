@@ -297,12 +297,12 @@
             
             <!-- 项目展示：公开项目（最新发布、最高点赞）带分页 -->
             <section class="mb-5">
-                <h3 class="mb-3"><i class="bi bi-collection-play"></i> 项目展示</h3>
-                <p class="text-muted mb-3">公开项目所有人可浏览，登录用户可点赞。未注册用户也可点进查看，但无分析和导出功能。</p>
+                <h3 class="mb-3"><i class="bi bi-collection-play"></i> {{ translate('community.projects') }}</h3>
+                <p class="text-muted mb-3">{{ translate('community.projects_desc') }}</p>
                 <div class="row g-4">
                     <div class="col-md-6">
                         <div class="community-projects-section">
-                            <h5><i class="bi bi-clock-history text-primary"></i> 最新发布</h5>
+                            <h5><i class="bi bi-clock-history text-primary"></i> {{ translate('community.latest') }}</h5>
                             {% if public_tasks_latest and public_tasks_latest|length > 0 %}
                             <div class="d-flex flex-column gap-2">
                                 {% for t in public_tasks_latest %}
@@ -321,7 +321,7 @@
                             </div>
                             {% if pagination_latest.pages > 1 %}
                             <nav class="community-pagination" aria-label="最新发布分页">
-                                <span class="pagination-info">共 {{ pagination_latest.total }} 个，第 {{ pagination_latest.page }}/{{ pagination_latest.pages }} 页</span>
+                                <span class="pagination-info">{{ translate('community.total_items').format(total=pagination_latest.total) }}，{{ translate('community.page_info').format(current=pagination_latest.page, total=pagination_latest.pages) }}</span>
                                 <ul class="pagination pagination-sm mb-0">
                                     <li class="page-item {% if pagination_latest.page <= 1 %}disabled{% endif %}">
                                         <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page - 1, liked_page=pagination_liked.page, post_page=pagination_posts.page, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">&laquo;</a>
@@ -334,13 +334,13 @@
                             </nav>
                             {% endif %}
                             {% else %}
-                            <p class="text-muted small mb-0">暂无公开项目</p>
+                            <p class="text-muted small mb-0">{{ translate('community.no_public_projects') }}</p>
                             {% endif %}
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="community-projects-section">
-                            <h5><i class="bi bi-heart-fill text-danger"></i> 最高点赞</h5>
+                            <h5><i class="bi bi-heart-fill text-danger"></i> {{ translate('community.liked') }}</h5>
                             {% if public_tasks_liked and public_tasks_liked|length > 0 %}
                             <div class="d-flex flex-column gap-2">
                                 {% for t in public_tasks_liked %}
@@ -359,7 +359,7 @@
                             </div>
                             {% if pagination_liked.pages > 1 %}
                             <nav class="community-pagination" aria-label="最高点赞分页">
-                                <span class="pagination-info">共 {{ pagination_liked.total }} 个，第 {{ pagination_liked.page }}/{{ pagination_liked.pages }} 页</span>
+                                <span class="pagination-info">{{ translate('community.total_items').format(total=pagination_liked.total) }}，{{ translate('community.page_info').format(current=pagination_liked.page, total=pagination_liked.pages) }}</span>
                                 <ul class="pagination pagination-sm mb-0">
                                     <li class="page-item {% if pagination_liked.page <= 1 %}disabled{% endif %}">
                                         <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page - 1, post_page=pagination_posts.page, per_project=pagination_liked.per_page, per_post=pagination_posts.per_page) }}">&laquo;</a>
@@ -372,7 +372,7 @@
                             </nav>
                             {% endif %}
                             {% else %}
-                            <p class="text-muted small mb-0">暂无公开项目</p>
+                            <p class="text-muted small mb-0">{{ translate('community.no_public_projects') }}</p>
                             {% endif %}
                         </div>
                     </div>
@@ -383,12 +383,12 @@
             <div class="issue-collector">
                 <div class="issue-collector-content">
                     <div class="issue-collector-text">
-                        <h4>QuickForm问题收集表</h4>
-                        <p>遇到问题或有建议？点击按钮填写问题收集表，我们会及时处理您的反馈。</p>
+                        <h4>{{ translate('community.issue_collector') }}</h4>
+                        <p>{{ translate('community.issue_desc') }}</p>
                     </div>
                     <div class="issue-collector-link">
                         <a href="https://my.feishu.cn/share/base/form/shrcnjrq5ereC86wol8HmRzQyue" target="_blank" class="btn">
-                            <i class="bi bi-box-arrow-up-right"></i> 填写问题收集表
+                            <i class="bi bi-box-arrow-up-right"></i> {{ translate('community.fill_issue_form') }}
                         </a>
                     </div>
                 </div>
@@ -397,34 +397,34 @@
             <!-- 留言表单 -->
             {% if current_user.is_authenticated %}
             <div class="post-form">
-                <h3 class="mb-3">发表留言</h3>
+                <h3 class="mb-3">{{ translate('community.leave_message') }}</h3>
                 <form method="POST" action="{{ url_for('quickform.create_post') }}">
                     <div class="mb-3">
-                        <label for="content" class="form-label">留言内容</label>
+                        <label for="content" class="form-label">{{ translate('community.message_content') }}</label>
                         <textarea 
                             class="form-control" 
                             id="content" 
                             name="content" 
                             rows="5" 
-                            placeholder="请输入您的留言或问题..." 
+                            placeholder="{{ translate('community.message_placeholder') }}" 
                             required
                             maxlength="2000"></textarea>
-                        <small class="text-muted">最多2000字符</small>
+                        <small class="text-muted">{{ translate('community.max_chars') }}</small>
                     </div>
-                    <button type="submit" class="btn btn-primary">发布留言</button>
+                    <button type="submit" class="btn btn-primary">{{ translate('community.post_btn') }}</button>
                 </form>
             </div>
             {% else %}
             <div class="alert alert-info">
-                请先 <a href="{{ url_for('quickform.login') }}">登录</a> 后发表留言
+                {{ translate('community.login_to_post') }} <a href="{{ url_for('quickform.login') }}">{{ translate('nav.login') }}</a> {{ translate('community.login_to_post_2') }}
             </div>
             {% endif %}
             
             <!-- 留言列表（提问 + 回答）带分页 -->
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-                <h3 class="mb-0">留言列表</h3>
+                <h3 class="mb-0">{{ translate('community.message_list') }}</h3>
                 {% if pagination_posts.total > 0 %}
-                <span class="text-muted small">共 {{ pagination_posts.total }} 条</span>
+                <span class="text-muted small">{{ translate('community.total_messages').format(total=pagination_posts.total) }}</span>
                 {% endif %}
             </div>
             {% if posts and posts|length > 0 %}
@@ -432,7 +432,7 @@
                 <div class="post-item">
                     <div class="post-header">
                         <div>
-                            <span class="post-badge">提问</span>
+                            <span class="post-badge">{{ translate('community.question') }}</span>
                             <span class="post-author">{{ post.user.username }}</span>
                             {% if post.user.school %}
                                 <span class="text-muted" style="font-size: 0.875rem; margin-left: 0.5rem;">{{ post.user.school }}</span>
@@ -442,7 +442,7 @@
                             <span class="post-time">{{ post.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
                             {% if current_user.is_authenticated and current_user.is_admin() %}
                             <form method="POST" action="{{ url_for('quickform.delete_post', post_id=post.id) }}" style="display: inline; margin-left: 1rem;">
-                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('确定要删除这条留言吗？')">删除</button>
+                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('{{ translate('community.confirm_delete_post') }}')">{{ translate('common.delete') }}</button>
                             </form>
                             {% endif %}
                         </div>
@@ -455,7 +455,7 @@
                         <div class="reply-item">
                             <div class="reply-header">
                                 <div>
-                                    <span class="reply-badge">回答</span>
+                                    <span class="reply-badge">{{ translate('community.answer') }}</span>
                                     <span class="reply-author">{{ reply.user.username }}</span>
                                     {% if reply.user.school %}
                                         <span class="text-muted" style="font-size: 0.8rem; margin-left: 0.25rem;">{{ reply.user.school }}</span>
@@ -465,7 +465,7 @@
                                     <span class="reply-time">{{ reply.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
                                     {% if current_user.is_authenticated and current_user.is_admin() %}
                                     <form method="POST" action="{{ url_for('quickform.delete_reply', reply_id=reply.id) }}" style="display: inline; margin-left: 0.5rem;">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('确定要删除这条回复吗？')">删除</button>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('{{ translate('community.confirm_delete_reply') }}')">{{ translate('common.delete') }}</button>
                                     </form>
                                     {% endif %}
                                 </div>
@@ -479,17 +479,17 @@
                     {% if current_user.is_authenticated %}
                     <div class="mt-2">
                         <button type="button" class="btn btn-sm btn-outline-primary" onclick="toggleReplyForm({{ post.id }})">
-                            <i class="bi bi-reply"></i> 回复
+                            <i class="bi bi-reply"></i> {{ translate('community.reply_btn') }}
                         </button>
                     </div>
                     <div class="reply-form mt-2 d-none" id="reply-form-{{ post.id }}">
                         <form method="POST" action="{{ url_for('quickform.create_reply', post_id=post.id) }}">
                             <div class="mb-2">
-                                <label for="reply-content-{{ post.id }}" class="form-label small text-muted">回复这条留言</label>
-                                <textarea class="form-control form-control-sm" id="reply-content-{{ post.id }}" name="content" rows="2" placeholder="写下你的回答..." maxlength="2000" required></textarea>
-                                <small class="text-muted">最多2000字符</small>
+                                <label for="reply-content-{{ post.id }}" class="form-label small text-muted">{{ translate('community.reply_content') }}</label>
+                                <textarea class="form-control form-control-sm" id="reply-content-{{ post.id }}" name="content" rows="2" placeholder="{{ translate('community.message_placeholder') }}" maxlength="2000" required></textarea>
+                                <small class="text-muted">{{ translate('community.max_chars') }}</small>
                             </div>
-                            <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-send"></i> 提交回复</button>
+                            <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-send"></i> {{ translate('community.submit_reply') }}</button>
                         </form>
                     </div>
                     {% endif %}
@@ -497,13 +497,13 @@
                 {% endfor %}
                 {% if pagination_posts.pages > 1 %}
                 <nav class="community-pagination mt-4" aria-label="留言列表分页">
-                    <span class="pagination-info">第 {{ pagination_posts.page }}/{{ pagination_posts.pages }} 页</span>
+                    <span class="pagination-info">{{ translate('community.page_info').format(current=pagination_posts.page, total=pagination_posts.pages) }}</span>
                     <ul class="pagination pagination-sm mb-0">
                         <li class="page-item {% if pagination_posts.page <= 1 %}disabled{% endif %}">
-                            <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page, post_page=pagination_posts.page - 1, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">&laquo; 上一页</a>
+                            <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page, post_page=pagination_posts.page - 1, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">&laquo; {{ translate('task_detail.prev_page') }}</a>
                         </li>
                         <li class="page-item {% if pagination_posts.page >= pagination_posts.pages %}disabled{% endif %}">
-                            <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page, post_page=pagination_posts.page + 1, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">下一页 &raquo;</a>
+                            <a class="page-link" href="{{ url_for('quickform.community', latest_page=pagination_latest.page, liked_page=pagination_liked.page, post_page=pagination_posts.page + 1, per_project=pagination_latest.per_page, per_post=pagination_posts.per_page) }}">{{ translate('task_detail.next_page') }} &raquo;</a>
                         </li>
                     </ul>
                 </nav>

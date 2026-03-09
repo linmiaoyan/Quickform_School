@@ -29,10 +29,10 @@ for img_name, img_path in image_files.items():
         # 读取图片文件
         with open(img_path, 'rb') as img_file:
             img_data = img_file.read()
-            # 转换为base64
+            # 转换为base64！！！！！！！！！！！！！！！！！
             img_base64 = base64.b64encode(img_data).decode('utf-8')
             
-            # 确定MIME类型
+            # 确定MIME类型（用来告诉接收方如何处理数据）
             if img_path.lower().endswith('.png'):
                 mime_type = 'image/png'
             elif img_path.lower().endswith('.jpg') or img_path.lower().endswith('.jpeg'):
