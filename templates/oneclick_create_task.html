@@ -3,6 +3,16 @@
 {% block title %}{{ translate('oneclick.title') }} - QuickForm{% endblock %}
 
 {% block content %}
+<!-- 加载遮罩：与数据分析页相同的样式与逻辑。必须放在最外层，避免被.card的hover transform影响导致闪烁 -->
+<div id="processingOverlay" style="display:none; position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 9999;">
+    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); text-align:center;">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+        <h5 class="mt-3" id="processingTitle">{{ translate('oneclick.generating') }}</h5>
+        <p class="text-muted" id="processingTip">{{ translate('oneclick.generating_tip') }}</p>
+        <p class="mt-2 text-muted small">{{ translate('oneclick.elapsed') }} <span id="elapsedSeconds">0</span> {{ translate('oneclick.seconds') }}</p>
+    </div>
+</div>
+
 <div class="row justify-content-center">
     <div class="col-md-8">
         <div class="card">
@@ -12,15 +22,6 @@
                 </h3>
             </div>
             <div class="card-body">
-                <!-- 加载遮罩：与数据分析页相同的样式与逻辑 -->
-                <div id="processingOverlay" style="display:none; position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 2000;">
-                    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); text-align:center;">
-                        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
-                        <h5 class="mt-3" id="processingTitle">{{ translate('oneclick.generating') }}</h5>
-                        <p class="text-muted" id="processingTip">{{ translate('oneclick.generating_tip') }}</p>
-                        <p class="mt-2 text-muted small">{{ translate('oneclick.elapsed') }} <span id="elapsedSeconds">0</span> {{ translate('oneclick.seconds') }}</p>
-                    </div>
-                </div>
                 <div class="alert alert-warning mb-4">
                     <strong>{{ translate('oneclick.notice') }}</strong>{{ translate('oneclick.notice_text') }}
                     <a href="{{ url_for('quickform.profile') }}">{{ translate('oneclick.profile_link') }}</a>
