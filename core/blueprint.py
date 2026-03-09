@@ -980,15 +980,16 @@ def oneclick_create_task():
         task = Task(title=title, description='', user_id=current_user.id, sharing_type='private')
         db.add(task)
         db.flush()
+        new_task_pk = task.id  # 用于成功后跳转任务详情（避免 commit 后 session 状态影响）
         api_base = (request.host_url or request.url_root or '').rstrip('/')
         api_url = f"{api_base}/api/{task.task_id}"
-        # 拼接用户需求与勾选说明，作为发给 AI 的完整提示词
+        # 拼接用户需求与勾选说明，作为发给 AI 的完整提示词（仅 full_prompt 用于生成，不入库）
         lines = [requirements]
         for key, _label, text in ONECLICK_PROMPT_OPTIONS:
             if request.form.get(key) == 'on':
                 lines.append(text.replace('API地址', api_url))
         full_prompt = '\n\n'.join(lines)
-        task.description = full_prompt  # 一键生成：将提示词作为项目简介
+        task.description = requirements  # 任务描述只存用户输入的那段，不包含勾选的预设说明
         # 获取用户 AI 配置。一键内测优先用用户自己在个人中心配置的 API；未配置时直接使用您提供的 API（环境变量 CHAT_SERVER_API_TOKEN）
         ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
         if not ai_config:
@@ -1024,7 +1025,7 @@ def oneclick_create_task():
             task.html_approved = 0
         db.commit()
         flash('任务已创建，HTML 已生成并上传。您可在任务详情中查看或继续修改（剩余 3 次）。', 'success')
-        return redirect(url_for('quickform.task_detail', task_id=task.id))
+        return redirect(url_for('quickform.task_detail', task_id=new_task_pk))
     except Exception as e:
         db.rollback()
         logger.exception("一键创建任务失败")
