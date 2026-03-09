@@ -3153,6 +3153,7 @@ def admin_panel():
             .outerjoin(Task, Task.organization_id == Organization.id)
             .group_by(Organization.id)
             .order_by(func.count(Task.id).desc())
+            .limit(5)
             .all()
         )
         # 认证与公开
