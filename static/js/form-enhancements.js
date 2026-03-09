@@ -293,12 +293,12 @@
             controls.appendChild(resetBtn);
 
             wrapper.appendChild(controls);
-            tableContainer.appendChild(table);
             wrapper.appendChild(tableContainer);
-
-            // 替换原表格
+            
+            // 将 wrapper 插入到 table 之前
             table.parentNode.insertBefore(wrapper, table);
-            table.parentNode.removeChild(table);
+            // 将 table 移动到 container 内 (appendChild 会自动将元素从原位置移除)
+            tableContainer.appendChild(table);
 
             // 初始化缩放
             this.updateZoom(tableContainer, 100, zoomDisplay, zoomOutBtn, zoomInBtn);
