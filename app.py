@@ -69,6 +69,9 @@ app.config['REMEMBER_COOKIE_SECURE'] = os.getenv('REMEMBER_COOKIE_SECURE', 'true
 # 不设置 REMEMBER_COOKIE_DOMAIN，保持仅当前主机，避免子域共用导致看到别人账号
 # 会话保护：strong 会在 User-Agent/IP 变化时要求重新登录，降低共用电脑时的误用
 
+# 一键内测 / 硅基流动：用户未在个人中心配置时，使用此处提供的 API（环境变量 CHAT_SERVER_API_TOKEN）
+app.config['CHAT_SERVER_API_TOKEN'] = os.getenv('CHAT_SERVER_API_TOKEN', '')
+
 # 邮件发送配置（用于邮箱验证码）
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.163.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', '587'))

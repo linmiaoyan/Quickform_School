@@ -989,16 +989,14 @@ def oneclick_create_task():
                 lines.append(text.replace('API地址', api_url))
         full_prompt = '\n\n'.join(lines)
         task.description = full_prompt  # 一键生成：将提示词作为项目简介
-        # 获取用户 AI 配置
+        # 获取用户 AI 配置。一键内测优先用用户自己在个人中心配置的 API；未配置时直接使用您提供的 API（环境变量 CHAT_SERVER_API_TOKEN）
         ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
         if not ai_config:
-            db.rollback()
-            flash('请先在个人中心配置 AI 模型和 API 密钥后再使用一键生成。', 'danger')
-            return redirect(url_for('quickform.oneclick_create_task'))
-        if ai_config.selected_model == 'chat_server' and not (ai_config.chat_server_api_token or '').strip():
-            db.rollback()
-            flash('请先在个人中心配置硅基流动 API Token。', 'danger')
-            return redirect(url_for('quickform.oneclick_create_task'))
+            # 用户从未保存过配置：用 chat_server + 空 Token，call_ai_model 会回退到环境变量 CHAT_SERVER_API_TOKEN
+            ai_config = AIConfig(user_id=current_user.id, selected_model='chat_server')
+        elif ai_config.selected_model == 'chat_server' and not (ai_config.chat_server_api_token or '').strip():
+            # 用户选了硅基流动但未填 Token：同样回退到环境变量，无需提醒
+            pass
         try:
             html_content = generate_html_page_from_prompt(full_prompt, call_ai_model, ai_config)
         except Exception as e:
