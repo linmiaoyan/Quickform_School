@@ -168,8 +168,8 @@
                                         <td style="white-space: nowrap;">{{ user.id }}</td>
                                         <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.username }}">{{ user.username }}</td>
                                         <td style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.email }}">{{ user.email }}</td>
-                                        <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.school or '{{ translate('admin.not_filled') }}' }}">{{ user.school or '{{ translate('admin.not_filled') }}' }}</td>
-                                        <td style="white-space: nowrap;">{{ user.phone or '{{ translate('admin.not_filled') }}' }}</td>
+                                        <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.school or translate('admin.not_filled') }}">{{ user.school or translate('admin.not_filled') }}</td>
+                                        <td style="white-space: nowrap;">{{ user.phone or translate('admin.not_filled') }}</td>
                                         <td>
                                             <span class="badge {% if user.role == 'admin' %}bg-danger{% else %}bg-secondary{% endif %}">
                                                 {% if user.role == 'admin' %}{{ translate('admin.admin_role') }}{% else %}{{ translate('admin.user_role') }}{% endif %}
@@ -789,7 +789,7 @@
                                                 <input type="checkbox" class="form-check-input cert-check" name="request_ids" value="{{ req.id }}">
                                                 {% endif %}
                                             </td>
-                                            <td>{{ req.user.username if req.user else '{{ translate('admin.unknown_user') }}' }}</td>
+                                            <td>{{ req.user.username if req.user else translate('admin.unknown_user') }}</td>
                                             <td>{{ req.user.school if req.user else '-' }}</td>
                                             <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                             <td>

@@ -37,7 +37,7 @@
                         <tbody>
                             {% for req in cert_requests %}
                             <tr>
-                                <td>{{ req.user.username if req.user else '{{ translate('admin.unknown_user') }}' }}</td>
+                                <td>{{ req.user.username if req.user else translate('admin.unknown_user') }}</td>
                                 <td>{{ req.user.school if req.user else '-' }}</td>
                                 <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                 <td>
