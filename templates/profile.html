@@ -205,10 +205,11 @@
                             </div>
                             
                             <button type="submit" class="btn btn-success mt-4">{{ translate('profile.save_config') }}</button>
+                        </form>
 
-                            <!-- 恢复默认配置按钮 -->
+                            <!-- 恢复默认配置按钮（独立表单，避免与上方「保存配置」同表单导致误触发恢复默认） -->
                             <div class="mt-3">
-                                <form method="POST" action="{{ url_for('quickform.profile') }}" onsubmit="return confirm('确定要恢复到系统默认的 AI 配置吗？这会清空你当前填写的所有 API Key。');">
+                                <form method="POST" action="{{ url_for('quickform.profile') }}#config" onsubmit="return confirm('确定要恢复到系统默认的 AI 配置吗？这会清空你当前填写的所有 API Key。');">
                                     <input type="hidden" name="reset_config" value="1">
                                     <button type="submit" class="btn btn-outline-secondary">
                                         恢复默认配置
@@ -230,7 +231,6 @@
                                 <div id="test-ai-result" class="mt-2 small"></div>
                                 <p class="small text-muted mt-3 mb-0">测试将使用当前选择的模型及上方填写的密钥（无需先保存），便于切换不同 API 后立即验证。</p>
                             </div>
-                        </form>
                     </div>
                     
                     <!-- 密码修改标签页 -->
@@ -299,6 +299,14 @@
 <script>
 // 由于上面已用style控制display，重复JS会与style或初始状态冲突，这里统一下逻辑：
 document.addEventListener('DOMContentLoaded', function(){
+    // 保存/恢复 AI 配置后跳转到 profile#config 时，自动切换到 AI 配置标签页
+    if (window.location.hash === '#config') {
+        var configTabEl = document.querySelector('a[href="#config"]');
+        if (configTabEl && typeof bootstrap !== 'undefined') {
+            var tab = new bootstrap.Tab(configTabEl);
+            tab.show();
+        }
+    }
     var sel = document.getElementById('selected_model');
     var configs = {
         chat_server: document.getElementById('chat_server_config'),

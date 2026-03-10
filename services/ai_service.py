@@ -10,6 +10,24 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 
+def _parse_deepseek_error(response):
+    """从 DeepSeek API 错误响应中提取可读信息，便于排查 400 等错误"""
+    try:
+        body = (response.text or "").strip()
+        if not body:
+            return response.reason or "无响应内容"
+        data = json.loads(body)
+        # 常见结构: {"error": {"message": "..."}} 或 {"message": "..."}
+        err = data.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return err["message"]
+        if data.get("message"):
+            return data["message"]
+        return body[:400]
+    except Exception:
+        return (response.text or response.reason or "未知错误")[:400]
+
+
 def call_ai_model(prompt, ai_config):
     """调用AI模型生成分析报告"""
     if ai_config.selected_model == 'deepseek':
@@ -30,10 +48,24 @@ def call_ai_model(prompt, ai_config):
         
         try:
             response = requests.post(url, headers=headers, json=data, timeout=120)
-            response.raise_for_status()
+            if not response.ok:
+                _detail = _parse_deepseek_error(response)
+                msg = f"DeepSeek API调用失败: {response.status_code} — {_detail}"
+                logger.error(msg)
+                raise Exception(msg)
             result = response.json()
             return result["choices"][0]["message"]["content"]
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and e.response is not None:
+                _detail = _parse_deepseek_error(e.response)
+                msg = f"DeepSeek API调用失败: {e.response.status_code} — {_detail}"
+            else:
+                msg = f"DeepSeek API调用失败: {str(e)}"
+            logger.error(msg)
+            raise Exception(msg)
         except Exception as e:
+            if "DeepSeek API" in str(e):
+                raise
             logger.error(f"DeepSeek API调用失败: {str(e)}")
             raise Exception(f"DeepSeek API调用失败: {str(e)}")
     

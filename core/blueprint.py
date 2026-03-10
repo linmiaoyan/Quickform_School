@@ -715,6 +715,8 @@ def login():
                 from flask import session
                 session.pop('login_fail_count', None)
                 login_user(user, remember=remember)
+                # 将会话设为持久，使 session cookie 在 PERMANENT_SESSION_LIFETIME 内有效，重启服务后仍保持登录
+                session.permanent = True
                 next_page = request.args.get('next')
                 return redirect(next_page) if next_page else redirect(url_for('quickform.dashboard'))
             else:
@@ -2319,8 +2321,9 @@ def profile():
 
                 db.commit()
                 flash('已恢复到系统默认的 AI 配置。', 'success')
+                return redirect(url_for('quickform.profile') + '#config')
 
-            # 更新 AI 配置
+            # 更新 AI 配置（保存配置按钮提交，与「恢复默认」为不同表单，不会同时带 reset_config）
             if 'selected_model' in request.form:
                 selected_model = request.form.get('selected_model')
                 deepseek_api_key = request.form.get('deepseek_api_key', '')
@@ -2365,6 +2368,7 @@ def profile():
                 
                 db.commit()
                 flash('AI配置更新成功', 'success')
+                return redirect(url_for('quickform.profile') + '#config')
             
             elif 'current_password' in request.form:
                 current_password = request.form.get('current_password')
