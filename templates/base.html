@@ -589,7 +589,7 @@
             }
             
             // 检查文件大小
-            if (file.size > 16 * 1024 * 1024) {
+            if (file.size > 4 * 1024 * 1024) {
                 alert('{{ translate("js.file_too_large") }}');
                 return false;
             }
@@ -667,7 +667,7 @@
             } = options;
             
             // 检查文件大小
-            if (file.size > 16 * 1024 * 1024) {
+            if (file.size > 4 * 1024 * 1024) {
                 const errorMsg = '{{ translate("js.file_too_large") }}';
                 if (errorDivId && errorMessageId) {
                     document.getElementById(errorMessageId).textContent = errorMsg;

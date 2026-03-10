@@ -229,7 +229,7 @@ TRANSLATIONS = {
         
         # JavaScript消息
         'js.only_html': '仅支持上传HTML或HTM格式的文件',
-        'js.file_too_large': '文件大小超过16MB限制',
+        'js.file_too_large': '文件大小超过4MB限制',
         'js.file_selected': '已选择',
         'js.upload_failed': '上传失败',
         'js.upload_failed_check': '上传失败，请检查文件格式和大小',
@@ -243,7 +243,7 @@ TRANSLATIONS = {
         'js.interface_no_response': '接口无响应',
         'js.delete_file_confirm': '确定要删除这个HTML文件吗？',
         'js.max_files_exceeded': '最多只能上传2个HTML文件！\n当前已有 {existing} 个文件，您选择了 {selected} 个新文件。\n\n请先删除已有文件或减少选择的文件数量。',
-        'js.file_size_exceeded': '文件 {name} 大小超过16MB限制',
+        'js.file_size_exceeded': '文件 {name} 大小超过4MB限制',
         'js.file_read_failed': '文件 {name} 读取失败',
         
         # Task Detail页面
@@ -704,7 +704,7 @@ TRANSLATIONS = {
         'edit_task.title': '编辑任务',
         'edit_task.title_hint': '建议任务标题简洁明了，便于识别',
         'edit_task.update_description': '更新描述',
-        'edit_task.upload_hint': '最多上传10个HTML/HTM文件，单个文件最大16MB。文件会在生成智能报告时传入AI模型。',
+        'edit_task.upload_hint': '最多上传10个HTML/HTM文件，单个文件最大4MB。文件会在生成智能报告时传入AI模型。',
         'edit_task.url_auto_update': '修改任务后，提交URL会自动更新',
         'edit_task.view_report': '可以在任务详情页查看数据分析报告',
         'edit_task.visibility': '可见性',
@@ -1054,7 +1054,7 @@ TRANSLATIONS = {
         
         # JavaScript消息
         'js.only_html': '仅支持上传HTML或HTM格式的文件',
-        'js.file_too_large': '文件大小超过16MB限制',
+        'js.file_too_large': '文件大小超过4MB限制',
         'js.file_selected': '已选择',
         'js.upload_failed': '上传失败',
         'js.upload_failed_check': '上传失败，请检查文件格式和大小',
@@ -1068,7 +1068,7 @@ TRANSLATIONS = {
         'js.interface_no_response': '接口无响应',
         'js.delete_file_confirm': '确定要删除这个HTML文件吗？',
         'js.max_files_exceeded': '最多只能上传10个HTML文件！\n当前已有 {existing} 个文件，您选择了 {selected} 个新文件。\n\n请先删除已有文件或减少选择的文件数量。',
-        'js.file_size_exceeded': '文件 {name} 大小超过16MB限制',
+        'js.file_size_exceeded': '文件 {name} 大小超过4MB限制',
         'js.file_read_failed': '文件 {name} 读取失败',
         
         # Task Detail頁面
@@ -1192,7 +1192,7 @@ TRANSLATIONS = {
         'edit_task.click_select': '或点击选择文件（最多10个）',
         'edit_task.select_file': '选择文件',
         'edit_task.selected_files': '✓ 已选择文件：',
-        'edit_task.upload_hint': '最多上传10个HTML/HTM文件，单个文件最大16MB。文件会在生成智能报告时传入AI模型。',
+        'edit_task.upload_hint': '最多上传10个HTML/HTM文件，单个文件最大4MB。文件会在生成智能报告时传入AI模型。',
         'edit_task.tips_preview': '提示与预览',
         'edit_task.url_auto_update': '修改任务后，提交URL会自动更新',
         'edit_task.view_report': '可以在任务详情页查看数据分析报告',
@@ -1885,7 +1885,7 @@ TRANSLATIONS = {
         
         # JavaScript消息
         'js.only_html': 'Only HTML or HTM format files are supported',
-        'js.file_too_large': 'File size exceeds 16MB limit',
+        'js.file_too_large': 'File size exceeds 4MB limit',
         'js.file_selected': 'Selected',
         'js.upload_failed': 'Upload failed',
         'js.upload_failed_check': 'Upload failed, please check file format and size',
@@ -1899,7 +1899,7 @@ TRANSLATIONS = {
         'js.interface_no_response': 'Interface no response',
         'js.delete_file_confirm': 'Are you sure you want to delete this HTML file?',
         'js.max_files_exceeded': 'Maximum 2 HTML files allowed!\nYou currently have {existing} file(s), and you selected {selected} new file(s).\n\nPlease delete existing files or reduce the number of selected files.',
-        'js.file_size_exceeded': 'File {name} exceeds 16MB limit',
+        'js.file_size_exceeded': 'File {name} exceeds 4MB limit',
         'js.file_read_failed': 'Failed to read file {name}',
         
         # Task Detail页面

@@ -51,7 +51,7 @@ def _clean_old_entries():
 # 创建Flask应用
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'your_secret_key_here')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB（教师认证上传等）；任务内 HTML 单文件限制 4MB 在业务层校验
 # 由 Nginx 做 HTTPS 时，仍生成 https 链接（依赖 ProxyFix 传递 X-Forwarded-Proto）
 app.config['PREFERRED_URL_SCHEME'] = 'https'
 
@@ -249,9 +249,9 @@ def request_entity_too_large(error):
     # 若来自认证申请页，则回到认证页并给出针对性提示
     referrer = (request.referrer or '') if request.referrer else ''
     if 'certification' in referrer or (request.path and 'certification' in request.path):
-        flash('认证材料文件过大，请压缩或更换为更小的文件后重试（单文件最大 16MB）。', 'danger')
+        flash('认证材料文件过大，请压缩或更换为更小的文件后重试（单文件最大 10MB）。', 'danger')
         return redirect(url_for('quickform.certification_request'))
-    flash('文件大小超过服务器限制（最大16MB），请压缩后重试。', 'danger')
+    flash('文件大小超过服务器限制（最大10MB），请压缩后重试。', 'danger')
     return redirect(url_for('quickform.dashboard'))
 
 

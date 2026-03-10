@@ -154,7 +154,7 @@
                             </div>
                         </div>
                         <small class="form-text text-muted d-block mt-2" style="color: #9ca3af;">
-                            <i class="bi bi-info-circle"></i> 支持最多 10 个 HTML/HTM 文件，单个文件不超过 16MB，重新上传会自动更新分析结果。
+                            <i class="bi bi-info-circle"></i> 支持最多 10 个 HTML/HTM 文件，单个文件不超过 4MB，重新上传会自动更新分析结果。
                         </small>
                     </div>
                 </div>
@@ -269,7 +269,7 @@
             
             // 检查文件大小
             for (let file of files) {
-                if (file.size > 16 * 1024 * 1024) {
+                if (file.size > 4 * 1024 * 1024) {
                     alert(`{{ translate('js.file_size_exceeded')|replace('{name}', '${file.name}') }}`);
                     return false;
                 }

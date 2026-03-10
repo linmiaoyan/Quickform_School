@@ -163,6 +163,7 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 CERTIFICATION_FOLDER = os.path.join(UPLOAD_FOLDER, 'certifications')
+MAX_HTML_FILE_SIZE = 4 * 1024 * 1024  # 任务内单个 HTML 文件最大 4MB
 if not os.path.exists(CERTIFICATION_FOLDER):
     os.makedirs(CERTIFICATION_FOLDER)
 
@@ -969,12 +970,13 @@ def oneclick_create_task():
             flash('您已达到任务数量上限，无法创建新任务。', 'warning')
             return redirect(url_for('quickform.dashboard'))
         refreshed_user = db.get(User, current_user.id)
-        if task_count >= 1:
+        # 超过 3 个任务时才要求先绑定并验证邮箱
+        if task_count >= 3:
             if _is_placeholder_or_empty_email(refreshed_user.email):
-                flash('创建第二个数据任务前请先在个人资料中绑定邮箱。', 'warning')
+                flash('创建更多数据任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
                 return redirect(url_for('quickform.profile', next=url_for('quickform.oneclick_create_task')))
             if not getattr(refreshed_user, 'email_verified', True):
-                flash('创建第二个数据任务前请先验证邮箱。', 'warning')
+                flash('创建更多数据任务前请先验证邮箱。', 'warning')
                 return redirect(url_for('quickform.verify_email', next=url_for('quickform.oneclick_create_task')))
         # 创建新任务以得到 task_id 与 API 地址
         task = Task(title=title, description='', user_id=current_user.id, sharing_type='private')
@@ -1047,15 +1049,15 @@ def create_task():
                 task_limit = current_user.task_limit if current_user.task_limit != -1 else "无限制"
                 flash(f'您已达到任务数量上限（{task_limit}个，当前{task_count}个）。如需创建更多任务，请在右上角个人中心申请教师认证', 'warning')
                 return redirect(url_for('quickform.dashboard'))
-            # 创建第二个任务时需先绑定邮箱并验证
+            # 超过 3 个任务时需先绑定邮箱并验证
             refreshed_user = db.get(User, current_user.id)
-            if task_count >= 1:
+            if task_count >= 3:
                 email_verified = getattr(refreshed_user, 'email_verified', True)
                 if _is_placeholder_or_empty_email(refreshed_user.email):
-                    flash('创建第二个数据任务前请先在个人资料中绑定邮箱。', 'warning')
+                    flash('创建更多数据任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
                     return redirect(url_for('quickform.profile', next=url_for('quickform.create_task')))
                 if not email_verified:
-                    flash('创建第二个数据任务前请先验证邮箱。', 'warning')
+                    flash('创建更多数据任务前请先验证邮箱。', 'warning')
                     return redirect(url_for('quickform.verify_email', next=url_for('quickform.create_task')))
         
         if request.method == 'POST':
@@ -1123,7 +1125,7 @@ def create_task():
                     
                     # 验证文件扩展名
                     if not allowed_file(file_name_base64, ALLOWED_EXTENSIONS):
-                        flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大16MB。', 'danger')
+                        flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.create_task'))
                     
                     # 保存文件
@@ -1161,14 +1163,20 @@ def create_task():
                 if file and file.filename.strip():
                     unique_filename, filepath = save_uploaded_file(file, UPLOAD_FOLDER)
                     if not unique_filename:
-                        flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大16MB。', 'danger')
+                        flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.create_task'))
-                    
+                    if filepath and filepath.lower().endswith(('.html', '.htm')) and os.path.getsize(filepath) > MAX_HTML_FILE_SIZE:
+                        try:
+                            os.remove(filepath)
+                        except OSError:
+                            pass
+                        flash('单个 HTML 文件不得超过 4MB，请压缩后重试。', 'danger')
+                        return redirect(url_for('quickform.create_task'))
                     task.file_name = file.filename
                     task.file_path = filepath
                     
                     # 如果是HTML文件，设置审核状态
-                    if filepath.lower().endswith(('.html', '.htm')):
+                    if filepath and filepath.lower().endswith(('.html', '.htm')):
                         if current_user.is_admin() or getattr(current_user, 'is_certified', False):
                             task.html_approved = 1
                             task.html_approved_by = current_user.id
@@ -1602,7 +1610,7 @@ def edit_task(task_id):
                     
                     # 验证文件扩展名
                     if not allowed_file(file_name_base64, ALLOWED_EXTENSIONS):
-                        flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大16MB。', 'danger')
+                        flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.edit_task', task_id=task.id))
                     
                     # 删除旧文件
@@ -1652,9 +1660,15 @@ def edit_task(task_id):
                 if file and file.filename and (file.filename or '').strip():
                     unique_filename, filepath = save_uploaded_file(file, UPLOAD_FOLDER)
                     if not unique_filename:
-                        flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大16MB。', 'danger')
+                        flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.edit_task', task_id=task.id))
-                    
+                    if filepath and filepath.lower().endswith(('.html', '.htm')) and os.path.getsize(filepath) > MAX_HTML_FILE_SIZE:
+                        try:
+                            os.remove(filepath)
+                        except OSError:
+                            pass
+                        flash('单个 HTML 文件不得超过 4MB，请压缩后重试。', 'danger')
+                        return redirect(url_for('quickform.edit_task', task_id=task.id))
                     # 删除旧文件
                     if task.file_path and os.path.exists(task.file_path):
                         os.remove(task.file_path)
@@ -2413,12 +2427,18 @@ def profile():
             
             return redirect(url_for('quickform.profile'))
         
+        u = user_record or current_user
+        email_val = (u.email or '').strip()
+        email_is_placeholder = _is_placeholder_or_empty_email(email_val)
+        email_display = '' if email_is_placeholder else email_val
         return render_template(
             'profile.html',
-            user=user_record or current_user,
+            user=u,
             ai_config=ai_config,
             pending_cert_request=pending_cert_request,
-            last_cert_request=last_cert_request
+            last_cert_request=last_cert_request,
+            email_is_placeholder=email_is_placeholder,
+            email_display=email_display
         )
     finally:
         db.close()
@@ -2502,21 +2522,40 @@ def user_view_certification_file(request_id):
 # ai_service 已集成支持的模型（moonshot/glm/ernie/openrouter 待后续集成）
 SUPPORTED_AI_MODELS = {'chat_server', 'deepseek', 'doubao', 'qwen'}
 
+
+def _config_from_payload(cfg):
+    """从前端提交的 config 字典构建用于 call_ai_model 的配置对象（与 AIConfig 属性一致）"""
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        selected_model=(cfg.get('selected_model') or '').strip(),
+        deepseek_api_key=(cfg.get('deepseek_api_key') or '').strip(),
+        doubao_api_key=(cfg.get('doubao_api_key') or '').strip(),
+        doubao_secret_key=(cfg.get('doubao_secret_key') or '').strip(),
+        qwen_api_key=(cfg.get('qwen_api_key') or '').strip(),
+        chat_server_api_url=(cfg.get('chat_server_api_url') or '').strip(),
+        chat_server_api_token=(cfg.get('chat_server_api_token') or '').strip(),
+    )
+
+
 @quickform_bp.route('/api/test_ai', methods=['POST'])
 @login_required
 def test_ai_api():
-    """测试当前用户的AI配置是否可用"""
+    """测试当前用户的AI配置是否可用；若请求体带 config，则用当前表单配置测试（未保存也可测）"""
     db = SessionLocal()
     try:
-        ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
-        if not ai_config or not ai_config.selected_model:
-            return jsonify({'success': False, 'message': '请先保存AI配置后再测试'}), 400
+        payload = request.get_json(silent=True) or {}
+        cfg_payload = payload.get('config')
+        if cfg_payload and isinstance(cfg_payload, dict) and (cfg_payload.get('selected_model') or '').strip():
+            ai_config = _config_from_payload(cfg_payload)
+        else:
+            ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
+            if not ai_config or not ai_config.selected_model:
+                return jsonify({'success': False, 'message': '请先保存AI配置后再测试，或在上方选择模型并填写密钥后直接点击测试'}), 400
 
         if ai_config.selected_model not in SUPPORTED_AI_MODELS:
             model_label = MODEL_LABELS.get(ai_config.selected_model, ai_config.selected_model)
             return jsonify({'success': False, 'message': f'{model_label} 暂未集成，敬请期待后续版本'}), 400
 
-        payload = request.get_json(silent=True) or {}
         test_prompt = (payload.get('prompt') or '这是一次连通性测试，请简短回复“OK”。').strip()
         if not test_prompt:
             test_prompt = '这是一次连通性测试，请简短回复“OK”。'
