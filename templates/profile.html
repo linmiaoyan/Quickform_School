@@ -207,12 +207,12 @@
                             <button type="submit" class="btn btn-success mt-4">{{ translate('profile.save_config') }}</button>
                         </form>
 
-                            <!-- 恢复默认配置按钮（独立表单，避免与上方「保存配置」同表单导致误触发恢复默认） -->
+                            <!-- 恢复为空：使用系统/管理员配置的 API 供老师试用，清空个人填写的 Key -->
                             <div class="mt-3">
-                                <form method="POST" action="{{ url_for('quickform.profile') }}#config" onsubmit="return confirm('确定要恢复到系统默认的 AI 配置吗？这会清空你当前填写的所有 API Key。');">
+                                <form method="POST" action="{{ url_for('quickform.profile') }}#config" onsubmit="return confirm('确定恢复为空吗？将清空您填写的 API Key，并改用系统默认 API（管理员配置）供您试用。');">
                                     <input type="hidden" name="reset_config" value="1">
                                     <button type="submit" class="btn btn-outline-secondary">
-                                        恢复默认配置
+                                        恢复为空（使用系统 API 试用）
                                     </button>
                                 </form>
                             </div>

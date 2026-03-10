@@ -2298,29 +2298,29 @@ def profile():
         last_cert_request = db.query(CertificationRequest).filter_by(user_id=current_user.id).order_by(CertificationRequest.created_at.desc()).first()
         
         if request.method == 'POST':
-            # 恢复默认 AI 配置（使用系统内置配置）
+            # 恢复默认：设为「空」即使用系统/管理员配置的 API（如硅基流动 Token），方便老师先试用
             if 'reset_config' in request.form:
                 if not ai_config:
                     ai_config = AIConfig(user_id=current_user.id)
                     db.add(ai_config)
                     db.flush()
 
-                # 默认使用 chat_server，清空所有自定义 Key / URL
+                # 默认使用 chat_server（硅基流动），所有 Key/URL 恢复为空，调用时回退到环境变量/系统配置的 API
                 ai_config.selected_model = 'chat_server'
-                ai_config.chat_server_api_url = None
-                ai_config.chat_server_api_token = None
-                ai_config.deepseek_api_key = None
-                ai_config.doubao_api_key = None
-                ai_config.doubao_secret_key = None
-                ai_config.qwen_api_key = None
-                ai_config.moonshot_api_key = None
-                ai_config.glm_api_key = None
-                ai_config.ernie_api_key = None
-                ai_config.ernie_secret_key = None
-                ai_config.openrouter_api_key = None
+                ai_config.chat_server_api_url = ''
+                ai_config.chat_server_api_token = ''
+                ai_config.deepseek_api_key = ''
+                ai_config.doubao_api_key = ''
+                ai_config.doubao_secret_key = ''
+                ai_config.qwen_api_key = ''
+                ai_config.moonshot_api_key = ''
+                ai_config.glm_api_key = ''
+                ai_config.ernie_api_key = ''
+                ai_config.ernie_secret_key = ''
+                ai_config.openrouter_api_key = ''
 
                 db.commit()
-                flash('已恢复到系统默认的 AI 配置。', 'success')
+                flash('已恢复为空，将使用系统默认 API（管理员配置）供您试用；如需用自己的密钥请在下方填写后保存。', 'success')
                 return redirect(url_for('quickform.profile') + '#config')
 
             # 更新 AI 配置（保存配置按钮提交，与「恢复默认」为不同表单，不会同时带 reset_config）
