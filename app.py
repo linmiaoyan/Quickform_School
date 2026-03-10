@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # ---------- 404 限流（防扫描） ----------
-# 同一 IP 在时间窗口内 404 次数超过阈值则短时拒绝，减轻扫描压力
+# 同一 IP 在时间窗口内 404 次数超过阈值则短时拒绝，减轻扫描压力。
+# /static/ 与 /uploads/ 不参与限流封禁，保证静态页与教师上传页面可被直接访问；提交仍受 blueprint 内限流约束。
 RATE_LIMIT_WINDOW = 60          # 秒
 RATE_LIMIT_404_MAX = 30         # 窗口内 404 超过此次数则限流
 RATE_LIMIT_BAN_SECONDS = 120    # 触发限流后禁止该 IP 的时长（秒）
@@ -164,16 +165,17 @@ def ping():
     """简单健康检查路由，用于确认 Flask 能返回内容"""
     return 'pong', 200
 
-# ---------- 404 限流：请求前检查是否被禁 ----------
+# ---------- 404 限流：请求前检查是否被禁（/static/、/uploads/ 豁免，访问不限） ----------
 @app.before_request
 def before_request_rate_limit():
+    path = (request.path or '').lstrip('/')
+    if path.startswith('static/') or path.startswith('uploads/'):
+        return None
     ip = _get_client_ip()
     now = time.time()
-    # 调试日志：记录每一次进入 Flask 的请求（可根据需要注释掉）
     try:
-        pass#logger.info("收到请求: %s %s 来自 IP %s", request.method, request.path, ip)
+        pass
     except Exception:
-        # 不因日志问题影响业务
         pass
 
     with _404_lock:
@@ -183,9 +185,12 @@ def before_request_rate_limit():
             return 'Too Many Requests', 429
 
 
-# ---------- 404 限流：请求后统计 404 ----------
+# ---------- 404 限流：请求后统计 404（/static/、/uploads/ 不统计） ----------
 @app.after_request
 def after_request_404_track(response):
+    path = (request.path or '').lstrip('/')
+    if path.startswith('static/') or path.startswith('uploads/'):
+        return response
     if response.status_code != 404:
         return response
     ip = _get_client_ip()

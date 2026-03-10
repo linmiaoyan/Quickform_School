@@ -157,10 +157,15 @@ def send_email_code(to_email: str, code: str):
 # 获取QuickForm目录路径
 QUICKFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 创建上传文件目录（相对于QuickForm目录）
+# 创建上传文件目录（相对于QuickForm目录）- 保留原有目录，已上传文件继续由此路由提供
 UPLOAD_FOLDER = os.path.join(QUICKFORM_DIR, 'uploads')
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+# 新上传的任务 HTML 存到 static/uploads，由 Flask 静态服务直接访问，不经路由、不受限流
+STATIC_UPLOADS = os.path.join(QUICKFORM_DIR, '..', 'static', 'uploads')
+if not os.path.exists(STATIC_UPLOADS):
+    os.makedirs(STATIC_UPLOADS)
 
 CERTIFICATION_FOLDER = os.path.join(UPLOAD_FOLDER, 'certifications')
 MAX_HTML_FILE_SIZE = 4 * 1024 * 1024  # 任务内单个 HTML 文件最大 4MB
@@ -309,6 +314,20 @@ quickform_bp = Blueprint(
     template_folder='templates',
     static_folder='../static'  # 指向主应用的static目录
 )
+
+
+def get_upload_file_url(saved_name):
+    """返回上传文件的访问 URL：在 static/uploads 则用静态路径，否则走 /uploads/ 路由（保留原有文件）"""
+    if not saved_name:
+        return url_for('quickform.uploaded_file', filename='')
+    if os.path.exists(os.path.join(STATIC_UPLOADS, saved_name)):
+        return url_for('static', filename='uploads/' + saved_name)
+    return url_for('quickform.uploaded_file', filename=saved_name)
+
+
+@quickform_bp.context_processor
+def inject_upload_url():
+    return dict(get_upload_file_url=get_upload_file_url)
 
 # 创建数据库表
 Base.metadata.create_all(engine)
@@ -1009,11 +1028,11 @@ def oneclick_create_task():
             logger.exception("一键生成 HTML 失败")
             flash(f'生成 HTML 失败：{str(e)}。请检查 API 配置或稍后重试。', 'danger')
             return redirect(url_for('quickform.oneclick_create_task'))
-        # 保存 HTML 到任务（单文件）
+        # 保存 HTML 到任务（单文件，新文件存 static/uploads 由静态服务提供）
         unique_filename = str(uuid.uuid4()) + '_oneclick.html'
-        filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
-        if not os.path.exists(UPLOAD_FOLDER):
-            os.makedirs(UPLOAD_FOLDER)
+        filepath = os.path.join(STATIC_UPLOADS, unique_filename)
+        if not os.path.exists(STATIC_UPLOADS):
+            os.makedirs(STATIC_UPLOADS)
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
         task.file_name = 'oneclick.html'
@@ -1160,10 +1179,10 @@ def create_task():
                     flash('文件上传失败，请重试。', 'danger')
                     return redirect(url_for('quickform.create_task'))
             else:
-                # 传统文件上传方式（向后兼容）
+                # 传统文件上传方式（向后兼容，新文件存 static/uploads）
                 file = request.files.get('file')
                 if file and file.filename.strip():
-                    unique_filename, filepath = save_uploaded_file(file, UPLOAD_FOLDER)
+                    unique_filename, filepath = save_uploaded_file(file, STATIC_UPLOADS)
                     if not unique_filename:
                         flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.create_task'))
@@ -1311,6 +1330,9 @@ def task_detail(task_id):
                 'original_name': task.file_name,
                 'saved_name': saved_filename
             }]
+        for f in html_files:
+            if isinstance(f, dict) and 'saved_name' in f:
+                f['url'] = get_upload_file_url(f['saved_name'])
 
         # 任务详情页不展示分页列表，pagination 仅用于模板兼容（见上方已赋初值）
         
@@ -1488,9 +1510,9 @@ def edit_task(task_id):
                     flash(f'AI 修改失败：{str(e)}', 'danger')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
                 unique_filename = str(uuid.uuid4()) + '_revised.html'
-                new_filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
-                if not os.path.exists(UPLOAD_FOLDER):
-                    os.makedirs(UPLOAD_FOLDER)
+                new_filepath = os.path.join(STATIC_UPLOADS, unique_filename)
+                if not os.path.exists(STATIC_UPLOADS):
+                    os.makedirs(STATIC_UPLOADS)
                 with open(new_filepath, 'w', encoding='utf-8') as f:
                     f.write(new_html)
                 if task.file_path and os.path.exists(task.file_path):
@@ -1657,10 +1679,10 @@ def edit_task(task_id):
                     flash('文件上传失败，请重试。', 'danger')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
             else:
-                # 传统文件上传方式（向后兼容）
+                # 传统文件上传方式（向后兼容，新文件存 static/uploads）
                 file = file_upload
                 if file and file.filename and (file.filename or '').strip():
-                    unique_filename, filepath = save_uploaded_file(file, UPLOAD_FOLDER)
+                    unique_filename, filepath = save_uploaded_file(file, STATIC_UPLOADS)
                     if not unique_filename:
                         flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.edit_task', task_id=task.id))
@@ -1745,6 +1767,9 @@ def edit_task(task_id):
                 'original_name': task.file_name,
                 'saved_name': os.path.basename(task.file_path)
             }]
+        for f in html_files:
+            if isinstance(f, dict) and 'saved_name' in f:
+                f['url'] = get_upload_file_url(f['saved_name'])
         
         task_ai_generated = getattr(task, 'ai_generated', False)
         task_html_ai_edit_remaining = getattr(task, 'html_ai_edit_remaining', None)
@@ -1904,8 +1929,8 @@ def api_send_email_code():
             'message': safe_message
         }), 500
 
-SUBMIT_RATE_LIMIT_WINDOW = 10  # seconds
-SUBMIT_RATE_LIMIT_THRESHOLD = 50
+SUBMIT_RATE_LIMIT_WINDOW = 30   # seconds（教室/公开课场景下适当放宽窗口）
+SUBMIT_RATE_LIMIT_THRESHOLD = 200  # 窗口内同一 IP 提交超过此次数则限流（提高以适配课堂集中提交）
 SUBMIT_BLACKLIST_DURATION = 300  # seconds
 
 rate_limit_cache = {}
@@ -2889,8 +2914,12 @@ def download_report(task_id):
 
 @quickform_bp.route('/uploads/<path:filename>')
 def uploaded_file(filename):
-    """上传文件访问 - HTML文件需要审核通过才能访问"""
+    """上传文件访问 - 原有 uploads 目录中的文件由此路由提供；已在 static/uploads 的新文件重定向到静态 URL"""
     try:
+        legacy_path = os.path.join(UPLOAD_FOLDER, filename)
+        static_path = os.path.join(STATIC_UPLOADS, filename)
+        if not os.path.exists(legacy_path) and os.path.exists(static_path):
+            return redirect(url_for('static', filename='uploads/' + filename))
         # 检查文件扩展名，如果是HTML文件需要检查审核状态
         if filename.lower().endswith(('.html', '.htm')):
             db = SessionLocal()

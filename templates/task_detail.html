@@ -116,7 +116,7 @@
                             {% for file in html_files %}
                             <div class="d-flex align-items-center">
                                 <i class="bi bi-file-earmark-code text-success me-1"></i>
-                                <a href="{{ url_for('quickform.uploaded_file', filename=file.saved_name) }}" target="_blank" class="text-decoration-none me-2">
+                                <a href="{{ file.url }}" target="_blank" class="text-decoration-none me-2">
                                     {{ file.original_name }}
                                 </a>
                                 {% if task.html_approved == 1 %}
@@ -125,7 +125,7 @@
                                         type="button" 
                                         class="btn btn-outline-secondary btn-sm" 
                                         onclick="toggleQRCode(this)" 
-                                        data-url="{{ url_for('quickform.uploaded_file', filename=file.saved_name, _external=True) }}" 
+                                        data-url="{{ file.url if file.url.startswith('http') else request.url_root.rstrip('/') + file.url }}" 
                                         style="font-weight: 500;">
                                         <i class="bi bi-qr-code"></i>
                                     </button>
