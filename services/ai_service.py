@@ -43,7 +43,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": 16384
+            "max_tokens": 8192   # DeepSeek API 当前有效范围为 [1, 8192]
         }
         
         try:
@@ -185,7 +185,11 @@ def call_ai_model(prompt, ai_config):
         try:
             resp = _requests.post(url, headers=headers, json=payload, timeout=(10, 240))
             if resp.status_code != 200:
-                raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
+                detail = (resp.text or "").strip()[:200]
+                if resp.status_code == 401:
+                    hint = "（恢复默认时使用的是系统/环境变量中的 Token，若无效请在个人中心选择其他模型或填写自己的硅基流动 Token）"
+                    raise Exception(f"当前使用：硅基流动。Token 无效或已过期 {hint} — {detail}")
+                raise Exception(f"HTTP {resp.status_code}: {detail}")
             data = resp.json()
             # OpenAI兼容结构
             if isinstance(data, dict) and 'choices' in data and data['choices']:
