@@ -163,9 +163,22 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 # 新上传的任务 HTML 存到 static/uploads，由 Flask 静态服务直接访问，不经路由、不受限流
-STATIC_UPLOADS = os.path.join(QUICKFORM_DIR, '..', 'static', 'uploads')
+STATIC_UPLOADS = os.path.abspath(os.path.join(QUICKFORM_DIR, '..', 'static', 'uploads'))
 if not os.path.exists(STATIC_UPLOADS):
     os.makedirs(STATIC_UPLOADS)
+
+
+def _static_uploads_dir():
+    """与 Flask 提供静态文件的目录一致，用于保存与判断是否走静态 URL"""
+    try:
+        if current_app.static_folder:
+            d = os.path.abspath(os.path.join(current_app.static_folder, 'uploads'))
+            if not os.path.exists(d):
+                os.makedirs(d)
+            return d
+    except RuntimeError:
+        pass
+    return STATIC_UPLOADS
 
 CERTIFICATION_FOLDER = os.path.join(UPLOAD_FOLDER, 'certifications')
 MAX_HTML_FILE_SIZE = 4 * 1024 * 1024  # 任务内单个 HTML 文件最大 4MB
@@ -316,12 +329,37 @@ quickform_bp = Blueprint(
 )
 
 
-def get_upload_file_url(saved_name):
-    """返回上传文件的访问 URL：在 static/uploads 则用静态路径，否则走 /uploads/ 路由（保留原有文件）"""
+def _file_in_static_uploads(saved_name):
+    """判断文件是否在静态上传目录（static/uploads），用于生成静态 URL。"""
+    if not saved_name:
+        return False
+    try:
+        if os.path.exists(os.path.join(_static_uploads_dir(), saved_name)):
+            return True
+    except RuntimeError:
+        pass
+    if os.path.exists(os.path.join(STATIC_UPLOADS, saved_name)):
+        return True
+    return False
+
+
+def get_upload_file_url(saved_name, task_file_path=None):
+    """返回上传文件的访问 URL：在 static/uploads 则用静态路径，否则走 /uploads/ 路由（保留原有文件）
+    task_file_path: 可选，任务记录的 file_path；若该路径在 static 下则优先用静态 URL。
+    """
     if not saved_name:
         return url_for('quickform.uploaded_file', filename='')
-    if os.path.exists(os.path.join(STATIC_UPLOADS, saved_name)):
-        return url_for('static', filename='uploads/' + saved_name)
+    try:
+        # 1) 若调用方传入了 task.file_path 且当前文件即主文件，按路径是否在 static 下判断
+        if task_file_path and saved_name == os.path.basename(task_file_path):
+            norm = (task_file_path or '').replace('\\', '/')
+            if 'static' in norm and 'uploads' in norm:
+                return url_for('static', filename='uploads/' + saved_name)
+        # 2) 文件实际存在于 static/uploads（避免 DB 路径与运行环境不一致时漏判）
+        if _file_in_static_uploads(saved_name):
+            return url_for('static', filename='uploads/' + saved_name)
+    except RuntimeError:
+        pass
     return url_for('quickform.uploaded_file', filename=saved_name)
 
 
@@ -1029,10 +1067,9 @@ def oneclick_create_task():
             flash(f'生成 HTML 失败：{str(e)}。请检查 API 配置或稍后重试。', 'danger')
             return redirect(url_for('quickform.oneclick_create_task'))
         # 保存 HTML 到任务（单文件，新文件存 static/uploads 由静态服务提供）
+        static_uploads = _static_uploads_dir()
         unique_filename = str(uuid.uuid4()) + '_oneclick.html'
-        filepath = os.path.join(STATIC_UPLOADS, unique_filename)
-        if not os.path.exists(STATIC_UPLOADS):
-            os.makedirs(STATIC_UPLOADS)
+        filepath = os.path.join(static_uploads, unique_filename)
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
         task.file_name = 'oneclick.html'
@@ -1149,18 +1186,16 @@ def create_task():
                         flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.create_task'))
                     
-                    # 保存文件
+                    # 保存文件（新文件存 static/uploads）
+                    static_uploads = _static_uploads_dir()
                     unique_filename = str(uuid.uuid4()) + '_' + file_name_base64
-                    filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
-                    
-                    if not os.path.exists(UPLOAD_FOLDER):
-                        os.makedirs(UPLOAD_FOLDER)
-                    
+                    filepath = os.path.join(static_uploads, unique_filename)
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write(file_content)
                     
                     task.file_name = file_name_base64
                     task.file_path = filepath
+                    task.html_files = json.dumps([{'original_name': file_name_base64, 'saved_name': unique_filename}])
                     
                     # 如果是HTML文件，设置审核状态
                     if filepath.lower().endswith(('.html', '.htm')):
@@ -1182,7 +1217,7 @@ def create_task():
                 # 传统文件上传方式（向后兼容，新文件存 static/uploads）
                 file = request.files.get('file')
                 if file and file.filename.strip():
-                    unique_filename, filepath = save_uploaded_file(file, STATIC_UPLOADS)
+                    unique_filename, filepath = save_uploaded_file(file, _static_uploads_dir())
                     if not unique_filename:
                         flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.create_task'))
@@ -1195,6 +1230,7 @@ def create_task():
                         return redirect(url_for('quickform.create_task'))
                     task.file_name = file.filename
                     task.file_path = filepath
+                    task.html_files = json.dumps([{'original_name': file.filename, 'saved_name': unique_filename}])
                     
                     # 如果是HTML文件，设置审核状态
                     if filepath and filepath.lower().endswith(('.html', '.htm')):
@@ -1332,7 +1368,7 @@ def task_detail(task_id):
             }]
         for f in html_files:
             if isinstance(f, dict) and 'saved_name' in f:
-                f['url'] = get_upload_file_url(f['saved_name'])
+                f['url'] = get_upload_file_url(f['saved_name'], task.file_path)
 
         # 任务详情页不展示分页列表，pagination 仅用于模板兼容（见上方已赋初值）
         
@@ -1509,10 +1545,9 @@ def edit_task(task_id):
                     logger.exception('AI 继续修改 HTML 失败')
                     flash(f'AI 修改失败：{str(e)}', 'danger')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
+                static_uploads = _static_uploads_dir()
                 unique_filename = str(uuid.uuid4()) + '_revised.html'
-                new_filepath = os.path.join(STATIC_UPLOADS, unique_filename)
-                if not os.path.exists(STATIC_UPLOADS):
-                    os.makedirs(STATIC_UPLOADS)
+                new_filepath = os.path.join(static_uploads, unique_filename)
                 with open(new_filepath, 'w', encoding='utf-8') as f:
                     f.write(new_html)
                 if task.file_path and os.path.exists(task.file_path):
@@ -1543,8 +1578,18 @@ def edit_task(task_id):
             file_content_base64 = request.form.get('file_content_base64')
             file_name_base64 = request.form.get('file_name')
             file_upload = request.files.get('file')
+            files_multipart = request.files.getlist('files')  # 编辑页直接 multipart 多文件上传
             # 是否本请求会保存新的 HTML 内容（用于一键生成任务的 3 次修改上限）
             has_new_html = False
+            if files_multipart:
+                try:
+                    flist = [f for f in files_multipart if f and f.filename and (f.filename or '').strip()]
+                except Exception:
+                    flist = []
+            else:
+                flist = []
+            if flist:
+                has_new_html = True
             if html_files_data:
                 try:
                     nf = json.loads(html_files_data)
@@ -1566,58 +1611,22 @@ def edit_task(task_id):
             task.share_url = (request.form.get('share_url') or '').strip() or None
             task.tutorial_link = (request.form.get('tutorial_link') or '').strip() or None
             
-            # 处理多文件上传（新功能）
-            if html_files_data:
-                try:
-                    new_files = json.loads(html_files_data)
-                    existing_files = json.loads(task.html_files) if task.html_files else []
-                    
-                    # 检查文件数量限制（最多10个）
-                    if len(existing_files) + len(new_files) > 10:
-                        flash(f'最多只能上传10个HTML文件！当前已有{len(existing_files)}个，尝试上传{len(new_files)}个', 'danger')
-                        return redirect(url_for('quickform.edit_task', task_id=task.id))
-                    
-                    # 保存新文件
-                    for file_data in new_files:
-                        file_name = file_data['name']
-                        file_content = base64.b64decode(file_data['content']).decode('utf-8')
-                        
-                        unique_filename = str(uuid.uuid4()) + '_' + file_name
-                        filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
-                        
-                        with open(filepath, 'w', encoding='utf-8') as f:
-                            f.write(file_content)
-                        
-                        existing_files.append({
-                            'original_name': file_name,
-                            'saved_name': unique_filename
-                        })
-                    
-                    task.html_files = json.dumps(existing_files)
-                    html_was_saved = True
-                    # 更新审核状态
-                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                        task.html_approved = 1
-                        task.html_approved_by = current_user.id
-                        task.html_approved_at = datetime.now()
-                    else:
-                        task.html_approved = 0
-                except Exception as e:
-                    logger.error(f"多文件上传失败: {str(e)}")
-                    flash('文件上传失败', 'danger')
-            
-            # 处理文件删除
+            # 处理文件删除（先执行，再处理上传）
             if files_to_remove:
                 try:
                     remove_list = json.loads(files_to_remove)
                     existing_files = json.loads(task.html_files) if task.html_files else []
                     
                     for saved_name in remove_list:
-                        # 删除文件
-                        filepath = os.path.join(UPLOAD_FOLDER, saved_name)
-                        if os.path.exists(filepath):
-                            os.remove(filepath)
-                        
+                        # 删除文件（可能在 static/uploads 或旧 core/uploads）
+                        for folder in (_static_uploads_dir(), UPLOAD_FOLDER):
+                            filepath = os.path.join(folder, saved_name)
+                            if os.path.exists(filepath):
+                                try:
+                                    os.remove(filepath)
+                                except OSError:
+                                    pass
+                                break
                         # 从列表中移除
                         existing_files = [f for f in existing_files if f['saved_name'] != saved_name]
                     
@@ -1625,8 +1634,80 @@ def edit_task(task_id):
                 except Exception as e:
                     logger.error(f"文件删除失败: {str(e)}")
             
-            # 优先检查Base64上传（用于公网环境，向后兼容旧的单文件上传）
-            if file_content_base64 and file_name_base64:
+            # 编辑页直接 multipart 多文件上传（不走 Base64，更简洁）
+            if flist:
+                try:
+                    existing_files = json.loads(task.html_files) if task.html_files else []
+                    if len(existing_files) + len(flist) > 10:
+                        flash(f'最多只能上传 10 个 HTML 文件，当前已有 {len(existing_files)} 个。', 'danger')
+                        return redirect(url_for('quickform.edit_task', task_id=task.id))
+                    static_uploads = _static_uploads_dir()
+                    for f in flist:
+                        unique_filename, filepath = save_uploaded_file(f, static_uploads)
+                        if not unique_filename:
+                            flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大 4MB。', 'danger')
+                            return redirect(url_for('quickform.edit_task', task_id=task.id))
+                        if filepath and os.path.getsize(filepath) > MAX_HTML_FILE_SIZE:
+                            try:
+                                os.remove(filepath)
+                            except OSError:
+                                pass
+                            flash('单个 HTML 文件不得超过 4MB，请压缩后重试。', 'danger')
+                            return redirect(url_for('quickform.edit_task', task_id=task.id))
+                        existing_files.append({'original_name': f.filename, 'saved_name': unique_filename})
+                    task.html_files = json.dumps(existing_files)
+                    if not task.file_path and existing_files:
+                        first_saved = existing_files[0]['saved_name']
+                        task.file_path = os.path.join(static_uploads, first_saved)
+                        task.file_name = existing_files[0]['original_name']
+                    html_was_saved = True
+                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                        task.html_approved = 1
+                        task.html_approved_by = current_user.id
+                        task.html_approved_at = datetime.now()
+                    else:
+                        task.html_approved = 0
+                    task.html_analysis = None
+                    if existing_files:
+                        first_path = os.path.join(static_uploads, existing_files[-len(flist)]['saved_name'])
+                        if os.path.exists(first_path):
+                            try:
+                                analyze_html_file(task.id, current_user.id, first_path, SessionLocal, Task, AIConfig, read_file_content, call_ai_model)
+                            except Exception as e2:
+                                logger.error("启动HTML文件分析失败(编辑): %s", str(e2), exc_info=True)
+                except Exception as e:
+                    logger.error("multipart 多文件上传失败: %s", str(e), exc_info=True)
+                    flash('文件上传失败，请重试。', 'danger')
+            # 回调/API：Base64 多文件（html_files_data），保留供重制 HTML 等场景
+            elif html_files_data:
+                try:
+                    new_files = json.loads(html_files_data)
+                    existing_files = json.loads(task.html_files) if task.html_files else []
+                    if len(existing_files) + len(new_files) > 10:
+                        flash(f'最多只能上传10个HTML文件！当前已有{len(existing_files)}个，尝试上传{len(new_files)}个', 'danger')
+                        return redirect(url_for('quickform.edit_task', task_id=task.id))
+                    static_uploads = _static_uploads_dir()
+                    for file_data in new_files:
+                        file_name = file_data.get('name') or file_data.get('original_name', '')
+                        file_content = base64.b64decode(file_data['content']).decode('utf-8')
+                        unique_filename = str(uuid.uuid4()) + '_' + (file_name or 'index.html')
+                        filepath = os.path.join(static_uploads, unique_filename)
+                        with open(filepath, 'w', encoding='utf-8') as f:
+                            f.write(file_content)
+                        existing_files.append({'original_name': file_name, 'saved_name': unique_filename})
+                    task.html_files = json.dumps(existing_files)
+                    html_was_saved = True
+                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                        task.html_approved = 1
+                        task.html_approved_by = current_user.id
+                        task.html_approved_at = datetime.now()
+                    else:
+                        task.html_approved = 0
+                except Exception as e:
+                    logger.error(f"多文件上传(html_files_data)失败: {str(e)}")
+                    flash('文件上传失败', 'danger')
+            # 优先检查Base64单文件（用于回调/公网，重制 HTML）
+            elif file_content_base64 and file_name_base64:
                 # Base64上传方式
                 try:
                     # 解码Base64
@@ -1641,18 +1722,17 @@ def edit_task(task_id):
                     if task.file_path and os.path.exists(task.file_path):
                         os.remove(task.file_path)
                     
-                    # 保存文件
+                    # 保存文件到 static/uploads（与 create_task 一致）
+                    static_uploads = _static_uploads_dir()
                     unique_filename = str(uuid.uuid4()) + '_' + file_name_base64
-                    filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
-                    
-                    if not os.path.exists(UPLOAD_FOLDER):
-                        os.makedirs(UPLOAD_FOLDER)
+                    filepath = os.path.join(static_uploads, unique_filename)
                     
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write(file_content)
                     
                     task.file_name = file_name_base64
                     task.file_path = filepath
+                    task.html_files = json.dumps([{'original_name': file_name_base64, 'saved_name': unique_filename}])
                     
                     # 如果是HTML文件，设置审核状态
                     if filepath.lower().endswith(('.html', '.htm')):
@@ -1682,7 +1762,7 @@ def edit_task(task_id):
                 # 传统文件上传方式（向后兼容，新文件存 static/uploads）
                 file = file_upload
                 if file and file.filename and (file.filename or '').strip():
-                    unique_filename, filepath = save_uploaded_file(file, STATIC_UPLOADS)
+                    unique_filename, filepath = save_uploaded_file(file, _static_uploads_dir())
                     if not unique_filename:
                         flash('文件上传失败或格式不支持，请重试。允许的格式：HTML/HTM，最大4MB。', 'danger')
                         return redirect(url_for('quickform.edit_task', task_id=task.id))
@@ -1699,6 +1779,7 @@ def edit_task(task_id):
                     
                     task.file_name = file.filename
                     task.file_path = filepath
+                    task.html_files = json.dumps([{'original_name': file.filename, 'saved_name': unique_filename}])
                     
                     # 如果是HTML文件，设置审核状态
                     if filepath.lower().endswith(('.html', '.htm')):
@@ -1725,6 +1806,7 @@ def edit_task(task_id):
                     os.remove(task.file_path)
                 task.file_name = None
                 task.file_path = None
+                task.html_files = None
                 task.html_review_note = None
             
             # 可见性/分享类型：公开 或 私有(含组织)；公开仅认证教师或管理员可用
@@ -1769,7 +1851,7 @@ def edit_task(task_id):
             }]
         for f in html_files:
             if isinstance(f, dict) and 'saved_name' in f:
-                f['url'] = get_upload_file_url(f['saved_name'])
+                f['url'] = get_upload_file_url(f['saved_name'], task.file_path)
         
         task_ai_generated = getattr(task, 'ai_generated', False)
         task_html_ai_edit_remaining = getattr(task, 'html_ai_edit_remaining', None)
@@ -2917,7 +2999,7 @@ def uploaded_file(filename):
     """上传文件访问 - 原有 uploads 目录中的文件由此路由提供；已在 static/uploads 的新文件重定向到静态 URL"""
     try:
         legacy_path = os.path.join(UPLOAD_FOLDER, filename)
-        static_path = os.path.join(STATIC_UPLOADS, filename)
+        static_path = os.path.join(_static_uploads_dir(), filename)
         if not os.path.exists(legacy_path) and os.path.exists(static_path):
             return redirect(url_for('static', filename='uploads/' + filename))
         # 检查文件扩展名，如果是HTML文件需要检查审核状态

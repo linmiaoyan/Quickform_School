@@ -74,7 +74,7 @@
                 <div class="tab-content">
                     <!-- 个人信息标签页 -->
                     <div class="tab-pane fade show active" id="profile">
-                        <form method="POST" action="{{ url_for('quickform.profile') }}">
+                        <form method="POST" action="{{ url_for('quickform.profile') }}" autocomplete="off">
                             <input type="hidden" name="update_profile" value="1">
                             
                             <div class="form-group">
@@ -142,7 +142,7 @@
                                 <h5 class="mt-4 mb-3">{{ translate('profile.deepseek_config') }}</h5>
                                 <div class="form-group">
                                     <label for="deepseek_api_key" style="color: #000; font-weight: 500;">{{ translate('profile.deepseek_api_key') }}</label>
-                                    <input type="password" class="form-control api-key-input" id="deepseek_api_key" name="deepseek_api_key" value="{{ ai_config.deepseek_api_key if ai_config and ai_config.deepseek_api_key else '' }}">
+                                    <input type="password" class="form-control api-key-input" id="deepseek_api_key" name="deepseek_api_key" autocomplete="new-password" value="{{ ai_config.deepseek_api_key if ai_config and ai_config.deepseek_api_key else '' }}">
                                     <small class="form-text text-muted">{{ translate('profile.deepseek_api_key_hint') }}</small>
                                 </div>
                             </div>
@@ -151,7 +151,7 @@
                                 <h5 class="mt-4 mb-3">{{ translate('profile.doubao_config') }}</h5>
                                 <div class="form-group">
                                     <label for="doubao_api_key" style="color: #000; font-weight: 500;">{{ translate('profile.doubao_api_key') }}</label>
-                                    <input type="password" class="form-control api-key-input" id="doubao_api_key" name="doubao_api_key" value="{{ ai_config.doubao_api_key if ai_config and ai_config.doubao_api_key else '' }}">
+                                    <input type="password" class="form-control api-key-input" id="doubao_api_key" name="doubao_api_key" autocomplete="new-password" value="{{ ai_config.doubao_api_key if ai_config and ai_config.doubao_api_key else '' }}">
                                 </div>
                             </div>
                             
@@ -159,7 +159,7 @@
                                 <h5 class="mt-4 mb-3">阿里云百炼</h5>
                                 <div class="form-group">
                                     <label for="qwen_api_key" style="color: #000; font-weight: 500;">API Key</label>
-                                    <input type="password" class="form-control api-key-input" id="qwen_api_key" name="qwen_api_key" value="{{ ai_config.qwen_api_key if ai_config and ai_config.qwen_api_key else '' }}">
+                                    <input type="password" class="form-control api-key-input" id="qwen_api_key" name="qwen_api_key" autocomplete="new-password" value="{{ ai_config.qwen_api_key if ai_config and ai_config.qwen_api_key else '' }}">
                                     <small class="form-text text-muted">在 <a href="https://dashscope.console.aliyun.com/apiKey" target="_blank">阿里云百炼控制台</a> 创建 API-KEY</small>
                                 </div>
                             </div>
@@ -168,7 +168,7 @@
                                 <h5 class="mt-4 mb-3">moonshot(月之暗面)</h5>
                                 <div class="form-group">
                                     <label for="moonshot_api_key" style="color: #000; font-weight: 500;">API Key</label>
-                                    <input type="password" class="form-control api-key-input" id="moonshot_api_key" name="moonshot_api_key" value="{{ ai_config.moonshot_api_key if ai_config and ai_config.moonshot_api_key else '' }}">
+                                    <input type="password" class="form-control api-key-input" id="moonshot_api_key" name="moonshot_api_key" autocomplete="new-password" value="{{ ai_config.moonshot_api_key if ai_config and ai_config.moonshot_api_key else '' }}">
                                     <small class="form-text text-muted">在 <a href="https://platform.moonshot.cn/console/api-keys" target="_blank">月之暗面控制台</a> 左侧 API Key 管理 - 新建</small>
                                 </div>
                             </div>
@@ -177,7 +177,7 @@
                                 <h5 class="mt-4 mb-3">glm(智谱清言)</h5>
                                 <div class="form-group">
                                     <label for="glm_api_key" style="color: #000; font-weight: 500;">API Key</label>
-                                    <input type="password" class="form-control api-key-input" id="glm_api_key" name="glm_api_key" value="{{ ai_config.glm_api_key if ai_config and ai_config.glm_api_key else '' }}">
+                                    <input type="password" class="form-control api-key-input" id="glm_api_key" name="glm_api_key" autocomplete="new-password" value="{{ ai_config.glm_api_key if ai_config and ai_config.glm_api_key else '' }}">
                                     <small class="form-text text-muted">在 <a href="https://open.bigmodel.cn/usercenter/apikeys" target="_blank">智谱开放平台</a> 左侧 API keys - 创建 API key</small>
                                 </div>
                             </div>
@@ -186,11 +186,11 @@
                                 <h5 class="mt-4 mb-3">ernie(文心一言)</h5>
                                 <div class="form-group mb-2">
                                     <label for="ernie_api_key" style="color: #000; font-weight: 500;">API Key</label>
-                                    <input type="password" class="form-control api-key-input" id="ernie_api_key" name="ernie_api_key" value="{{ ai_config.ernie_api_key if ai_config and ai_config.ernie_api_key else '' }}">
+                                    <input type="password" class="form-control api-key-input" id="ernie_api_key" name="ernie_api_key" autocomplete="new-password" value="{{ ai_config.ernie_api_key if ai_config and ai_config.ernie_api_key else '' }}">
                                 </div>
                                 <div class="form-group">
                                     <label for="ernie_secret_key" style="color: #000; font-weight: 500;">Secret Key</label>
-                                    <input type="password" class="form-control api-key-input" id="ernie_secret_key" name="ernie_secret_key" value="{{ ai_config.ernie_secret_key if ai_config and ai_config.ernie_secret_key else '' }}">
+                                    <input type="password" class="form-control api-key-input" id="ernie_secret_key" name="ernie_secret_key" autocomplete="new-password" value="{{ ai_config.ernie_secret_key if ai_config and ai_config.ernie_secret_key else '' }}">
                                     <small class="form-text text-muted">在 <a href="https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application" target="_blank">百度千帆</a> 左侧应用接入 - 创建应用，需同时获取 API Key 与 Secret Key</small>
                                 </div>
                             </div>
@@ -199,7 +199,7 @@
                                 <h5 class="mt-4 mb-3">openrouter（AI模型聚合平台）</h5>
                                 <div class="form-group">
                                     <label for="openrouter_api_key" style="color: #000; font-weight: 500;">API Key</label>
-                                    <input type="password" class="form-control api-key-input" id="openrouter_api_key" name="openrouter_api_key" value="{{ ai_config.openrouter_api_key if ai_config and ai_config.openrouter_api_key else '' }}">
+                                    <input type="password" class="form-control api-key-input" id="openrouter_api_key" name="openrouter_api_key" autocomplete="new-password" value="{{ ai_config.openrouter_api_key if ai_config and ai_config.openrouter_api_key else '' }}">
                                     <small class="form-text text-muted">在 <a href="https://openrouter.ai/settings/keys" target="_blank">OpenRouter</a> 创建 API Key</small>
                                 </div>
                             </div>

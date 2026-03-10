@@ -19,6 +19,7 @@
 
 <form id="edit-task-form" method="POST" action="{{ url_for('quickform.edit_task', task_id=task.id) }}" enctype="multipart/form-data">
 <input type="hidden" id="files_to_remove" name="files_to_remove" value="">
+<input type="hidden" id="edit-form-action" name="action" value="">
 <div class="edit-content-layout">
     <!-- 左侧：基础信息与使用说明 -->
     <div>
@@ -98,14 +99,11 @@
                     </div>
                     <div class="card-body">
                         <p class="text-muted small mb-3">在现有页面上按您的说明修改，无需重新上传。会消耗 1 次修改次数（剩余 <strong>{{ task_html_ai_edit_remaining }}</strong> 次）。</p>
-                        <form method="POST" action="{{ url_for('quickform.edit_task', task_id=task.id) }}" id="ai-revise-form" onsubmit="return startAiReviseOverlay()">
-                            <input type="hidden" name="action" value="ai_revise_html">
-                            <div class="mb-3">
-                                <label for="revision_instructions" class="form-label">修改说明</label>
-                                <textarea class="form-control" id="revision_instructions" name="revision_instructions" rows="3" placeholder="例如：把标题改成「学生信息登记表」；增加「班级」下拉框；提交按钮改为蓝色" required></textarea>
-                            </div>
-                            <button type="submit" class="btn btn-primary w-100" id="ai-revise-btn"><i class="bi bi-magic"></i> 提交并让 AI 修改</button>
-                        </form>
+                        <div class="mb-3">
+                            <label for="revision_instructions" class="form-label">修改说明</label>
+                            <textarea class="form-control" id="revision_instructions" name="revision_instructions" rows="3" placeholder="例如：把标题改成「学生信息登记表」；增加「班级」下拉框；提交按钮改为蓝色"></textarea>
+                        </div>
+                        <button type="button" class="btn btn-primary w-100" id="ai-revise-btn" onclick="submitAiRevise()"><i class="bi bi-magic"></i> 提交并让 AI 修改</button>
                     </div>
                 </div>
                 {% endif %}
@@ -166,7 +164,7 @@
 
 {% block scripts %}
 <script>
-    // AI 继续修改：提交时显示加载遮罩与计时（复用一键生成/数据分析页逻辑）
+    // AI 继续修改：仅当点击「提交并让 AI 修改」时校验并提交，不影响「保存修改」
     var aiReviseTimerId = null;
     function startAiReviseOverlay() {
         var overlay = document.getElementById('ai-revise-overlay');
@@ -181,6 +179,18 @@
             if (elapsed) elapsed.textContent = String(n + 1);
         }, 1000);
         return true;
+    }
+    function submitAiRevise() {
+        var instructions = document.getElementById('revision_instructions');
+        var val = (instructions && instructions.value) ? instructions.value.trim() : '';
+        if (!val) {
+            alert('请填写修改说明后再提交。');
+            if (instructions) instructions.focus();
+            return;
+        }
+        document.getElementById('edit-form-action').value = 'ai_revise_html';
+        startAiReviseOverlay();
+        document.getElementById('edit-task-form').submit();
     }
     // 记录要删除的文件（允许脚本多次加载时复用同一数组）
     var filesToRemove = window.filesToRemove || [];
@@ -257,79 +267,17 @@
         });
     }
     
-    // 表单提交处理 - 使用Base64编码上传多文件
+    // 表单提交：仅做文件大小校验，直接 multipart 上传（不再走 Base64）
     document.getElementById('edit-task-form').addEventListener('submit', function(e) {
         const fileInput = document.getElementById('html-file-input-edit');
-        const files = Array.from(fileInput.files);
-        const submitBtn = document.getElementById('submit-btn');
-        
-        // 如果有HTML文件，使用Base64编码上传
-        if (files.length > 0) {
-            e.preventDefault();
-            
-            // 检查文件大小
-            for (let file of files) {
-                if (file.size > 4 * 1024 * 1024) {
-                    alert(`{{ translate('js.file_size_exceeded')|replace('{name}', '${file.name}') }}`);
-                    return false;
-                }
+        const files = Array.from(fileInput.files || []);
+        for (let i = 0; i < files.length; i++) {
+            if (files[i].size > 4 * 1024 * 1024) {
+                e.preventDefault();
+                alert('文件「' + files[i].name + '」超过 4MB，请压缩后重试。');
+                return false;
             }
-            
-            // 显示上传状态
-            submitBtn.disabled = true;
-            submitBtn.textContent = `上传中 (0/${files.length})...`;
-            
-            // 读取所有文件并编码
-            const filesData = [];
-            let processedCount = 0;
-            
-            files.forEach((file, index) => {
-                const reader = new FileReader();
-                
-                reader.onerror = function() {
-                    alert(`{{ translate('js.file_read_failed')|replace('{name}', '${file.name}') }}`);
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = '保存修改';
-                };
-                
-                reader.onload = function(e) {
-                    const fileContent = e.target.result;
-                    const base64Content = btoa(unescape(encodeURIComponent(fileContent)));
-                    
-                    filesData.push({
-                        name: file.name,
-                        content: base64Content
-                    });
-                    
-                    processedCount++;
-                    submitBtn.textContent = `上传中 (${processedCount}/${files.length})...`;
-                    
-                    // 所有文件处理完成后提交表单
-                    if (processedCount === files.length) {
-                        const form = document.getElementById('edit-task-form');
-                        
-                        // 添加文件数据字段
-                        const filesDataInput = document.createElement('input');
-                        filesDataInput.type = 'hidden';
-                        filesDataInput.name = 'html_files_data';
-                        filesDataInput.value = JSON.stringify(filesData);
-                        form.appendChild(filesDataInput);
-                        
-                        // 清空文件输入
-                        fileInput.value = '';
-                        
-                        // 提交表单
-                        form.submit();
-                    }
-                };
-                
-                reader.readAsText(file, 'UTF-8');
-            });
-            
-            return false;
         }
-        
-        // 如果没有文件，正常提交
         return true;
     });
 </script>
