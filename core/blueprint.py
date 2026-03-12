@@ -2020,6 +2020,41 @@ rate_limit_cache = {}
 
 # ---------- MCP 接口（供 CLI / 扣子 / OpenClaw 等自动化调用）----------
 
+@quickform_bp.route('/mcp', methods=['GET'])
+def mcp_doc():
+    """访问 /mcp 时展示 MCP 接口教程，从 QuickForm/docs/MCP接口说明.md 读取并渲染"""
+    import markdown
+    doc_path = os.path.join(QUICKFORM_DIR, '..', 'docs', 'MCP接口说明.md')
+    doc_path = os.path.normpath(os.path.abspath(doc_path))
+    if not os.path.isfile(doc_path):
+        return (
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>MCP 说明</title></head><body>'
+            '<p>未找到教程文档：QuickForm/docs/MCP接口说明.md</p></body></html>',
+            200,
+            [('Content-Type', 'text/html; charset=utf-8')]
+        )
+    try:
+        with open(doc_path, 'r', encoding='utf-8') as f:
+            md_text = f.read()
+        body_html = markdown.markdown(
+            md_text,
+            extensions=['extra', 'nl2br', 'tables', 'fenced_code'],
+            extension_configs={'tables': {}},
+        )
+        html_page = (
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>MCP 接口说明 - QuickForm</title>'
+            '<link href="' + url_for('static', filename='css/bootstrap.min.css') + '" rel="stylesheet">'
+            '<style>.mcp-body{max-width:900px;margin:2rem auto;padding:0 1rem;line-height:1.7}.mcp-body h1{font-size:1.5rem;border-bottom:1px solid #dee2e6;padding-bottom:.25rem}.mcp-body h2{font-size:1.25rem;margin-top:1.25rem}.mcp-body table{border-collapse:collapse;width:100%;margin:1rem 0}.mcp-body th,.mcp-body td{border:1px solid #dee2e6;padding:.5rem .75rem;text-align:left}.mcp-body th{background:#f8f9fa}.mcp-body pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow-x:auto}.mcp-body code{background:#f0f0f0;padding:.2em .4em;border-radius:4px}</style></head><body>'
+            '<div class="container py-3"><a href="' + url_for('quickform.index') + '" class="btn btn-outline-primary btn-sm">← 返回首页</a></div>'
+            '<div class="mcp-body">' + body_html + '</div></body></html>'
+        )
+        return make_response(html_page, 200, [('Content-Type', 'text/html; charset=utf-8')])
+    except Exception as e:
+        logger.exception('MCP doc render failed')
+        return f'<html><body><p>渲染教程失败：{html.escape(str(e))}</p></body></html>', 500
+
+
 def _mcp_parse_body():
     """解析请求体：支持 application/json 或 application/x-www-form-urlencoded"""
     if request.is_json:
@@ -4655,6 +4690,56 @@ def clear_all_submissions(task_id):
             f"[clear_all_submissions] error task={task_id} err={str(e)}",
             exc_info=True
         )
+        return make_response({'success': False, 'message': f'删除失败: {str(e)}'}, 500)
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/task/<int:task_id>/submissions/clear_by_range', methods=['GET'])
+@login_required
+def clear_submissions_by_date_range(task_id):
+    """按提交日期期间删除数据。参数：date_start（YYYY-MM-DD）、date_end（YYYY-MM-DD），均为必填。"""
+    from datetime import datetime as dt
+    db = SessionLocal()
+    date_start_s = request.args.get('date_start', '').strip()
+    date_end_s = request.args.get('date_end', '').strip()
+
+    def make_response(payload, status_code=200):
+        resp = jsonify(payload)
+        resp.status_code = status_code
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+
+    try:
+        task = db.get(Task, task_id)
+        if not task or task.user_id != current_user.id:
+            return make_response({'success': False, 'message': '无权访问此任务'}, 403)
+        if not date_start_s or not date_end_s:
+            return make_response({'success': False, 'message': '请填写开始日期和结束日期'}, 400)
+        try:
+            start_date = dt.strptime(date_start_s, '%Y-%m-%d').date()
+            end_date = dt.strptime(date_end_s, '%Y-%m-%d').date()
+        except ValueError:
+            return make_response({'success': False, 'message': '日期格式应为 YYYY-MM-DD'}, 400)
+        if start_date > end_date:
+            return make_response({'success': False, 'message': '开始日期不能晚于结束日期'}, 400)
+
+        # 该任务下、提交日期在 [start_date, end_date] 之间的记录（按 submitted_at 的日期比较）
+        submissions = (
+            db.query(Submission)
+            .filter_by(task_id=task_id)
+            .filter(Submission.submitted_at.isnot(None))
+            .all()
+        )
+        to_delete = [s for s in submissions if s.submitted_at and start_date <= s.submitted_at.date() <= end_date]
+        count = len(to_delete)
+        for s in to_delete:
+            db.delete(s)
+        db.commit()
+        return make_response({'success': True, 'message': f'已删除该期间内 {count} 条数据'})
+    except Exception as e:
+        db.rollback()
+        logger.exception('clear_submissions_by_date_range error')
         return make_response({'success': False, 'message': f'删除失败: {str(e)}'}, 500)
     finally:
         db.close()
