@@ -2115,6 +2115,51 @@ def mcp_list_tasks():
         db.close()
 
 
+@quickform_bp.route('/mcp/upload', methods=['POST'])
+def mcp_upload_html():
+    """
+    上传 HTML 文件，返回上传结果与文件公网地址。
+    请求：multipart/form-data，字段 username, password, file（.html/.htm，单文件最大 4MB）。
+    返回：{ "success": true, "url": "https://.../static/uploads/xxx.html", "filename": "xxx.html" } 或错误。
+    """
+    username = (request.form.get('username') or '').strip()
+    password = request.form.get('password') or ''
+    if not username or not password:
+        return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
+
+    user = _mcp_authenticate(username, password)
+    if not user:
+        return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
+
+    file = request.files.get('file')
+    if not file or not (file.filename or '').strip():
+        return jsonify({'success': False, 'message': '请选择要上传的 HTML 文件（字段名 file）'}), 400
+
+    if not allowed_file(file.filename, ALLOWED_EXTENSIONS):
+        return jsonify({'success': False, 'message': '仅支持 .html 或 .htm 文件'}), 400
+
+    try:
+        upload_dir = _static_uploads_dir()
+        unique_filename, filepath = save_uploaded_file(file, upload_dir, ALLOWED_EXTENSIONS)
+        if not unique_filename or not filepath:
+            return jsonify({'success': False, 'message': '文件保存失败或格式不支持'}), 400
+        if filepath.lower().endswith(('.html', '.htm')) and os.path.getsize(filepath) > MAX_HTML_FILE_SIZE:
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+            return jsonify({'success': False, 'message': '单个 HTML 文件不得超过 4MB'}), 400
+        public_url = url_for('static', filename='uploads/' + unique_filename, _external=True)
+        return jsonify({
+            'success': True,
+            'url': public_url,
+            'filename': unique_filename,
+        }), 200
+    except Exception as e:
+        logger.exception('MCP upload failed')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 @quickform_bp.route('/api/<string:task_id>', methods=['GET', 'POST', 'OPTIONS'])
 def submit_form(task_id):
     """表单提交API - 支持GET查询和POST提交"""
