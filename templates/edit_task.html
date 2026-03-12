@@ -73,12 +73,6 @@
                         </div>
                     </div>
                     
-                    <!-- 底部操作按钮 -->
-                    <div class="d-flex justify-content-end gap-2" style="position: sticky; bottom: 1rem; background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 -2px 8px rgba(0,0,0,0.1); margin-top: 1rem;">
-                        <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-secondary">回到任务详情</a>
-                        <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-primary">取消</a>
-                        <button type="submit" id="submit-btn" class="btn btn-primary">保存修改</button>
-                    </div>
             </div>
             
             <!-- 右侧：HTML 页面上传 -->
@@ -118,7 +112,7 @@
                             <label class="form-label"><strong>已上传文件</strong></label>
                             <div class="d-flex flex-column gap-2" id="uploaded-files-list">
                                 {% for file in html_files %}
-                                <div class="alert alert-success mb-0 d-flex justify-content-between align-items-center">
+                                <div class="alert alert-success mb-0 d-flex justify-content-between align-items-center uploaded-file-item" data-saved-name="{{ file.saved_name }}">
                                     <div>
                                         <i class="bi bi-file-earmark-code"></i>
                                         <a href="{{ file.url }}" target="_blank" style="color: #10b981; text-decoration: underline; margin-left: 0.5rem;">
@@ -158,6 +152,11 @@
                 </div>
             </div>
         </div>
+        <!-- 底部操作栏：整行浮动，仅保留「回到任务详情」与「保存修改」 -->
+        <div class="d-flex justify-content-end align-items-center gap-2 w-100" style="position: sticky; bottom: 1rem; background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 -2px 8px rgba(0,0,0,0.1); margin-top: 1rem; grid-column: 1 / -1;">
+            <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-secondary">回到任务详情</a>
+            <button type="submit" id="submit-btn" class="btn btn-primary">保存修改</button>
+        </div>
     </div>
 </div>
 </form>
@@ -196,27 +195,20 @@
     var filesToRemove = window.filesToRemove || [];
     window.filesToRemove = filesToRemove;
     
-    // 删除单个HTML文件
+    // 删除单个HTML文件：从删除列表记录，并立即从页面移除该条，无需等保存
     window.removeHtmlFile = function(savedName) {
         if (!confirm('{{ translate("js.delete_file_confirm") }}')) {
             return;
         }
-        
-        // 添加到删除列表
         filesToRemove.push(savedName);
         document.getElementById('files_to_remove').value = JSON.stringify(filesToRemove);
-        
-        // 隐藏对应的文件项
-        const fileItems = document.querySelectorAll(`#uploaded-files-list .alert`);
-        fileItems.forEach(item => {
-            const link = item.querySelector('a');
-            if (link && link.href.includes(savedName)) {
-                item.style.opacity = '0.5';
-                item.style.textDecoration = 'line-through';
-                const btn = item.querySelector('button');
-                if (btn) btn.disabled = true;
-            }
-        });
+        var list = document.getElementById('uploaded-files-list');
+        if (list) {
+            var items = list.querySelectorAll('.uploaded-file-item');
+            items.forEach(function(item) {
+                if (item.getAttribute('data-saved-name') === savedName) item.remove();
+            });
+        }
     }
     
     // 使用公共函数处理拖拽离开
@@ -240,8 +232,8 @@
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
         
-        // 检查已上传的文件数量
-        const existingFiles = document.querySelectorAll('#uploaded-files-list .alert:not([style*="opacity: 0.5"])').length || 0;
+        // 检查已上传的文件数量（仅统计仍显示在列表中的项，已点删除的已从 DOM 移除）
+        const existingFiles = document.querySelectorAll('#uploaded-files-list .uploaded-file-item').length || 0;
         const totalFiles = existingFiles + files.length;
         
         // 限制最多10个文件

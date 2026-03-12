@@ -780,6 +780,7 @@ TRANSLATIONS = {
         'admin.pass': '通过',
         'admin.reject': '拒绝',
         'admin.batch_pass': '批量通过',
+        'admin.batch_reject': '批量拒绝',
         'admin.no_cert_records': '暂无认证申请记录',
         'admin.confirm_reject_cert': '确定要拒绝该认证申请吗？',
         'admin.input_reject_reason': '请输入拒绝原因',

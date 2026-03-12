@@ -172,15 +172,11 @@
                     </div>
                     {% endif %}
                     
-                    <!-- 生成报告: 解读需求（统一配置界面） -->
-                    <div class="card">
-                        <div class="card-header bg-primary text-white">
-                            <h5 class="mb-0">{{ translate('smart_analyze.report_req_title') }}</h5>
-                        </div>
-                        <div class="card-body">
-                            <p class="text-muted mb-4">{{ translate('smart_analyze.report_req_desc') }}</p>
-                            
-                            <form id="promptForm" action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" onsubmit="startProcessingOverlay()">
+                    <!-- 生成报告: 解读需求（单卡内区块，不再嵌套卡片） -->
+                    <h5 class="mb-2 mt-4">{{ translate('smart_analyze.report_req_title') }}</h5>
+                    <p class="text-muted mb-4">{{ translate('smart_analyze.report_req_desc') }}</p>
+                    
+                    <form id="promptForm" action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" onsubmit="startProcessingOverlay()">
                                 <input type="hidden" name="action" value="generate">
                                 
                                 <!-- 数据范围 -->
@@ -218,25 +214,14 @@
                                     <textarea name="interface_desc" id="interface_desc" class="form-control" rows="3" placeholder="(空)">{{ task.description or '' }}</textarea>
                                 </div>
                                 
-                                <!-- 解读类型 + 优化轮次 -->
-                                <div class="row mb-4">
-                                    <div class="col-md-6">
-                                        <label for="interpretation_type" class="form-label fw-semibold">{{ translate('smart_analyze.interpretation_type') }}</label>
-                                        <select name="interpretation_type" id="interpretation_type" class="form-select">
-                                            <option value="data_analysis" selected>{{ translate('smart_analyze.type_data_analysis') }}</option>
-                                            <option value="summary">{{ translate('smart_analyze.type_summary') }}</option>
-                                            <option value="trend">{{ translate('smart_analyze.type_trend') }}</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label for="optimization_rounds" class="form-label fw-semibold">{{ translate('smart_analyze.opt_rounds') }}</label>
-                                        <select name="optimization_rounds" id="optimization_rounds" class="form-select">
-                                            <option value="1" selected>{{ translate('smart_analyze.opt_rounds_1') }}</option>
-                                            <option value="2">2</option>
-                                            <option value="3">3</option>
-                                        </select>
-                                        <small class="form-text text-muted">{{ translate('smart_analyze.opt_rounds_help') }}</small>
-                                    </div>
+                                <!-- 解读类型（润色轮次已去除，默认一轮） -->
+                                <div class="mb-4">
+                                    <label for="interpretation_type" class="form-label fw-semibold">{{ translate('smart_analyze.interpretation_type') }}</label>
+                                    <select name="interpretation_type" id="interpretation_type" class="form-select">
+                                        <option value="data_analysis" selected>{{ translate('smart_analyze.type_data_analysis') }}</option>
+                                        <option value="summary">{{ translate('smart_analyze.type_summary') }}</option>
+                                        <option value="trend">{{ translate('smart_analyze.type_trend') }}</option>
+                                    </select>
                                 </div>
                                 
                                 <!-- 你的补充关注点 -->
@@ -257,17 +242,18 @@
                                     </div>
                                 </div>
                                 
-                                <!-- 操作按钮 -->
-                                <div class="d-flex justify-content-end gap-2">
+                                <!-- 操作按钮：生成报告 / 润色提示词并生成报告（默认一轮，不再选择润色轮次） -->
+                                <div class="d-flex justify-content-end gap-2 flex-wrap">
                                     <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-secondary">{{ translate('common.cancel') }}</a>
-                                    <button type="submit" class="btn btn-primary btn-lg">
-                                        <i class="bi bi-magic"></i> {{ translate('smart_analyze.ai_polish_preview') }}
+                                    <button type="submit" name="report_action" value="generate" class="btn btn-primary btn-lg">
+                                        <i class="bi bi-file-earmark-text"></i> 生成报告
+                                    </button>
+                                    <button type="submit" name="report_action" value="polish_and_generate" class="btn btn-success btn-lg">
+                                        <i class="bi bi-magic"></i> 润色提示词并生成报告
                                     </button>
                                 </div>
                                 <p class="text-center text-muted mt-2 small">{{ translate('smart_analyze.wait_tip') }}</p>
                             </form>
-                        </div>
-                    </div>
                     
                     {% if not report %}
                     <div class="alert alert-info mb-4">

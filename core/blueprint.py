@@ -2018,6 +2018,103 @@ SUBMIT_BLACKLIST_DURATION = 300  # seconds
 rate_limit_cache = {}
 
 
+# ---------- MCP 接口（供 CLI / 扣子 / OpenClaw 等自动化调用）----------
+
+def _mcp_parse_body():
+    """解析请求体：支持 application/json 或 application/x-www-form-urlencoded"""
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    return request.form.to_dict()
+
+
+def _mcp_authenticate(username, password):
+    """用户名+密码认证，返回 User 或 None。不写 session，仅做校验。"""
+    if not username or not password:
+        return None
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(
+            (User.username == username) |
+            (User.email == username) |
+            (User.phone == username)
+        ).first()
+        if user and bcrypt.check_password_hash(user.password, password):
+            return user
+        return None
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/mcp/add', methods=['POST'])
+def mcp_add_task():
+    """
+    增加数据任务。
+    参数：username, password, task_name（任务名称）, task_intro（任务介绍，可选）。
+    返回：{ "success": true, "apiid": "<task_id>" } 或 { "success": false, "message": "..." }。
+    """
+    data = _mcp_parse_body()
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    task_name = (data.get('task_name') or data.get('title') or '').strip()
+    task_intro = (data.get('task_intro') or data.get('description') or '').strip()
+
+    if not username or not password:
+        return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
+    if not task_name:
+        return jsonify({'success': False, 'message': '缺少 task_name（任务名称）'}), 400
+
+    user = _mcp_authenticate(username, password)
+    if not user:
+        return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
+
+    db = SessionLocal()
+    try:
+        if not user.can_create_task(SessionLocal, Task):
+            task_count = db.query(Task).filter_by(user_id=user.id).count()
+            return jsonify({
+                'success': False,
+                'message': f'已达任务数量上限（当前 {task_count} 个），无法创建新任务'
+            }), 403
+        task = Task(title=task_name, description=task_intro or None, user_id=user.id)
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        return jsonify({'success': True, 'apiid': task.task_id}), 200
+    except Exception as e:
+        db.rollback()
+        logger.exception('MCP add task failed')
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/mcp/list', methods=['POST'])
+def mcp_list_tasks():
+    """
+    查看数据任务列表。
+    参数：username, password。
+    返回：{ "success": true, "tasks": [ { "apiid": "<task_id>", "name": "<title>" }, ... ] } 或错误。
+    """
+    data = _mcp_parse_body()
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+
+    if not username or not password:
+        return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
+
+    user = _mcp_authenticate(username, password)
+    if not user:
+        return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
+
+    db = SessionLocal()
+    try:
+        tasks = db.query(Task).filter_by(user_id=user.id).order_by(Task.created_at.desc()).all()
+        out = [{'apiid': t.task_id, 'name': t.title or ''} for t in tasks]
+        return jsonify({'success': True, 'tasks': out}), 200
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/api/<string:task_id>', methods=['GET', 'POST', 'OPTIONS'])
 def submit_form(task_id):
     """表单提交API - 支持GET查询和POST提交"""
@@ -2744,8 +2841,9 @@ def smart_analyze(task_id):
         
         # 如果是提交生成请求，则同步生成并返回同页结果
         if request.method == 'POST':
-            # 检查是仅保存模板还是生成报告
+            # 检查是仅保存模板还是生成报告；report_action：generate 或 polish_and_generate
             action = request.form.get('action', 'generate')  # 'save_template' 或 'generate'
+            report_action = request.form.get('report_action', 'generate')
             
             # 获取用户提示词模板（不包含数据部分）
             user_prompt_template = request.form.get('user_prompt_template', '').strip()
@@ -2797,6 +2895,19 @@ def smart_analyze(task_id):
                 user_template=user_template_val,
                 interface_desc=interface_desc or None
             )
+            
+            # 若为「润色提示词并生成报告」，先调用 AI 润色提示词再生成
+            if report_action == 'polish_and_generate' and custom_prompt:
+                try:
+                    polish_prompt = (
+                        "请将以下数据分析需求改写成一条更清晰、专业、便于大模型执行的分析提示词。"
+                        "只输出润色后的完整提示词内容，不要输出解释或前缀。\n\n" + custom_prompt
+                    )
+                    polished = call_ai_model(polish_prompt, ai_config)
+                    if polished and polished.strip():
+                        custom_prompt = polished
+                except Exception as e:
+                    logger.warning(f"润色提示词失败，将使用原提示词: {e}")
             
             # 保存完整提示词（用于兼容旧代码）
             task.custom_prompt = custom_prompt
@@ -3466,6 +3577,60 @@ def admin_public_reject(task_id):
         task.public_approved = -1
         db.commit()
         flash(f'已拒绝项目「{task.title}」的公开申请。', 'success')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='public-review'))
+
+
+@quickform_bp.route('/admin/public_batch_approve', methods=['POST'])
+@admin_required
+def admin_public_batch_approve():
+    """管理员批量通过项目公开申请"""
+    task_ids = request.form.getlist('task_ids')
+    if not task_ids:
+        flash('请先勾选要通过的项目', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='public-review'))
+    db = SessionLocal()
+    try:
+        count = 0
+        for tid in task_ids:
+            try:
+                task_id = int(tid)
+            except (ValueError, TypeError):
+                continue
+            task = db.get(Task, task_id)
+            if task and task.sharing_type == 'public' and task.public_approved == 0:
+                task.public_approved = 1
+                count += 1
+        db.commit()
+        flash(f'已批量通过 {count} 个项目公开申请。', 'success')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='public-review'))
+
+
+@quickform_bp.route('/admin/public_batch_reject', methods=['POST'])
+@admin_required
+def admin_public_batch_reject():
+    """管理员批量拒绝项目公开申请"""
+    task_ids = request.form.getlist('task_ids')
+    if not task_ids:
+        flash('请先勾选要拒绝的项目', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='public-review'))
+    db = SessionLocal()
+    try:
+        count = 0
+        for tid in task_ids:
+            try:
+                task_id = int(tid)
+            except (ValueError, TypeError):
+                continue
+            task = db.get(Task, task_id)
+            if task and task.sharing_type == 'public' and task.public_approved == 0:
+                task.public_approved = -1
+                count += 1
+        db.commit()
+        flash(f'已批量拒绝 {count} 个项目公开申请。', 'success')
     finally:
         db.close()
     return redirect(url_for('quickform.admin_panel', tab='public-review'))
