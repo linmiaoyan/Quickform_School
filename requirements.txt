@@ -12,4 +12,5 @@ openpyxl
 markdown
 # 可选：报告导出为 PDF。Windows 推荐 xhtml2pdf（无需 GTK）；Linux 可用 weasyprint
 xhtml2pdf
+markdown
 # weasyprint
