@@ -3386,224 +3386,250 @@ def report_status(task_id):
 @quickform_bp.route('/admin')
 @admin_required
 def admin_panel():
-    """管理员面板"""
+    """管理员面板：按当前 tab 仅加载该页数据，避免一次性查全表"""
     db = SessionLocal()
     try:
-        from datetime import timedelta
-        
         today = datetime.now().date()
         today_start = datetime.combine(today, datetime.min.time())
-        
-        # 获取当前标签页
         current_tab = request.args.get('tab', 'users')
-        
-        # 用户列表分页
-        user_page = request.args.get('user_page', 1, type=int)
-        if not user_page or user_page < 1:
-            user_page = 1
         user_per_page = 20
-        search_keyword = (request.args.get('q') or '').strip()
-
-        user_query = db.query(User)
-        if search_keyword:
-            like_pattern = f"%{search_keyword}%"
-            user_query = user_query.filter(
-                or_(
-                    User.username.ilike(like_pattern),
-                    User.email.ilike(like_pattern),
-                    User.school.ilike(like_pattern),
-                    User.phone.ilike(like_pattern)
-                )
-            )
-
-        total_filtered_users = user_query.count()
-        user_total_pages = max(math.ceil(total_filtered_users / user_per_page), 1) if total_filtered_users else 1
-        if user_page > user_total_pages:
-            user_page = user_total_pages
-
-        users = (
-            user_query
-            .order_by(User.created_at.desc())
-            .offset((user_page - 1) * user_per_page)
-            .limit(user_per_page)
-            .all()
-        )
-        
-        # 任务列表分页
-        task_page = request.args.get('task_page', 1, type=int)
-        if not task_page or task_page < 1:
-            task_page = 1
         task_per_page = 20
-        
-        task_query = db.query(Task)
-        total_tasks = task_query.count()
-        task_total_pages = max(math.ceil(total_tasks / task_per_page), 1) if total_tasks else 1
-        if task_page > task_total_pages:
-            task_page = task_total_pages
-        
-        all_tasks = (
-            task_query
-            .order_by(Task.created_at.desc())
-            .offset((task_page - 1) * task_per_page)
-            .limit(task_per_page)
-            .all()
-        )
-        
-        # HTML审核数据
-        html_review_page = request.args.get('html_review_page', 1, type=int)
-        if not html_review_page or html_review_page < 1:
-            html_review_page = 1
         html_review_per_page = 20
-        
-        # 查询所有HTML任务 - 使用file_name字段匹配更可靠
-        html_tasks_query = db.query(Task).filter(
-            Task.file_path.isnot(None),
-            Task.file_name.isnot(None),
-            (Task.file_name.like('%.html') | Task.file_name.like('%.htm'))
-        )
-        total_html_tasks = html_tasks_query.count()
-        html_review_total_pages = max(math.ceil(total_html_tasks / html_review_per_page), 1) if total_html_tasks else 1
-        if html_review_page > html_review_total_pages:
-            html_review_page = html_review_total_pages
-        
-        html_tasks = (
-            html_tasks_query
-            .order_by(Task.created_at.desc())
-            .offset((html_review_page - 1) * html_review_per_page)
-            .limit(html_review_per_page)
-            .all()
-        )
-        
-        html_tasks_with_review = []
-        pending_html_count = 0
-        for task in html_tasks:
-            author = db.get(User, task.user_id)
-            approver = db.get(User, task.html_approved_by) if task.html_approved_by else None
-            html_tasks_with_review.append({
-                'task': task,
-                'author': author,
-                'approver': approver
-            })
-            if task.html_approved != 1:
-                pending_html_count += 1
-        
-        # 认证审核数据
-        cert_review_page = request.args.get('cert_review_page', 1, type=int)
-        if not cert_review_page or cert_review_page < 1:
-            cert_review_page = 1
         cert_review_per_page = 20
-        
-        cert_requests_query = db.query(CertificationRequest)
-        total_cert_requests = cert_requests_query.count()
-        cert_review_total_pages = max(math.ceil(total_cert_requests / cert_review_per_page), 1) if total_cert_requests else 1
-        if cert_review_page > cert_review_total_pages:
-            cert_review_page = cert_review_total_pages
-        
-        cert_requests = (
-            cert_requests_query
-            .order_by(CertificationRequest.created_at.desc())
-            .offset((cert_review_page - 1) * cert_review_per_page)
-            .limit(cert_review_per_page)
-            .all()
-        )
-        pending_cert_count = sum(1 for req in cert_requests if req.status == 0)
-        
+
+        # 顶部 4 个统计卡片：始终只查这 4 个 count，保证首屏快
         total_users = db.query(User).count()
         admin_users = db.query(User).filter_by(role='admin').count()
-        normal_users = db.query(User).filter_by(role='user').count()
-        new_users_today = db.query(User).filter(User.created_at >= today_start).count()
-        
         total_tasks = db.query(Task).count()
-        new_tasks_today = db.query(Task).filter(Task.created_at >= today_start).count()
-        avg_tasks_per_user = total_tasks / total_users if total_users > 0 else 0
-        
         total_submissions = db.query(Submission).count()
-        new_submissions_today = db.query(Submission).filter(Submission.submitted_at >= today_start).count()
-        avg_submissions_per_task = total_submissions / total_tasks if total_tasks > 0 else 0
-        
-        tasks_with_reports = db.query(Task).filter(Task.analysis_report.isnot(None)).count()
-        report_generation_rate = (tasks_with_reports / total_tasks * 100) if total_tasks > 0 else 0
-        
-        # 组织统计
-        total_organizations = db.query(Organization).count()
-        total_org_members = db.query(OrganizationMember).count()
-        tasks_in_organizations = db.query(Task).filter(Task.organization_id.isnot(None)).count()
-        org_list_with_task_count = (
-            db.query(Organization, func.count(Task.id).label('task_count'))
-            .outerjoin(Task, Task.organization_id == Organization.id)
-            .group_by(Organization.id)
-            .order_by(func.count(Task.id).desc())
-            .limit(5)
-            .all()
-        )
-        # 认证与公开
-        certified_users = db.query(User).filter(User.is_certified == True).count()
-        public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
-        public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
-        total_task_shares = db.query(TaskShare).count()
-        total_task_likes = db.query(TaskLike).count()
-        # 一键生成、留言板等
-        ai_generated_tasks = db.query(Task).filter(Task.ai_generated == True).count()
-        cert_requests_pending = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
-        total_posts = db.query(Post).count()
-        total_post_replies = db.query(PostReply).count()
-        
+
+        # 默认值：未选中的 tab 不查数据
+        users = []
+        total_filtered_users = 0
+        user_total_pages = 1
+        user_page = 1
+        search_keyword = (request.args.get('q') or '').strip()
+
+        all_tasks = []
+        task_total_pages = 1
+        task_page = 1
+
+        html_tasks_with_review = []
+        pending_html_count = 0
+        html_review_total_pages = 1
+        html_review_page = 1
+        total_html_tasks = 0
+
+        cert_requests = []
+        pending_cert_count = 0
+        cert_review_total_pages = 1
+        cert_review_page = 1
+        total_cert_requests = 0
+
+        public_pending_with_author = []
+        open_source_tasks_with_author = []
+        tutorials_json_content = '[]'
+
+        # ---------- 仅当前 tab 才执行对应查询 ----------
+        if current_tab == 'users':
+            user_page = request.args.get('user_page', 1, type=int) or 1
+            user_page = max(1, user_page)
+            user_query = db.query(User)
+            if search_keyword:
+                like_pattern = f"%{search_keyword}%"
+                user_query = user_query.filter(
+                    or_(
+                        User.username.ilike(like_pattern),
+                        User.email.ilike(like_pattern),
+                        User.school.ilike(like_pattern),
+                        User.phone.ilike(like_pattern)
+                    )
+                )
+            total_filtered_users = user_query.count()
+            user_total_pages = max(math.ceil(total_filtered_users / user_per_page), 1) if total_filtered_users else 1
+            user_page = min(user_page, user_total_pages)
+            users = (
+                user_query
+                .order_by(User.created_at.desc())
+                .offset((user_page - 1) * user_per_page)
+                .limit(user_per_page)
+                .all()
+            )
+
+        elif current_tab == 'tasks':
+            task_page = request.args.get('task_page', 1, type=int) or 1
+            task_page = max(1, task_page)
+            task_total_pages = max(math.ceil(total_tasks / task_per_page), 1) if total_tasks else 1
+            task_page = min(task_page, task_total_pages)
+            all_tasks = (
+                db.query(Task)
+                .order_by(Task.created_at.desc())
+                .offset((task_page - 1) * task_per_page)
+                .limit(task_per_page)
+                .all()
+            )
+
+        elif current_tab == 'html-review':
+            html_review_page = request.args.get('html_review_page', 1, type=int) or 1
+            html_review_page = max(1, html_review_page)
+            html_tasks_query = db.query(Task).filter(
+                Task.file_path.isnot(None),
+                Task.file_name.isnot(None),
+                (Task.file_name.like('%.html') | Task.file_name.like('%.htm'))
+            )
+            total_html_tasks = html_tasks_query.count()
+            html_review_total_pages = max(math.ceil(total_html_tasks / html_review_per_page), 1) if total_html_tasks else 1
+            html_review_page = min(html_review_page, html_review_total_pages)
+            html_tasks = (
+                html_tasks_query
+                .order_by(Task.created_at.desc())
+                .offset((html_review_page - 1) * html_review_per_page)
+                .limit(html_review_per_page)
+                .all()
+            )
+            user_ids = {t.user_id for t in html_tasks} | {t.html_approved_by for t in html_tasks if t.html_approved_by}
+            user_ids.discard(None)
+            authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
+            for task in html_tasks:
+                html_tasks_with_review.append({
+                    'task': task,
+                    'author': authors_map.get(task.user_id),
+                    'approver': authors_map.get(task.html_approved_by) if task.html_approved_by else None
+                })
+                if task.html_approved != 1:
+                    pending_html_count += 1
+
+        elif current_tab == 'cert-review':
+            cert_review_page = request.args.get('cert_review_page', 1, type=int) or 1
+            cert_review_page = max(1, cert_review_page)
+            total_cert_requests = db.query(CertificationRequest).count()
+            cert_review_total_pages = max(math.ceil(total_cert_requests / cert_review_per_page), 1) if total_cert_requests else 1
+            cert_review_page = min(cert_review_page, cert_review_total_pages)
+            cert_requests = (
+                db.query(CertificationRequest)
+                .order_by(CertificationRequest.created_at.desc())
+                .offset((cert_review_page - 1) * cert_review_per_page)
+                .limit(cert_review_per_page)
+                .all()
+            )
+            pending_cert_count = sum(1 for req in cert_requests if req.status == 0)
+
+        elif current_tab == 'data':
+            pass  # stats 在下方按 tab 计算
+
+        elif current_tab == 'public-review':
+            public_pending_tasks = (
+                db.query(Task)
+                .filter(Task.sharing_type == 'public', Task.public_approved == 0)
+                .order_by(Task.created_at.desc())
+                .all()
+            )
+            author_ids = {t.user_id for t in public_pending_tasks}
+            authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
+            public_pending_with_author = [{'task': t, 'author': authors_map.get(t.user_id)} for t in public_pending_tasks]
+
+        elif current_tab == 'open-source':
+            open_tasks = (
+                db.query(Task)
+                .filter(Task.sharing_type == 'public', Task.public_approved == 1)
+                .order_by(Task.created_at.desc())
+                .all()
+            )
+            author_ids = {t.user_id for t in open_tasks}
+            authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
+            open_source_tasks_with_author = [{'task': t, 'author': authors_map.get(t.user_id)} for t in open_tasks]
+
+        elif current_tab == 'tutorials-edit':
+            try:
+                tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
+                json_path = os.path.join(tutorials_dir, 'tutorials.json')
+                if os.path.exists(json_path):
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        tutorials_json_content = f.read()
+            except Exception as e:
+                logger.warning(f"读取 tutorials.json 失败: {e}")
+
+        # 统计：仅顶部 4 项始终有；进入「数据报表」tab 再算完整 stats
         stats = {
             'total_users': total_users,
             'admin_users': admin_users,
-            'normal_users': normal_users,
-            'new_users_today': new_users_today,
             'total_tasks': total_tasks,
-            'new_tasks_today': new_tasks_today,
-            'avg_tasks_per_user': avg_tasks_per_user,
             'total_submissions': total_submissions,
-            'new_submissions_today': new_submissions_today,
-            'avg_submissions_per_task': avg_submissions_per_task,
-            'tasks_with_reports': tasks_with_reports,
-            'report_generation_rate': report_generation_rate,
-            'total_organizations': total_organizations,
-            'total_org_members': total_org_members,
-            'tasks_in_organizations': tasks_in_organizations,
-            'org_list_with_task_count': org_list_with_task_count,
-            'certified_users': certified_users,
-            'public_tasks': public_tasks,
-            'public_approved_tasks': public_approved_tasks,
-            'total_task_shares': total_task_shares,
-            'total_task_likes': total_task_likes,
-            'ai_generated_tasks': ai_generated_tasks,
-            'cert_requests_pending': cert_requests_pending,
-            'total_posts': total_posts,
-            'total_post_replies': total_post_replies,
+            'normal_users': 0,
+            'new_users_today': 0,
+            'new_tasks_today': 0,
+            'avg_tasks_per_user': 0,
+            'new_submissions_today': 0,
+            'avg_submissions_per_task': 0,
+            'tasks_with_reports': 0,
+            'report_generation_rate': 0,
+            'total_organizations': 0,
+            'total_org_members': 0,
+            'tasks_in_organizations': 0,
+            'org_list_with_task_count': [],
+            'certified_users': 0,
+            'public_tasks': 0,
+            'public_approved_tasks': 0,
+            'total_task_shares': 0,
+            'total_task_likes': 0,
+            'ai_generated_tasks': 0,
+            'cert_requests_pending': 0,
+            'total_posts': 0,
+            'total_post_replies': 0,
         }
+        if current_tab == 'data':
+            normal_users = db.query(User).filter_by(role='user').count()
+            new_users_today = db.query(User).filter(User.created_at >= today_start).count()
+            new_tasks_today = db.query(Task).filter(Task.created_at >= today_start).count()
+            avg_tasks_per_user = total_tasks / total_users if total_users > 0 else 0
+            new_submissions_today = db.query(Submission).filter(Submission.submitted_at >= today_start).count()
+            avg_submissions_per_task = total_submissions / total_tasks if total_tasks > 0 else 0
+            tasks_with_reports = db.query(Task).filter(Task.analysis_report.isnot(None)).count()
+            report_generation_rate = (tasks_with_reports / total_tasks * 100) if total_tasks > 0 else 0
+            total_organizations = db.query(Organization).count()
+            total_org_members = db.query(OrganizationMember).count()
+            tasks_in_organizations = db.query(Task).filter(Task.organization_id.isnot(None)).count()
+            org_list_with_task_count = (
+                db.query(Organization, func.count(Task.id).label('task_count'))
+                .outerjoin(Task, Task.organization_id == Organization.id)
+                .group_by(Organization.id)
+                .order_by(func.count(Task.id).desc())
+                .limit(5)
+                .all()
+            )
+            certified_users = db.query(User).filter(User.is_certified == True).count()
+            public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
+            public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
+            total_task_shares = db.query(TaskShare).count()
+            total_task_likes = db.query(TaskLike).count()
+            ai_generated_tasks = db.query(Task).filter(Task.ai_generated == True).count()
+            cert_requests_pending = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
+            total_posts = db.query(Post).count()
+            total_post_replies = db.query(PostReply).count()
+            stats.update(
+                normal_users=normal_users,
+                new_users_today=new_users_today,
+                new_tasks_today=new_tasks_today,
+                avg_tasks_per_user=avg_tasks_per_user,
+                new_submissions_today=new_submissions_today,
+                avg_submissions_per_task=avg_submissions_per_task,
+                tasks_with_reports=tasks_with_reports,
+                report_generation_rate=report_generation_rate,
+                total_organizations=total_organizations,
+                total_org_members=total_org_members,
+                tasks_in_organizations=tasks_in_organizations,
+                org_list_with_task_count=org_list_with_task_count,
+                certified_users=certified_users,
+                public_tasks=public_tasks,
+                public_approved_tasks=public_approved_tasks,
+                total_task_shares=total_task_shares,
+                total_task_likes=total_task_likes,
+                ai_generated_tasks=ai_generated_tasks,
+                cert_requests_pending=cert_requests_pending,
+                total_posts=total_posts,
+                total_post_replies=total_post_replies,
+            )
 
-        # 项目公开审核：sharing_type=public 且 public_approved=0
-        public_pending_tasks = (
-            db.query(Task)
-            .filter(Task.sharing_type == 'public', Task.public_approved == 0)
-            .order_by(Task.created_at.desc())
-            .all()
-        )
-        public_pending_with_author = [{'task': t, 'author': db.get(User, t.user_id)} for t in public_pending_tasks]
-        
-        # 开源项目管理：已在项目交流展示的公开项目（public_approved=1）
-        open_source_tasks_query = (
-            db.query(Task)
-            .filter(Task.sharing_type == 'public', Task.public_approved == 1)
-            .order_by(Task.created_at.desc())
-        )
-        open_source_tasks_with_author = [{'task': t, 'author': db.get(User, t.user_id)} for t in open_source_tasks_query.all()]
-        
-        # 开源教程：读取 tutorials.json 供管理员编辑
-        tutorials_json_content = '[]'
-        try:
-            tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
-            json_path = os.path.join(tutorials_dir, 'tutorials.json')
-            if os.path.exists(json_path):
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    tutorials_json_content = f.read()
-        except Exception as e:
-            logger.warning(f"读取 tutorials.json 失败: {e}")
-        
         return render_template(
             'admin.html',
             users=users,
