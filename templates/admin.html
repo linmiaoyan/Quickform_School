@@ -9,28 +9,28 @@
         <div style="padding: 1.5rem 1rem 1rem 1rem; border-bottom: 1px solid #e5e7eb;">
             <h6 style="font-weight: 600; color: #6b7280; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">{{ translate('admin.navigation') }}</h6>
         </div>
-        <a href="#users" class="sidebar-item active" data-tab="users" onclick="switchTab('users'); return false;">
+        <a href="{{ url_for('quickform.admin_panel', tab='users') }}" class="sidebar-item {{ 'active' if current_tab == 'users' else '' }}" data-tab="users">
             <i class="bi bi-people" style="margin-right: 0.75rem;"></i> {{ translate('admin.user_management') }}
         </a>
-        <a href="#tasks" class="sidebar-item" data-tab="tasks" onclick="switchTab('tasks'); return false;">
+        <a href="{{ url_for('quickform.admin_panel', tab='tasks') }}" class="sidebar-item {{ 'active' if current_tab == 'tasks' else '' }}" data-tab="tasks">
             <i class="bi bi-list-task" style="margin-right: 0.75rem;"></i> {{ translate('admin.task_report') }}
         </a>
-        <a href="#html-review" class="sidebar-item" data-tab="html-review" onclick="switchTab('html-review'); return false;">
+        <a href="{{ url_for('quickform.admin_panel', tab='html-review') }}" class="sidebar-item {{ 'active' if current_tab == 'html-review' else '' }}" data-tab="html-review">
             <i class="bi bi-file-earmark-code" style="margin-right: 0.75rem;"></i> {{ translate('admin.html_review') }}
         </a>
-        <a href="#cert-review" class="sidebar-item" data-tab="cert-review" onclick="switchTab('cert-review'); return false;">
+        <a href="{{ url_for('quickform.admin_panel', tab='cert-review') }}" class="sidebar-item {{ 'active' if current_tab == 'cert-review' else '' }}" data-tab="cert-review">
             <i class="bi bi-shield-check" style="margin-right: 0.75rem;"></i> {{ translate('admin.cert_review') }}
         </a>
-        <a href="#public-review" class="sidebar-item" data-tab="public-review" onclick="switchTab('public-review'); return false;">
+        <a href="{{ url_for('quickform.admin_panel', tab='public-review') }}" class="sidebar-item {{ 'active' if current_tab == 'public-review' else '' }}" data-tab="public-review">
             <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> {{ translate('admin.public_review') }}
         </a>
-        <a href="#open-source" class="sidebar-item" data-tab="open-source" onclick="switchTab('open-source'); return false;">
+        <a href="{{ url_for('quickform.admin_panel', tab='open-source') }}" class="sidebar-item {{ 'active' if current_tab == 'open-source' else '' }}" data-tab="open-source">
             <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> {{ translate('admin.open_source') }}
         </a>
-        <a href="#tutorials-edit" class="sidebar-item" data-tab="tutorials-edit" onclick="switchTab('tutorials-edit'); return false;">
+        <a href="{{ url_for('quickform.admin_panel', tab='tutorials-edit') }}" class="sidebar-item {{ 'active' if current_tab == 'tutorials-edit' else '' }}" data-tab="tutorials-edit">
             <i class="bi bi-book" style="margin-right: 0.75rem;"></i> {{ translate('admin.tutorials_edit') }}
         </a>
-        <a href="#data" class="sidebar-item" data-tab="data" onclick="switchTab('data'); return false;">
+        <a href="{{ url_for('quickform.admin_panel', tab='data') }}" class="sidebar-item {{ 'active' if current_tab == 'data' else '' }}" data-tab="data">
             <i class="bi bi-graph-up" style="margin-right: 0.75rem;"></i> {{ translate('admin.data_report') }}
         </a>
     </div>
@@ -116,7 +116,7 @@
         <!-- 标签页内容 -->
         <div class="tab-content" id="adminTabsContent">
             <!-- 用户管理标签页 -->
-            <div class="tab-pane fade show active" id="users" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'users' else '' }}" id="users" role="tabpanel">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0" style="color: white;">{{ translate('admin.user_list_title') }}</h5>
@@ -285,7 +285,7 @@
             </div>
 
             <!-- 任务报表标签页 -->
-            <div class="tab-pane fade" id="tasks" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'tasks' else '' }}" id="tasks" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">所有任务列表</h5>
@@ -373,7 +373,7 @@
             </div>
 
             <!-- {{ translate('admin.open_source') }}标签页 -->
-            <div class="tab-pane fade" id="open-source" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'open-source' else '' }}" id="open-source" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">{{ translate('admin.open_source') }}</h5>
@@ -433,7 +433,7 @@
             </div>
 
             <!-- {{ translate('admin.tutorials_edit') }}标签页：编辑 tutorials 菜单的 JSON -->
-            <div class="tab-pane fade" id="tutorials-edit" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'tutorials-edit' else '' }}" id="tutorials-edit" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">{{ translate('admin.tutorials_edit') }}</h5>
@@ -452,7 +452,7 @@
             </div>
 
             <!-- {{ translate('admin.public_review') }}标签页：支持批量选中、批量通过/拒绝 -->
-            <div class="tab-pane fade" id="public-review" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'public-review' else '' }}" id="public-review" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">{{ translate('admin.public_review') }}</h5>
@@ -516,7 +516,7 @@
             </div>
 
             <!-- HTML审核标签页 -->
-            <div class="tab-pane fade" id="html-review" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'html-review' else '' }}" id="html-review" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">HTML 页面审核</h5>
@@ -755,7 +755,7 @@
             </div>
 
             <!-- 认证审核标签页 -->
-            <div class="tab-pane fade" id="cert-review" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'cert-review' else '' }}" id="cert-review" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">{{ translate('admin.cert_audit') }}</h5>
@@ -921,7 +921,7 @@
 
 
             <!-- 数据报表标签页 -->
-            <div class="tab-pane fade" id="data" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'data' else '' }}" id="data" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">{{ translate('admin.export_data') }}报表</h5>
