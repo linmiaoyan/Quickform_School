@@ -20,7 +20,7 @@ from sqlalchemy import create_engine, or_, text, func
 from sqlalchemy.orm import sessionmaker
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import io
 import matplotlib
@@ -1616,6 +1616,8 @@ def edit_task(task_id):
                 try:
                     remove_list = json.loads(files_to_remove)
                     existing_files = json.loads(task.html_files) if task.html_files else []
+                    if not isinstance(existing_files, list):
+                        existing_files = []
                     
                     for saved_name in remove_list:
                         # 删除文件（可能在 static/uploads 或旧 core/uploads）
@@ -1627,10 +1629,21 @@ def edit_task(task_id):
                                 except OSError:
                                     pass
                                 break
-                        # 从列表中移除
-                        existing_files = [f for f in existing_files if f['saved_name'] != saved_name]
+                        # 从列表中移除（兼容 saved_name 或 path 等字段）
+                        sn = str(saved_name).strip()
+                        existing_files = [f for f in existing_files if isinstance(f, dict) and f.get('saved_name') != sn]
                     
                     task.html_files = json.dumps(existing_files) if existing_files else None
+                    # 同步单文件字段：任务详情页会优先用 html_files，为空时回退到 file_name/file_path，必须一致避免删除了仍显示
+                    if not existing_files:
+                        task.file_name = None
+                        task.file_path = None
+                        task.html_review_note = None
+                    else:
+                        first = existing_files[0]
+                        task.file_name = first.get('original_name') or first.get('saved_name')
+                        static_uploads = _static_uploads_dir()
+                        task.file_path = os.path.join(static_uploads, first.get('saved_name', ''))
                 except Exception as e:
                     logger.error(f"文件删除失败: {str(e)}")
             
@@ -3959,6 +3972,62 @@ def admin_export_users():
         return redirect(url_for('quickform.admin_panel', tab='users'))
     finally:
         db.close()
+
+
+@quickform_bp.route('/admin/api/daily_registrations')
+@admin_required
+def admin_api_daily_registrations():
+    """管理员接口：按可选时间范围返回每日注册人数，用于可视化"""
+    start_s = (request.args.get('start') or '').strip()
+    end_s = (request.args.get('end') or '').strip()
+    try:
+        if start_s:
+            start_d = datetime.strptime(start_s, '%Y-%m-%d').date()
+        else:
+            start_d = (datetime.now() - timedelta(days=30)).date()
+        if end_s:
+            end_d = datetime.strptime(end_s, '%Y-%m-%d').date()
+        else:
+            end_d = datetime.now().date()
+        if start_d > end_d:
+            start_d, end_d = end_d, start_d
+    except ValueError:
+        start_d = (datetime.now() - timedelta(days=30)).date()
+        end_d = datetime.now().date()
+    start_dt = datetime.combine(start_d, datetime.min.time())
+    end_dt = datetime.combine(end_d, datetime.max.time())
+    db = SessionLocal()
+    try:
+        # 按日期分组统计注册数（兼容 SQLite / MySQL）
+        try:
+            rows = (
+                db.query(func.date(User.created_at).label('day'), func.count(User.id).label('count'))
+                .filter(User.created_at >= start_dt, User.created_at <= end_dt)
+                .group_by(func.date(User.created_at))
+                .order_by(func.date(User.created_at))
+                .all()
+            )
+        except Exception:
+            # 部分环境无 date 函数时退化为 Python 聚合
+            from collections import defaultdict
+            day_count = defaultdict(int)
+            for u in db.query(User.created_at).filter(User.created_at >= start_dt, User.created_at <= end_dt).all():
+                if u[0]:
+                    day_count[u[0].strftime('%Y-%m-%d')] += 1
+            rows = [(d, c) for d, c in sorted(day_count.items())]
+        data = []
+        for r in rows:
+            day_val = r[0]
+            date_str = day_val.strftime('%Y-%m-%d') if hasattr(day_val, 'strftime') else str(day_val)
+            cnt = r[1] if len(r) >= 2 else 0
+            data.append({'date': date_str, 'count': int(cnt)})
+        return jsonify({'success': True, 'data': data, 'start': start_s or start_d.isoformat(), 'end': end_s or end_d.isoformat()})
+    except Exception as e:
+        logger.exception('daily_registrations: %s', e)
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        db.close()
+
 
 # 学校数据提取函数（从参考文件复制）
 CITY_TO_PROVINCE = {

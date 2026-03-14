@@ -963,6 +963,22 @@
                                 </ul>
                             </div>
                         </div>
+                        <!-- 每日注册人数可视化（可选时间范围） -->
+                        <div class="card mb-4">
+                            <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                                <h6 class="mb-0"><i class="bi bi-graph-up"></i> 每日注册人数</h6>
+                                <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+                                    <label class="mb-0 small">开始</label>
+                                    <input type="date" id="reg-chart-start" class="form-control form-control-sm" style="width: auto;">
+                                    <label class="mb-0 small">结束</label>
+                                    <input type="date" id="reg-chart-end" class="form-control form-control-sm" style="width: auto;">
+                                    <button type="button" class="btn btn-sm btn-primary" id="reg-chart-btn">查询</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="daily-registrations-chart" style="width: 100%; height: 320px;"></div>
+                            </div>
+                        </div>
                         <div class="row mb-4">
                             <div class="col-md-6">
                                 <h6>{{ translate('common.submit') }}统计</h6>
@@ -1076,6 +1092,7 @@
 </div>
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
 <style>
 /* HTML 审核表格：改善行列紧凑度 */
 .html-review-table th,
@@ -1430,6 +1447,55 @@
         document.execCommand('copy');
         alert('信息已复制到剪贴板');
     }
+
+    // 每日注册人数图表（可选时间范围）
+    (function(){
+        var regChartStart = document.getElementById('reg-chart-start');
+        var regChartEnd = document.getElementById('reg-chart-end');
+        var regChartBtn = document.getElementById('reg-chart-btn');
+        var chartDom = document.getElementById('daily-registrations-chart');
+        if (!chartDom || !regChartBtn) return;
+        function defaultDates() {
+            var end = new Date();
+            var start = new Date();
+            start.setDate(start.getDate() - 30);
+            var fmt = function(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+            if (regChartStart && !regChartStart.value) regChartStart.value = fmt(start);
+            if (regChartEnd && !regChartEnd.value) regChartEnd.value = fmt(end);
+        }
+        function loadRegChart() {
+            var start = (regChartStart && regChartStart.value) || '';
+            var end = (regChartEnd && regChartEnd.value) || '';
+            var url = '{{ url_for("quickform.admin_api_daily_registrations") }}?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+            fetch(url, { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    if (!res.success) { if (res.message) alert(res.message); return; }
+                    var data = res.data || [];
+                    var dates = data.map(function(item) { return item.date; });
+                    var counts = data.map(function(item) { return item.count; });
+                    if (typeof echarts === 'undefined') {
+                        chartDom.innerHTML = '<p class="text-muted text-center py-4">请加载 ECharts 后使用图表</p>';
+                        return;
+                    }
+                    var chart = echarts.init(chartDom);
+                    chart.setOption({
+                        tooltip: { trigger: 'axis' },
+                        xAxis: { type: 'category', data: dates, axisLabel: { rotate: 45 } },
+                        yAxis: { type: 'value', name: '注册人数', minInterval: 1 },
+                        series: [{ name: '注册人数', type: 'bar', data: counts, itemStyle: { color: '#2563eb' } }]
+                    });
+                    window.addEventListener('resize', function() { chart.resize(); });
+                })
+                .catch(function(e) { console.error(e); chartDom.innerHTML = '<p class="text-danger text-center py-4">加载失败</p>'; });
+        }
+        defaultDates();
+        regChartBtn.addEventListener('click', loadRegChart);
+        document.querySelector('.sidebar-item[data-tab="data"]') && document.querySelector('.sidebar-item[data-tab="data"]').addEventListener('click', function() {
+            setTimeout(function() { if (chartDom.offsetParent) loadRegChart(); }, 100);
+        });
+        if (window.location.search.indexOf('tab=data') !== -1) setTimeout(loadRegChart, 300);
+    })();
 </script>
 {% endblock %}
 {% endblock %}
