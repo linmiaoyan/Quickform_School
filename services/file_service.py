@@ -70,18 +70,13 @@ def save_uploaded_file(file, upload_folder, allowed_extensions=None):
             logger.warning(f"save_uploaded_file: 不支持的文件格式 - {file.filename}, 扩展名: {file_ext}, 允许的格式: {allowed_extensions}")
             return None, None
         
-        # 处理文件名，确保编码正确
+        # 仅保留扩展名，使用 uuid 生成短且唯一的文件名，避免长名与中文编码问题
         original_filename = file.filename
-        # 如果文件名包含非ASCII字符，尝试安全处理
-        try:
-            # 确保文件名可以安全保存
-            safe_filename = original_filename.encode('utf-8').decode('utf-8')
-        except (UnicodeEncodeError, UnicodeDecodeError) as e:
-            logger.warning(f"文件名编码问题: {original_filename}, 错误: {str(e)}")
-            # 如果编码失败，使用原始文件名
-            safe_filename = original_filename
-        
-        unique_filename = str(uuid.uuid4()) + '_' + safe_filename
+        ext = original_filename.rsplit('.', 1)[1].lower().strip() if '.' in original_filename else 'bin'
+        ext = ext.replace('\ufeff', '').replace('\u200b', '').strip() or 'bin'
+        if ext not in allowed_extensions:
+            ext = list(allowed_extensions)[0]  # 回退到允许的任一扩展名
+        unique_filename = uuid.uuid4().hex + '.' + ext
         filepath = os.path.join(upload_folder, unique_filename)
         
         # 确保上传目录存在

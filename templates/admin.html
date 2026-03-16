@@ -782,6 +782,7 @@
                                     {{ translate('admin.batch_pass') }}
                                 </button>
                             </div>
+                        </form>
                             <div class="table-responsive">
                                 <table class="table table-striped align-middle">
                                     <thead>
@@ -802,7 +803,7 @@
                                         <tr>
                                             <td>
                                                 {% if req.status == 0 %}
-                                                <input type="checkbox" class="form-check-input cert-check" name="request_ids" value="{{ req.id }}">
+                                                <input type="checkbox" class="form-check-input cert-check" form="certBatchForm" name="request_ids" value="{{ req.id }}">
                                                 {% endif %}
                                             </td>
                                             <td>{{ req.user.username if req.user else translate('admin.unknown_user') }}</td>
@@ -845,17 +846,24 @@
                                                                 class="btn btn-sm" 
                                                                 style="background-color: #10b981; color: white; border: none; white-space: nowrap;">
                                                             <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
-                                                            通过
+                                                            {{ translate('admin.approve') }}
                                                         </button>
                                                     </form>
-                                                    <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="m-0 cert-reject-form">
+                                                    <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="m-0 cert-reject-form d-inline" data-default-reject-reason="{{ translate('admin.default_reject_reason') }}">
+                                                        <input type="hidden" name="action" value="reject">
                                                         <input type="hidden" name="note" value="">
+                                                        <button type="button"
+                                                                class="btn btn-sm cert-reject-default-btn"
+                                                                style="background-color: #f59e0b; color: white; border: none; white-space: nowrap;">
+                                                            <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>
+                                                            {{ translate('admin.reject_with_default') }}
+                                                        </button>
                                                         <button type="button"
                                                                 class="btn btn-sm"
                                                                 style="background-color: #ef4444; color: white; border: none; white-space: nowrap;"
                                                                 onclick="handleCertReject(this)">
                                                             <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>
-                                                            拒绝
+                                                            {{ translate('admin.reject') }}
                                                         </button>
                                                     </form>
                                                 </div>
@@ -868,7 +876,6 @@
                                     </tbody>
                                 </table>
                             </div>
-                        </form>
                         
                         <!-- 分页 -->
                         {% if cert_review_pages > 1 %}
@@ -1286,7 +1293,8 @@
 
     // 教师认证单条拒绝：点击时再输入原因
     function handleCertReject(button) {
-        var reason = prompt('{{ translate('admin.input_reject_reason') }}（必填）：');
+        var defaultReason = '{{ translate('admin.default_reject_reason') }}';
+        var reason = prompt('{{ translate('admin.input_reject_reason') }}（必填，可直接确认使用默认理由）：', defaultReason);
         if (reason === null) {
             return;
         }
@@ -1300,7 +1308,7 @@
         }
         var form = button.closest('form');
         if (!form) return;
-        var noteInput = form.querySelector('input[name=\"note\"]');
+        var noteInput = form.querySelector('input[name="note"]');
         if (!noteInput) {
             noteInput = document.createElement('input');
             noteInput.type = 'hidden';
@@ -1308,13 +1316,30 @@
             form.appendChild(noteInput);
         }
         noteInput.value = reason;
-        var actionInput = document.createElement('input');
-        actionInput.type = 'hidden';
-        actionInput.name = 'action';
+        var actionInput = form.querySelector('input[name="action"]');
+        if (!actionInput) {
+            actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'action';
+            actionInput.value = 'reject';
+            form.appendChild(actionInput);
+        }
         actionInput.value = 'reject';
-        form.appendChild(actionInput);
         form.submit();
     }
+    // 教师认证拒绝（默认理由）：点选后直接提交
+    (function(){
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('.cert-reject-default-btn');
+            if (!btn) return;
+            var form = btn.closest('form');
+            if (!form) return;
+            var noteInput = form.querySelector('input[name="note"]');
+            var defaultReason = form.getAttribute('data-default-reject-reason') || '请提供更多个人相关信息';
+            if (noteInput) noteInput.value = defaultReason;
+            if (confirm('{{ translate('admin.confirm_reject_cert') }}')) form.submit();
+        });
+    })();
 
     // HTML审核批量选择功能
     (function(){

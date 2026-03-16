@@ -2031,18 +2031,17 @@ SUBMIT_BLACKLIST_DURATION = 300  # seconds
 rate_limit_cache = {}
 
 
-# ---------- MCP 接口（供 CLI / 扣子 / OpenClaw 等自动化调用）----------
+# ---------- CLI 接口（供命令行 / 扣子 / OpenClaw 等自动化调用，原 MCP 已统一改名为 CLI）----------
 
-@quickform_bp.route('/mcp', methods=['GET'])
-def mcp_doc():
-    """访问 /mcp 时展示 MCP 接口教程，从 QuickForm/docs/MCP接口说明.md 读取并渲染"""
+def _cli_doc_view():
+    """展示 CLI 接口教程，从 docs/CLI接口说明.md 读取并渲染"""
     import markdown
-    doc_path = os.path.join(QUICKFORM_DIR, '..', 'docs', 'MCP接口说明.md')
+    doc_path = os.path.join(QUICKFORM_DIR, '..', 'docs', 'CLI接口说明.md')
     doc_path = os.path.normpath(os.path.abspath(doc_path))
     if not os.path.isfile(doc_path):
         return (
-            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>MCP 说明</title></head><body>'
-            '<p>未找到教程文档：QuickForm/docs/MCP接口说明.md</p></body></html>',
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>CLI 说明</title></head><body>'
+            '<p>未找到教程文档：QuickForm/docs/CLI接口说明.md</p></body></html>',
             200,
             [('Content-Type', 'text/html; charset=utf-8')]
         )
@@ -2056,16 +2055,28 @@ def mcp_doc():
         )
         html_page = (
             '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<title>MCP 接口说明 - QuickForm</title>'
+            '<title>CLI 接口说明 - QuickForm</title>'
             '<link href="' + url_for('static', filename='css/bootstrap.min.css') + '" rel="stylesheet">'
-            '<style>.mcp-body{max-width:900px;margin:2rem auto;padding:0 1rem;line-height:1.7}.mcp-body h1{font-size:1.5rem;border-bottom:1px solid #dee2e6;padding-bottom:.25rem}.mcp-body h2{font-size:1.25rem;margin-top:1.25rem}.mcp-body table{border-collapse:collapse;width:100%;margin:1rem 0}.mcp-body th,.mcp-body td{border:1px solid #dee2e6;padding:.5rem .75rem;text-align:left}.mcp-body th{background:#f8f9fa}.mcp-body pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow-x:auto}.mcp-body code{background:#f0f0f0;padding:.2em .4em;border-radius:4px}</style></head><body>'
+            '<style>.cli-body{max-width:900px;margin:2rem auto;padding:0 1rem;line-height:1.7}.cli-body h1{font-size:1.5rem;border-bottom:1px solid #dee2e6;padding-bottom:.25rem}.cli-body h2{font-size:1.25rem;margin-top:1.25rem}.cli-body table{border-collapse:collapse;width:100%;margin:1rem 0}.cli-body th,.cli-body td{border:1px solid #dee2e6;padding:.5rem .75rem;text-align:left}.cli-body th{background:#f8f9fa}.cli-body pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow-x:auto}.cli-body code{background:#f0f0f0;padding:.2em .4em;border-radius:4px}</style></head><body>'
             '<div class="container py-3"><a href="' + url_for('quickform.index') + '" class="btn btn-outline-primary btn-sm">← 返回首页</a></div>'
-            '<div class="mcp-body">' + body_html + '</div></body></html>'
+            '<div class="cli-body">' + body_html + '</div></body></html>'
         )
         return make_response(html_page, 200, [('Content-Type', 'text/html; charset=utf-8')])
     except Exception as e:
-        logger.exception('MCP doc render failed')
+        logger.exception('CLI doc render failed')
         return f'<html><body><p>渲染教程失败：{html.escape(str(e))}</p></body></html>', 500
+
+
+@quickform_bp.route('/cli', methods=['GET'])
+def cli_doc():
+    """访问 /cli 时展示 CLI 接口教程"""
+    return _cli_doc_view()
+
+
+@quickform_bp.route('/mcp', methods=['GET'])
+def mcp_doc():
+    """兼容旧链接：重定向到 /cli"""
+    return redirect(url_for('quickform.cli_doc'))
 
 
 def _mcp_parse_body():
@@ -2093,8 +2104,9 @@ def _mcp_authenticate(username, password):
         db.close()
 
 
+@quickform_bp.route('/cli/add', methods=['POST'])
 @quickform_bp.route('/mcp/add', methods=['POST'])
-def mcp_add_task():
+def cli_add_task():
     """
     增加数据任务。
     参数：username, password, task_name（任务名称）, task_intro（任务介绍，可选）。
@@ -2130,14 +2142,15 @@ def mcp_add_task():
         return jsonify({'success': True, 'apiid': task.task_id}), 200
     except Exception as e:
         db.rollback()
-        logger.exception('MCP add task failed')
+        logger.exception('CLI add task failed')
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         db.close()
 
 
+@quickform_bp.route('/cli/list', methods=['POST'])
 @quickform_bp.route('/mcp/list', methods=['POST'])
-def mcp_list_tasks():
+def cli_list_tasks():
     """
     查看数据任务列表。
     参数：username, password。
@@ -2163,8 +2176,9 @@ def mcp_list_tasks():
         db.close()
 
 
+@quickform_bp.route('/cli/upload', methods=['POST'])
 @quickform_bp.route('/mcp/upload', methods=['POST'])
-def mcp_upload_html():
+def cli_upload_html():
     """
     上传 HTML 文件，返回上传结果与文件公网地址。
     请求：multipart/form-data，字段 username, password, file（.html/.htm，单文件最大 4MB）。
@@ -2204,7 +2218,7 @@ def mcp_upload_html():
             'filename': unique_filename,
         }), 200
     except Exception as e:
-        logger.exception('MCP upload failed')
+        logger.exception('CLI upload failed')
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -2979,15 +2993,19 @@ def smart_analyze(task_id):
             if task.file_path and os.path.exists(task.file_path):
                 file_content_for_prompt = read_file_content(task.file_path)
             
-            # 始终根据表单中的「你的补充关注点」和「接口描述」生成完整提示词
-            user_prompt_from_form = request.form.get('user_prompt_template', '').strip()
-            user_template_val = user_prompt_from_form or (task.user_prompt_template if task.user_prompt_template else None)
-            custom_prompt = generate_analysis_prompt(
-                task, submission_for_prompt, file_content_for_prompt,
-                SessionLocal, Submission,
-                user_template=user_template_val,
-                interface_desc=interface_desc or None
-            )
+            # 若用户在高阶编辑中填写了「完整提示词」，优先使用该内容，否则再根据表单生成
+            custom_prompt_from_form = request.form.get('custom_prompt', '').strip()
+            if custom_prompt_from_form:
+                custom_prompt = custom_prompt_from_form
+            else:
+                user_prompt_from_form = request.form.get('user_prompt_template', '').strip()
+                user_template_val = user_prompt_from_form or (task.user_prompt_template if task.user_prompt_template else None)
+                custom_prompt = generate_analysis_prompt(
+                    task, submission_for_prompt, file_content_for_prompt,
+                    SessionLocal, Submission,
+                    user_template=user_template_val,
+                    interface_desc=interface_desc or None
+                )
             
             # 若为「润色提示词并生成报告」，先调用 AI 润色提示词再生成
             if report_action == 'polish_and_generate' and custom_prompt:
