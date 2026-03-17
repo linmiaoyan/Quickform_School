@@ -193,6 +193,7 @@ class Organization(Base):
     org_code = Column(String(50), unique=True, nullable=False)  # 组织代码，五位大写字母数字，由创建时生成
     creator_id = Column(Integer, ForeignKey('user.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.now)
+    members_can_edit_tasks = Column(Boolean, default=False)  # 组织成员对组织内任务的权限：False=只读（默认），True=可编辑
     
     creator = relationship('User', foreign_keys=[creator_id])
     members = relationship('OrganizationMember', back_populates='organization', cascade='all, delete-orphan')
@@ -246,6 +247,7 @@ def migrate_database(engine):
         ai_cfg_cols = [col['name'] for col in inspector.get_columns('ai_config')] if 'ai_config' in inspector.get_table_names() else []
         task_cols = [col['name'] for col in inspector.get_columns('task')] if 'task' in inspector.get_table_names() else []
         cert_req_cols = [col['name'] for col in inspector.get_columns('certification_request')] if 'certification_request' in inspector.get_table_names() else []
+        org_cols = [col['name'] for col in inspector.get_columns('organization')] if 'organization' in inspector.get_table_names() else []
         
         with engine.begin() as conn:
             if 'school' not in columns:
@@ -524,5 +526,17 @@ def migrate_database(engine):
                         logger.info(f"成功为ai_config添加{col_name}")
                     except Exception as e:
                         logger.warning(f"添加{col_name}失败（可能已存在）: {str(e)}")
+            
+            # organization 组织成员对组织任务的权限开关：默认只读
+            if org_cols and 'members_can_edit_tasks' not in org_cols:
+                try:
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE organization ADD COLUMN members_can_edit_tasks TINYINT(1) DEFAULT 0"))
+                    else:
+                        conn.execute(text("ALTER TABLE organization ADD COLUMN members_can_edit_tasks BOOLEAN DEFAULT 0"))
+                    logger.info("成功为organization添加members_can_edit_tasks字段")
+                except Exception as e:
+                    logger.warning(f"添加members_can_edit_tasks失败（可能已存在）: {str(e)}")
     except Exception as e:
         logger.error(f"数据库迁移失败: {str(e)}")

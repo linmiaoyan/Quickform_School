@@ -73,6 +73,11 @@
                             <span class="badge" style="background-color: #8b5cf6; font-size: 0.75rem;">
                                 <i class="bi bi-people-fill"></i> {{ translate('task_detail.organization_shared') }}
                             </span>
+                            {% if task_access.get(task.id) == 'org_readonly' %}
+                            <span class="badge bg-secondary" style="font-size: 0.7rem;">只读</span>
+                            {% elif task_access.get(task.id) == 'org_edit' %}
+                            <span class="badge" style="background-color: #0d9488; font-size: 0.7rem;">编辑</span>
+                            {% endif %}
                             {% elif task.sharing_type == 'shared' %}
                             <span class="badge" style="background-color: #10b981; font-size: 0.75rem;">
                                 <i class="bi bi-share-fill"></i> {{ translate('task_detail.shared') }}

@@ -974,7 +974,8 @@ def dashboard():
             if task.id not in all_task_ids:
                 all_task_ids.add(task.id)
                 tasks.append(task)
-                task_access[task.id] = 'org'
+                org_can_edit = task.organization and getattr(task.organization, 'members_can_edit_tasks', False)
+                task_access[task.id] = 'org_edit' if org_can_edit else 'org_readonly'
         for task in shared_tasks:
             if task.id not in all_task_ids:
                 all_task_ids.add(task.id)
@@ -1398,15 +1399,29 @@ def task_detail(task_id):
         # 公开项目且当前用户非所有者/管理员等：仅展示任务名称、简介、网页（不展示数据与导出等）
         is_public_visitor = (task.sharing_type == 'public' and not can_analyze_export)
 
-        # 是否可编辑（仅所有者/管理员/组织成员/被共享且权限为编辑）：只读用户可查看与导出，不可编辑任务与删除数据
+        # 当前用户是否为组织创建者或组织管理员（用于显示组织成员权限开关）
+        can_edit_org_settings = False
+        if task.organization_id and current_user.is_authenticated and task.organization:
+            if task.organization.creator_id == current_user.id:
+                can_edit_org_settings = True
+            else:
+                om = db.query(OrganizationMember).filter_by(
+                    organization_id=task.organization_id, user_id=current_user.id
+                ).first()
+                if om and om.role == 'admin':
+                    can_edit_org_settings = True
+
+        # 是否可编辑（仅所有者/管理员/组织成员且组织开启编辑时/被共享且权限为编辑）：只读用户可查看与导出，不可编辑任务与删除数据
         can_edit_task = False
         if current_user.is_authenticated:
             if current_user.is_admin() or task.user_id == current_user.id:
                 can_edit_task = True
-            elif task.organization_id and db.query(OrganizationMember).filter_by(
-                organization_id=task.organization_id, user_id=current_user.id
-            ).first() is not None:
-                can_edit_task = True
+            elif task.organization_id:
+                org_mem = db.query(OrganizationMember).filter_by(
+                    organization_id=task.organization_id, user_id=current_user.id
+                ).first()
+                if org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False):
+                    can_edit_task = True
             else:
                 share_record = db.query(TaskShare).filter_by(
                     task_id=task.id, user_id=current_user.id
@@ -1426,6 +1441,7 @@ def task_detail(task_id):
             shared_users=shared_users,
             can_analyze_export=can_analyze_export,
             can_edit_task=can_edit_task,
+            can_edit_org_settings=can_edit_org_settings,
             user_liked=user_liked,
             is_public_visitor=is_public_visitor
         )
@@ -1468,14 +1484,16 @@ def task_data_view(task_id):
         if not can_analyze_export:
             flash('无权查看该任务的提交数据', 'danger')
             return redirect(url_for('quickform.task_detail', task_id=task_id))
-        # 是否可编辑/删除数据（仅所有者、管理员、组织成员、被共享且编辑权限）
+        # 是否可编辑/删除数据（仅所有者、管理员、组织成员且组织开启编辑、被共享且编辑权限）
         can_edit_task = False
         if current_user.is_admin() or task.user_id == current_user.id:
             can_edit_task = True
-        elif task.organization_id and db.query(OrganizationMember).filter_by(
-            organization_id=task.organization_id, user_id=current_user.id
-        ).first() is not None:
-            can_edit_task = True
+        elif task.organization_id:
+            org_mem = db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first()
+            if org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False):
+                can_edit_task = True
         else:
             share_record = db.query(TaskShare).filter_by(
                 task_id=task.id, user_id=current_user.id
@@ -1531,16 +1549,16 @@ def edit_task(task_id):
             flash('任务不存在', 'danger')
             return redirect(url_for('quickform.dashboard'))
         
-        # 权限检查：管理员、任务所有者、组织成员、被共享且权限为「编辑」者可编辑
+        # 权限检查：管理员、任务所有者、组织成员且组织开启编辑、被共享且权限为「编辑」者可编辑
         has_edit_permission = False
         if current_user.is_admin() or task.user_id == current_user.id:
             has_edit_permission = True
         elif task.organization_id:
-            is_org_member = db.query(OrganizationMember).filter_by(
+            org_mem = db.query(OrganizationMember).filter_by(
                 organization_id=task.organization_id,
                 user_id=current_user.id
-            ).first() is not None
-            if is_org_member:
+            ).first()
+            if org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False):
                 has_edit_permission = True
         else:
             share_record = db.query(TaskShare).filter_by(
@@ -4780,11 +4798,13 @@ def remove_submission(task_id):
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
         share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+        org_mem = db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id, user_id=current_user.id
+        ).first() if task.organization_id else None
         can_edit = (
             current_user.is_admin() or task.user_id == current_user.id or
-            (task.organization_id and db.query(OrganizationMember).filter_by(
-                organization_id=task.organization_id, user_id=current_user.id
-            ).first() is not None) or (share_rec and share_rec.can_edit)
+            (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
+            (share_rec and share_rec.can_edit)
         )
         if not can_edit:
             logger.warning(
@@ -4840,11 +4860,13 @@ def clear_all_submissions(task_id):
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
         share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+        org_mem = db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id, user_id=current_user.id
+        ).first() if task.organization_id else None
         can_edit = (
             current_user.is_admin() or task.user_id == current_user.id or
-            (task.organization_id and db.query(OrganizationMember).filter_by(
-                organization_id=task.organization_id, user_id=current_user.id
-            ).first() is not None) or (share_rec and share_rec.can_edit)
+            (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
+            (share_rec and share_rec.can_edit)
         )
         if not can_edit:
             logger.warning(
@@ -4896,11 +4918,13 @@ def clear_submissions_by_date_range(task_id):
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
         share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+        org_mem = db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id, user_id=current_user.id
+        ).first() if task.organization_id else None
         can_edit = (
             current_user.is_admin() or task.user_id == current_user.id or
-            (task.organization_id and db.query(OrganizationMember).filter_by(
-                organization_id=task.organization_id, user_id=current_user.id
-            ).first() is not None) or (share_rec and share_rec.can_edit)
+            (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
+            (share_rec and share_rec.can_edit)
         )
         if not can_edit:
             return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
@@ -5247,6 +5271,38 @@ def leave_organization(org_id):
         logger.error(f"退出组织失败: {str(e)}")
         flash('退出组织失败', 'danger')
         return redirect(url_for('quickform.organization'))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/organization/<int:org_id>/set_members_can_edit', methods=['POST'])
+@login_required
+def set_org_members_can_edit(org_id):
+    """组织管理员设置：成员对组织内任务的权限（只读/编辑）。仅组织创建者或组织管理员可操作。"""
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, org_id)
+        if not org:
+            flash('组织不存在', 'danger')
+            return redirect(url_for('quickform.dashboard'))
+        is_creator = org.creator_id == current_user.id
+        member = db.query(OrganizationMember).filter_by(
+            organization_id=org_id, user_id=current_user.id
+        ).first()
+        is_admin = member and member.role == 'admin'
+        if not (is_creator or is_admin):
+            flash('只有组织创建者或管理员可修改此设置', 'danger')
+            return redirect(request.referrer or url_for('quickform.dashboard'))
+        value = request.form.get('value', '0').strip()
+        org.members_can_edit_tasks = (value == '1' or value == 'true' or value == 'on')
+        db.commit()
+        flash('组织成员权限已更新：' + ('可编辑组织内任务' if org.members_can_edit_tasks else '仅只读'), 'success')
+        return redirect(request.referrer or url_for('quickform.dashboard'))
+    except Exception as e:
+        db.rollback()
+        logger.error(f"设置组织成员权限失败: {str(e)}")
+        flash('操作失败', 'danger')
+        return redirect(request.referrer or url_for('quickform.dashboard'))
     finally:
         db.close()
 

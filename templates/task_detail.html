@@ -209,6 +209,23 @@
                             {% endif %}
                         </form>
                         <small class="text-muted">{{ translate('task_detail.assign_hint') }}</small>
+                        {% if task.organization_id and task.organization %}
+                        <div class="mt-3 pt-3 border-top">
+                            <strong class="d-block mb-2">组织「{{ task.organization.name }}」成员权限</strong>
+                            <p class="small text-muted mb-2">控制组织内成员对该组织下所有任务的权限：只读（仅查看/导出）或可编辑（可修改任务与删除数据）。</p>
+                            {% if can_edit_org_settings %}
+                            <form method="POST" action="{{ url_for('quickform.set_org_members_can_edit', org_id=task.organization.id) }}" class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="small me-2">当前：<strong>{{ '可编辑' if task.organization.members_can_edit_tasks else '只读' }}</strong></span>
+                                <input type="hidden" name="value" value="{{ '0' if task.organization.members_can_edit_tasks else '1' }}">
+                                <button type="submit" class="btn btn-sm {{ 'btn-outline-secondary' if task.organization.members_can_edit_tasks else 'btn-outline-success' }}">
+                                    {{ '改为只读' if task.organization.members_can_edit_tasks else '开启编辑' }}
+                                </button>
+                            </form>
+                            {% else %}
+                            <span class="small text-muted">当前：{{ '可编辑' if task.organization.members_can_edit_tasks else '只读' }}（仅组织创建者或管理员可修改）</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                     </div>
                     <div class="col-md-6">
                         <label class="form-label"><strong>{{ translate('task_detail.share_to_user') }}</strong></label>
