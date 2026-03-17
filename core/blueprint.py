@@ -1484,6 +1484,7 @@ def task_data_view(task_id):
                 can_edit_task = True
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
+        search_q = (request.args.get('search') or request.args.get('q') or '').strip()
         page = max(1, page)
         per_page = min(max(1, per_page), 200)
         submission_query = (
@@ -1491,6 +1492,10 @@ def task_data_view(task_id):
             .filter_by(task_id=task.id)
             .order_by(Submission.submitted_at.desc())
         )
+        if search_q:
+            # LIKE 通配符转义：% _ \ -> \% \_ \\
+            like_esc = search_q.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            submission_query = submission_query.filter(Submission.data.like('%' + like_esc + '%'))
         total_submissions = submission_query.count()
         total_pages = max(math.ceil(total_submissions / per_page), 1) if total_submissions else 1
         if page > total_pages:
@@ -1508,7 +1513,8 @@ def task_data_view(task_id):
             submissions=submissions,
             total_submissions=total_submissions,
             pagination=pagination,
-            can_edit_task=can_edit_task
+            can_edit_task=can_edit_task,
+            search_q=search_q
         )
     finally:
         db.close()
