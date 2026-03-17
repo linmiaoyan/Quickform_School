@@ -82,40 +82,14 @@
                 <p class="mb-0"><strong>投稿邮箱：</strong><a href="mailto:xiezuoru@vip.qq.com">xiezuoru@vip.qq.com</a></p>
             </div>
 
-            {% if tutorials and tutorials|length > 0 %}
-                {% for tutorial in tutorials %}
-                <div class="tutorial-item">
-                    <div class="tutorial-header">
-                        <h3 class="tutorial-title">{{ tutorial.title }}</h3>
-                        <div class="tutorial-author">
-                            <strong>作者：</strong>
-                            {% if tutorial.author_link %}
-                                <a href="{{ tutorial.author_link }}" target="_blank">{{ tutorial.author }}</a>
-                            {% else %}
-                                {{ tutorial.author }}
-                            {% endif %}
-                        </div>
-                        {% if tutorial.description %}
-                        <p class="tutorial-description">{{ tutorial.description }}</p>
-                        {% endif %}
-                    </div>
-                    
-                    {% if tutorial.author_link %}
-                    <div class="tutorial-link">
-                        <strong>教程链接：</strong><br>
-                        <a href="{{ tutorial.author_link }}" target="_blank">{{ tutorial.author_link }}</a>
-                    </div>
-                    {% endif %}
+            <div class="tutorial-item">
+                <div class="tutorial-header">
+                    <h3 class="tutorial-title">QuickForm 教程视频</h3>
                 </div>
-                {% endfor %}
-            {% else %}
-                <div class="card">
-                    <div class="card-body text-center py-5">
-                        <p class="lead text-muted">暂无教程内容</p>
-                        <p class="text-muted">教程内容正在准备中...</p>
-                    </div>
+                <div class="ratio ratio-16x9 mb-3" style="max-width: 900px;">
+                    <iframe src="//player.bilibili.com/player.html?isOutside=true&aid=116215053812928&bvid=BV1hsc6zHEoN&cid=36643342242&p=1" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>
                 </div>
-            {% endif %}
+            </div>
         </div>
     </div>
 </div>

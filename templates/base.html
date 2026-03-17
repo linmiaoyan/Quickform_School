@@ -453,17 +453,17 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('quickform.tutorials') }}"><i class="bi bi-book"></i> {{ translate('nav.tutorials') }}</a>
+                        <a class="nav-link" href="{{ url_for('quickform.tutorials') }}"><i class="bi bi-book"></i> {{ translate('nav.tutorials') if translate('nav.tutorials') != 'nav.tutorials' else '开源教程' }}</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('quickform.community') }}"><i class="bi bi-people"></i> {{ translate('nav.community') }}</a>
+                        <a class="nav-link" href="{{ url_for('quickform.community') }}"><i class="bi bi-people"></i> {{ translate('nav.community') if translate('nav.community') != 'nav.community' else '项目交流' }}</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('quickform.teams_list') }}"><i class="bi bi-building"></i> 入驻团队</a>
                     </li>
                     {% if current_user.is_authenticated %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('quickform.dashboard') }}"><i class="bi bi-database"></i> {{ translate('nav.dashboard') }}</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('quickform.organization') }}"><i class="bi bi-people-fill"></i> {{ translate('organization.title') }}</a>
+                        <a class="nav-link" href="{{ url_for('quickform.dashboard') }}"><i class="bi bi-database"></i> {{ translate('nav.dashboard') if translate('nav.dashboard') != 'nav.dashboard' else '我的数据任务' }}</a>
                     </li>
                     {% if current_user.is_admin() %}
                     <li class="nav-item">
@@ -491,12 +491,13 @@
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
                             {% if current_user.is_admin() %}
-                            <li><a class="dropdown-item" href="{{ url_for('quickform.admin_panel') }}">{{ translate('nav.admin_panel') }}</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('quickform.admin_panel') }}"><i class="bi bi-shield-fill-check"></i> {{ translate('nav.admin_panel') }}</a></li>
                             <li><hr class="dropdown-divider"></li>
                             {% endif %}
-                            <li><a class="dropdown-item" href="{{ url_for('quickform.profile') }}">{{ translate('nav.profile') }}</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('quickform.organization') }}"><i class="bi bi-people-fill"></i> {{ translate('nav.team_manage') if translate('nav.team_manage') != 'nav.team_manage' else '团队管理' }}</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('quickform.profile') }}"><i class="bi bi-person-gear"></i> {{ translate('nav.profile') }}</a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="{{ url_for('quickform.logout') }}">{{ translate('nav.logout') }}</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('quickform.logout') }}"><i class="bi bi-box-arrow-right"></i> {{ translate('nav.logout') }}</a></li>
                         </ul>
                     </li>
                     {% else %}

@@ -107,6 +107,7 @@ class Task(Base):
     tutorial_link = Column(String(500))  # 提示词分享链接，便于分享和后期查找
     ai_generated = Column(Boolean, default=False)  # 是否为一键生成任务
     html_ai_edit_remaining = Column(Integer, nullable=True)  # 剩余可修改次数（3→2→1→0），非一键生成为 None
+    is_active = Column(Boolean, default=True)  # 任务状态：True=正常接收/读取数据，False=停用（接口拒绝）
     approver = relationship('User', foreign_keys=[html_approved_by], backref='approved_tasks')
     organization = relationship('Organization', back_populates='tasks')
     shares = relationship('TaskShare', back_populates='task', cascade='all, delete-orphan')
@@ -409,6 +410,17 @@ def migrate_database(engine):
                     logger.info("成功为task添加html_ai_edit_remaining字段")
                 except Exception as e:
                     logger.warning(f"添加html_ai_edit_remaining失败（可能已存在）: {str(e)}")
+            if task_cols and 'is_active' not in task_cols:
+                try:
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE task ADD COLUMN is_active TINYINT(1) DEFAULT 1"))
+                    else:
+                        conn.execute(text("ALTER TABLE task ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+                    conn.execute(text("UPDATE task SET is_active = 1 WHERE is_active IS NULL"))
+                    logger.info("成功为task添加is_active字段（任务正常/停用）")
+                except Exception as e:
+                    logger.warning(f"添加is_active失败（可能已存在）: {str(e)}")
 
             # 创建认证申请表
             if 'certification_request' not in inspector.get_table_names():

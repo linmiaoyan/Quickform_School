@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+
+{% block title %}入驻团队 - QuickForm{% endblock %}
+
+{% block content %}
+<style>
+.teams-header {
+    background: #2563eb;
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    color: white;
+}
+.teams-header h1,
+.teams-header h1 i,
+.teams-header p { color: white !important; }
+.teams-header p { opacity: 0.95; }
+.teams-table th { font-weight: 600; }
+</style>
+
+<div class="teams-header">
+    <h1 class="mb-2"><i class="bi bi-people-fill"></i> 入驻团队</h1>
+    <p class="mb-0 opacity-90">浏览已入驻团队，使用组织代码加入后即可查看该团队的数据任务。</p>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h5 class="mb-0">{{ translate('teams.list_title') if translate('teams.list_title') != 'teams.list_title' else '团队列表' }}</h5>
+    <div class="d-flex gap-2 flex-wrap align-items-center">
+        <form method="get" action="{{ url_for('quickform.teams_list') }}" class="d-flex gap-2" role="search">
+            <input type="hidden" name="page" value="1">
+            <input type="search" name="q" class="form-control" style="min-width: 180px;" placeholder="{{ translate('teams.search_placeholder') if translate('teams.search_placeholder') != 'teams.search_placeholder' else '团队名称或负责人' }}" value="{{ q or '' }}">
+            <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-search"></i> {{ translate('common.search') }}</button>
+        </form>
+        {% if current_user.is_authenticated %}
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#joinTeamModal">
+            <i class="bi bi-box-arrow-in-right"></i> {{ translate('teams.join_team') if translate('teams.join_team') != 'teams.join_team' else '加入团队' }}
+        </button>
+        {% else %}
+        <a href="{{ url_for('quickform.login', next=url_for('quickform.teams_list')) }}" class="btn btn-primary">{{ translate('teams.login_to_join') if translate('teams.login_to_join') != 'teams.login_to_join' else '登录后加入团队' }}</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover teams-table mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>团队名称</th>
+                        <th>建立时间</th>
+                        <th>负责人</th>
+                        <th>人数</th>
+                        <th>数据任务数</th>
+                        <th style="width: 100px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in team_rows %}
+                    <tr>
+                        <td>{{ row.org.name }}</td>
+                        <td>{{ row.org.created_at.strftime('%Y-%m-%d %H:%M') if row.org.created_at else '-' }}</td>
+                        <td>{{ row.creator_name }}</td>
+                        <td>{{ row.member_count }}</td>
+                        <td>{{ row.task_count }}</td>
+                        <td>
+                            {% if current_user.is_authenticated %}
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#joinTeamModal">
+                                加入
+                            </button>
+                            {% else %}
+                            <a href="{{ url_for('quickform.login', next=url_for('quickform.teams_list')) }}" class="btn btn-sm btn-outline-primary">加入</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">{{ translate('teams.no_teams') if translate('teams.no_teams') != 'teams.no_teams' else '暂无入驻团队' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% if total_pages > 1 %}
+    <div class="card-footer d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <small class="text-muted">{% set pagination_info = translate('teams.pagination_info') if translate('teams.pagination_info') != 'teams.pagination_info' else '共 {total} 条' %}{{ pagination_info.replace('{total}', total_count|string) }}</small>
+        <nav aria-label="{{ translate('teams.pagination_aria') if translate('teams.pagination_aria') != 'teams.pagination_aria' else '团队列表分页' }}">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {{ 'disabled' if page <= 1 else '' }}">
+                    <a class="page-link" href="{% if page > 1 %}{{ url_for('quickform.teams_list', q=q or None, page=page-1) }}{% else %}#{% endif %}"><i class="bi bi-chevron-left"></i> {{ translate('teams.prev') if translate('teams.prev') != 'teams.prev' else '上一页' }}</a>
+                </li>
+                {% for p in range(1, total_pages + 1) %}
+                {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+                <li class="page-item {{ 'active' if p == page else '' }}"><a class="page-link" href="{{ url_for('quickform.teams_list', q=q or None, page=p) }}">{{ p }}</a></li>
+                {% elif p == page - 3 or p == page + 3 %}
+                <li class="page-item disabled"><span class="page-link">…</span></li>
+                {% endif %}
+                {% endfor %}
+                <li class="page-item {{ 'disabled' if page >= total_pages else '' }}">
+                    <a class="page-link" href="{% if page < total_pages %}{{ url_for('quickform.teams_list', q=q or None, page=page+1) }}{% else %}#{% endif %}">{{ translate('teams.next') if translate('teams.next') != 'teams.next' else '下一页' }} <i class="bi bi-chevron-right"></i></a>
+                </li>
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+</div>
+
+{% if current_user.is_authenticated %}
+<!-- 加入团队模态框：填写组织代码 -->
+<div class="modal fade" id="joinTeamModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-box-arrow-in-right"></i> 加入团队</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('quickform.join_organization') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">组织代码 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="org_code" required placeholder="请输入团队提供的五位组织代码" style="font-family: 'Courier New', monospace; letter-spacing: 2px;">
+                    </div>
+                    <p class="text-muted small mb-0">向团队负责人获取组织代码后填写并提交即可加入。</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">提交</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

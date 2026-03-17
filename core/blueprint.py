@@ -421,21 +421,8 @@ def docs():
 
 @quickform_bp.route('/tutorials')
 def tutorials():
-    """开源教程 - HTML预览"""
-    import json
-    tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
-    tutorials_data = []
-    
-    # 读取tutorials.json配置文件
-    json_file = os.path.join(tutorials_dir, 'tutorials.json')
-    if os.path.exists(json_file):
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                tutorials_data = json.load(f)
-        except Exception as e:
-            logger.error(f"读取tutorials.json失败: {str(e)}")
-    
-    return render_template('tutorials.html', tutorials=tutorials_data)
+    """开源教程 - 使用 B 站嵌入视频，不再读取本地 tutorials.json"""
+    return render_template('tutorials.html')
 
 @quickform_bp.route('/cases')
 def cases():
@@ -982,8 +969,11 @@ def dashboard():
                 tasks.append(task)
                 task_access[task.id] = 'shared_edit' if shared_can_edit.get(task.id, False) else 'shared_readonly'
         
-        # 按创建时间倒序排序
-        tasks.sort(key=lambda t: t.created_at, reverse=True)
+        # 按创建时间倒序排序（我的任务 / 我的团队任务 独立呈现）
+        own_tasks.sort(key=lambda t: t.created_at, reverse=True)
+        org_tasks.sort(key=lambda t: t.created_at, reverse=True)
+        shared_tasks.sort(key=lambda t: t.created_at, reverse=True)
+        tasks = own_tasks + org_tasks + shared_tasks  # 兼容旧模板若有单列表
         
         user_record = db.get(User, current_user.id)
         task_count = len(own_tasks)  # 只统计自己创建的任务数
@@ -998,6 +988,9 @@ def dashboard():
         return render_template(
             'dashboard.html',
             tasks=tasks,
+            own_tasks=own_tasks,
+            org_tasks=org_tasks,
+            shared_tasks=shared_tasks,
             task_access=task_access,
             task_count=task_count,
             task_limit=task_limit,
@@ -2051,6 +2044,29 @@ def delete_task(task_id):
     finally:
         db.close()
 
+
+@quickform_bp.route('/task/<int:task_id>/toggle_status', methods=['POST'])
+@login_required
+def task_toggle_status(task_id):
+    """仅任务所有者可调用：切换任务状态 正常/停用。停用后接口不再接受与返回数据。"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        if task.user_id != current_user.id:
+            return jsonify({'success': False, 'message': '仅任务所有者可调整状态'}), 403
+        task.is_active = not getattr(task, 'is_active', True)
+        db.commit()
+        return jsonify({'success': True, 'is_active': task.is_active})
+    except Exception as e:
+        db.rollback()
+        logger.exception("切换任务状态失败: %s", e)
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/ai_test')
 @login_required
 def ai_test_page():
@@ -2097,6 +2113,16 @@ SUBMIT_RATE_LIMIT_THRESHOLD = 200  # 窗口内同一 IP 提交超过此次数则
 SUBMIT_BLACKLIST_DURATION = 300  # seconds
 
 rate_limit_cache = {}
+
+# ---------- 接口 GET 次数统计（管理员流量预估）----------
+_api_get_counts = {}  # 接口类别 -> GET 次数，如 api_task_get / api_task_all / api_tasks
+_api_counts_lock = threading.Lock()
+
+
+def _record_api_get(category):
+    """记录一次 API GET 请求，用于管理员流量预估"""
+    with _api_counts_lock:
+        _api_get_counts[category] = _api_get_counts.get(category, 0) + 1
 
 
 # ---------- CLI 接口（供命令行 / 扣子 / OpenClaw 等自动化调用，原 MCP 已统一改名为 CLI）----------
@@ -2311,6 +2337,12 @@ def submit_form(task_id):
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             logger.warning(f"请求失败: 任务不存在 - task_id: {task_id}")
             return response, 404
+        if not getattr(task, 'is_active', True):
+            response = jsonify({'error': '任务已停用', 'task_id': task_id, 'message': '该数据任务已停用，暂不接收与读取数据'})
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            return response, 403
         
         # GET方法：返回任务数据统计（只返回最新的3条）
         if request.method == 'GET':
@@ -2340,6 +2372,7 @@ def submit_form(task_id):
             # 构建/all路由的完整URL
             base_url = request.url.rstrip('/')
             all_url = f"{base_url}/all"
+            _record_api_get('api_task_get')
             response = jsonify({
                 'note': f'当前路由会返回最新三条数据，获取全部数据请访问：{all_url}',
                 'task_id': task.task_id,
@@ -2490,6 +2523,12 @@ def submit_form_all(task_id):
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             logger.warning(f"请求失败: 任务不存在 - task_id: {task_id}")
             return response, 404
+        if not getattr(task, 'is_active', True):
+            response = jsonify({'error': '任务已停用', 'task_id': task_id, 'message': '该数据任务已停用，暂不读取数据'})
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            return response, 403
         
         # 返回全部数据
         submissions = db.query(Submission).filter_by(task_id=task.id).order_by(Submission.submitted_at.desc()).all()
@@ -2514,6 +2553,7 @@ def submit_form_all(task_id):
                 })
         
         total_count = len(data_list)
+        _record_api_get('api_task_all')
         response = jsonify({
             'note': f'当前共有 {total_count} 条数据',
             'task_id': task.task_id,
@@ -2550,6 +2590,7 @@ def list_tasks():
             }
             for t in tasks
         ]
+        _record_api_get('api_tasks')
         response = jsonify({'items': data, 'count': len(data)})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
@@ -3635,6 +3676,23 @@ def admin_panel():
             except Exception as e:
                 logger.warning(f"读取 tutorials.json 失败: {e}")
 
+        # 流量预估：仅当前 tab 为 traffic 时使用
+        api_traffic = []
+        if current_tab == 'traffic':
+            with _api_counts_lock:
+                copy_counts = dict(_api_get_counts)
+            labels = {
+                'api_task_get': 'GET /api/<task_id>（最新3条）',
+                'api_task_all': 'GET /api/<task_id>/all（全部数据，数据大屏）',
+                'api_tasks': 'GET /api/tasks（任务列表）',
+            }
+            for key in ['api_task_get', 'api_task_all', 'api_tasks']:
+                api_traffic.append({
+                    'category': labels.get(key, key),
+                    'count': copy_counts.get(key, 0),
+                })
+            api_traffic.sort(key=lambda x: -x['count'])
+
         # 统计：仅顶部 4 项始终有；进入「数据报表」tab 再算完整 stats
         stats = {
             'total_users': total_users,
@@ -3745,7 +3803,8 @@ def admin_panel():
             current_tab=current_tab,
             public_pending_with_author=public_pending_with_author,
             open_source_tasks_with_author=open_source_tasks_with_author,
-            tutorials_json_content=tutorials_json_content
+            tutorials_json_content=tutorials_json_content,
+            api_traffic=api_traffic
         )
     finally:
         db.close()
@@ -5042,7 +5101,48 @@ def init_quickform(app, login_manager_instance=None, database_type=None):
     logger.info("QuickForm Blueprint 初始化完成")
 
 
-# ==================== 组织管理路由 ====================
+# ==================== 组织/团队管理路由 ====================
+
+@quickform_bp.route('/teams')
+def teams_list():
+    """入驻团队：展示全部团队列表，支持搜索与分页；无需登录可访问；点击加入需填写组织代码（需登录）"""
+    db = SessionLocal()
+    try:
+        q = request.args.get('q', '').strip()
+        page = max(1, request.args.get('page', 1, type=int))
+        per_page = 10
+        base = db.query(Organization).outerjoin(User, Organization.creator_id == User.id)
+        if q:
+            base = base.filter(or_(Organization.name.ilike(f'%{q}%'), User.username.ilike(f'%{q}%')))
+        base = base.order_by(Organization.created_at.desc())
+        total_count = base.count()
+        total_pages = max(1, (total_count + per_page - 1) // per_page)
+        if page > total_pages:
+            page = total_pages
+        orgs = base.offset((page - 1) * per_page).limit(per_page).all()
+        creator_ids = {o.creator_id for o in orgs}
+        creators = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
+        team_rows = []
+        for org in orgs:
+            member_count = db.query(OrganizationMember).filter_by(organization_id=org.id).count()
+            task_count = db.query(Task).filter_by(organization_id=org.id).count()
+            creator = creators.get(org.creator_id)
+            team_rows.append({
+                'org': org,
+                'creator_name': creator.username if creator else '-',
+                'member_count': member_count,
+                'task_count': task_count,
+            })
+        return render_template('teams_list.html',
+                             team_rows=team_rows,
+                             q=q,
+                             page=page,
+                             per_page=per_page,
+                             total_count=total_count,
+                             total_pages=total_pages)
+    finally:
+        db.close()
+
 
 @quickform_bp.route('/organization')
 @login_required
@@ -5197,6 +5297,38 @@ def organization_detail(org_id):
                              organization=org,
                              org_tasks=org_tasks,
                              is_creator=(org.creator_id == current_user.id))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/organization/<int:org_id>/rename', methods=['POST'])
+@login_required
+def rename_organization(org_id):
+    """仅创建者可修改已创建团队名称与描述"""
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, org_id)
+        if not org:
+            flash('团队不存在', 'danger')
+            return redirect(url_for('quickform.organization'))
+        if org.creator_id != current_user.id:
+            flash('仅创建者可修改团队名称', 'danger')
+            return redirect(url_for('quickform.organization'))
+        name = request.form.get('name', '').strip()
+        if not name:
+            flash('团队名称不能为空', 'danger')
+            return redirect(url_for('quickform.organization'))
+        org.name = name
+        desc = request.form.get('description', '').strip()
+        org.description = desc if desc else None
+        db.commit()
+        flash('团队名称已更新', 'success')
+        return redirect(url_for('quickform.organization'))
+    except Exception as e:
+        db.rollback()
+        logger.exception("修改团队名称失败: %s", e)
+        flash('修改失败', 'danger')
+        return redirect(url_for('quickform.organization'))
     finally:
         db.close()
 

@@ -21,6 +21,7 @@ TRANSLATIONS = {
         'nav.profile': '个人设置',
         'nav.logout': '退出登录',
         'nav.admin_panel': '管理员面板',
+        'nav.team_manage': '团队管理',
         
         # 首页
         'home.welcome': '欢迎使用 QuickForm',
@@ -112,6 +113,10 @@ TRANSLATIONS = {
         'dashboard.no_tasks': '还没有创建任何数据任务',
         'dashboard.no_tasks_desc': '点击下方按钮创建您的第一个数据任务',
         'dashboard.create_task': '创建任务',
+        'dashboard.task_status_normal': '正常',
+        'dashboard.task_status_disabled': '停用',
+        'dashboard.task_status_toggle_hint': '点击切换 正常/停用',
+        'dashboard.task_status_aria': '任务状态',
         
         # Login页面
         'login.title': '登录',
@@ -455,6 +460,21 @@ TRANSLATIONS = {
         'organization.delete_confirm': '确定要解散组织"{name}"吗？\n\n解散后：\n- 所有成员将被移除\n- 组织内的任务将变为私有任务\n- 此操作不可恢复',
         'organization.leave_confirm': '确定要退出组织"{name}"吗？\n\n退出后将无法访问组织内的共享任务',
         'organization.joined_at': '加入于',
+        'organization.rename': '改名',
+        'organization.rename_modal_title': '修改团队名称',
+        'organization.rename_name_label': '团队名称',
+        'organization.rename_desc_label': '团队描述（可选）',
+        
+        # 入驻团队列表
+        'teams.list_title': '团队列表',
+        'teams.search_placeholder': '团队名称或负责人',
+        'teams.join_team': '加入团队',
+        'teams.login_to_join': '登录后加入团队',
+        'teams.no_teams': '暂无入驻团队',
+        'teams.pagination_info': '共 {total} 条',
+        'teams.pagination_aria': '团队列表分页',
+        'teams.prev': '上一页',
+        'teams.next': '下一页',
         
         # Dashboard代码示例
         'dashboard.code_example_field': '字段',
@@ -850,6 +870,7 @@ TRANSLATIONS = {
         'nav.profile': '個人設置',
         'nav.logout': '退出登錄',
         'nav.admin_panel': '管理員面板',
+        'nav.team_manage': '團隊管理',
         
         # 首頁
         'home.welcome': '歡迎使用 QuickForm',
@@ -941,6 +962,10 @@ TRANSLATIONS = {
         'dashboard.no_tasks': '還沒有創建任何數據任務',
         'dashboard.no_tasks_desc': '點擊下方按鈕創建您的第一個數據任務',
         'dashboard.create_task': '創建任務',
+        'dashboard.task_status_normal': '正常',
+        'dashboard.task_status_disabled': '停用',
+        'dashboard.task_status_toggle_hint': '點擊切換 正常/停用',
+        'dashboard.task_status_aria': '任務狀態',
         
         # Login頁面
         'login.title': '登錄',
@@ -1315,6 +1340,21 @@ TRANSLATIONS = {
         'organization.delete_confirm': '確定要解散組織"{name}"嗎？\n\n解散後：\n- 所有成員將被移除\n- 組織內的任務將變為私有任務\n- 此操作不可恢復',
         'organization.leave_confirm': '確定要退出組織"{name}"嗎？\n\n退出後將無法訪問組織內的共享任務',
         'organization.joined_at': '加入於',
+        'organization.rename': '改名',
+        'organization.rename_modal_title': '修改團隊名稱',
+        'organization.rename_name_label': '團隊名稱',
+        'organization.rename_desc_label': '團隊描述（可選）',
+        
+        # 入駐團隊列表
+        'teams.list_title': '團隊列表',
+        'teams.search_placeholder': '團隊名稱或負責人',
+        'teams.join_team': '加入團隊',
+        'teams.login_to_join': '登錄後加入團隊',
+        'teams.no_teams': '暫無入駐團隊',
+        'teams.pagination_info': '共 {total} 條',
+        'teams.pagination_aria': '團隊列表分頁',
+        'teams.prev': '上一頁',
+        'teams.next': '下一頁',
         
         # 管理員面板
         'admin.title': '管理員面板',
@@ -1681,6 +1721,7 @@ TRANSLATIONS = {
         'nav.profile': 'Profile',
         'nav.logout': 'Logout',
         'nav.admin_panel': 'Admin Panel',
+        'nav.team_manage': 'Team Management',
         
         # 首页
         'home.welcome': 'Welcome to QuickForm',
@@ -1772,6 +1813,10 @@ TRANSLATIONS = {
         'dashboard.no_tasks': 'No data tasks created yet',
         'dashboard.no_tasks_desc': 'Click the button below to create your first data task',
         'dashboard.create_task': 'Create Task',
+        'dashboard.task_status_normal': 'Active',
+        'dashboard.task_status_disabled': 'Disabled',
+        'dashboard.task_status_toggle_hint': 'Click to toggle Active/Disabled',
+        'dashboard.task_status_aria': 'Task status',
         
         # Login页面
         'login.title': 'Login',
@@ -2111,6 +2156,21 @@ TRANSLATIONS = {
         'organization.delete_confirm': 'Are you sure you want to dissolve the organization "{name}"?\n\nAfter dissolution:\n- All members will be removed\n- Tasks within the organization will become private tasks\n- This action cannot be undone',
         'organization.leave_confirm': 'Are you sure you want to leave the organization "{name}"?\n\nAfter leaving, you will not be able to access shared tasks within the organization',
         'organization.joined_at': 'Joined on',
+        'organization.rename': 'Rename',
+        'organization.rename_modal_title': 'Rename Team',
+        'organization.rename_name_label': 'Team Name',
+        'organization.rename_desc_label': 'Team Description (Optional)',
+        
+        # Teams list (Join a Team page)
+        'teams.list_title': 'Team List',
+        'teams.search_placeholder': 'Team name or owner',
+        'teams.join_team': 'Join Team',
+        'teams.login_to_join': 'Login to join',
+        'teams.no_teams': 'No teams yet',
+        'teams.pagination_info': 'Total {total}',
+        'teams.pagination_aria': 'Team list pagination',
+        'teams.prev': 'Previous',
+        'teams.next': 'Next',
         
         # 管理员面板
         'admin.title': 'Admin Panel',

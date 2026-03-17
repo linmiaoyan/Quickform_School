@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ translate('organization.title') }} - QuickForm{% endblock %}
+{% block title %}团队管理 - QuickForm{% endblock %}
 
 {% block content %}
 <style>
@@ -67,24 +67,24 @@
 </style>
 
 <div class="org-header">
-    <h1 style="margin: 0 0 0.5rem 0; font-size: 1.75rem;"><i class="bi bi-people-fill"></i> {{ translate('organization.header') }}</h1>
-    <p style="margin: 0; opacity: 0.9;">{{ translate('organization.subtitle') }}</p>
+    <h1 style="margin: 0 0 0.5rem 0; font-size: 1.75rem;"><i class="bi bi-people-fill"></i> 团队管理</h1>
+    <p style="margin: 0; opacity: 0.9;">创建团队、加入团队，管理团队内的数据任务。</p>
 </div>
 
 <!-- 快捷操作按钮 -->
 <div class="d-flex gap-2 mb-4">
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createOrgModal">
-        <i class="bi bi-plus-circle"></i> {{ translate('organization.create_org') }}
+        <i class="bi bi-plus-circle"></i> 创建团队
     </button>
     <button class="btn" style="background-color: #10b981; color: white;" data-bs-toggle="modal" data-bs-target="#joinOrgModal">
-        <i class="bi bi-box-arrow-in-right"></i> {{ translate('organization.join_org') }}
+        <i class="bi bi-box-arrow-in-right"></i> 加入团队
     </button>
 </div>
 
-<!-- 我创建的组织 -->
+<!-- 我创建的团队 -->
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0" style="color: white; font-weight: 600;"><i class="bi bi-star-fill"></i> {{ translate('organization.my_created_orgs') }}</h5>
+        <h5 class="mb-0" style="color: white; font-weight: 600;"><i class="bi bi-star-fill"></i> 我创建的团队</h5>
     </div>
     <div class="card-body">
         {% if created_orgs %}
@@ -97,23 +97,28 @@
                             <h6 style="margin: 0; font-weight: 600;">{{ org.name }}</h6>
                             <span class="org-badge creator mt-1"><i class="bi bi-person-badge"></i> {{ translate('organization.creator') }}</span>
                         </div>
-                        <form method="POST" action="{{ url_for('quickform.delete_organization', org_id=org.id) }}" class="d-inline" onsubmit='return confirm({{ (translate("organization.delete_confirm")|replace("{name}", org.name))|tojson }});'>
-                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                <i class="bi bi-trash"></i> {{ translate('organization.dissolve') }}
+                        <div class="d-flex gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#renameOrgModal{{ org.id }}" title="{{ translate('organization.rename') }}">
+                                <i class="bi bi-pencil-square"></i> {{ translate('organization.rename') }}
                             </button>
-                        </form>
+                            <form method="POST" action="{{ url_for('quickform.delete_organization', org_id=org.id) }}" class="d-inline" onsubmit='return confirm({{ (translate("organization.delete_confirm")|replace("{name}", org.name))|tojson }});'>
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-trash"></i> {{ translate('organization.dissolve') }}
+                                </button>
+                            </form>
+                        </div>
                     </div>
                     {% if org.description %}
                     <p class="text-muted small mb-2">{{ org.description }}</p>
                     {% endif %}
                     <div class="mb-2">
-                        <strong>{{ translate('organization.org_code') }}</strong>
+                        <strong>团队代码</strong>
                         <div class="code-display mt-1">{{ org.org_code }}</div>
-                        <small class="text-muted">{{ translate('organization.share_code_hint') }}</small>
+                        <small class="text-muted">将团队代码分享给成员，对方在「入驻团队」页填写即可加入。</small>
                     </div>
                     <div class="d-flex justify-content-between align-items-center">
                         <small class="text-muted">
-                            <i class="bi bi-people"></i> {{ org.members|length }} {{ translate('organization.members_count') }} |
+                            <i class="bi bi-people"></i> {{ org.members|length }} 人 |
                             <i class="bi bi-calendar"></i> {{ org.created_at.strftime('%Y-%m-%d') }}
                         </small>
                         <a href="{{ url_for('quickform.organization_detail', org_id=org.id) }}" class="btn btn-sm btn-primary">
@@ -127,19 +132,19 @@
         {% else %}
         <div class="text-center py-5 text-muted">
             <i class="bi bi-inbox" style="font-size: 3rem; opacity: 0.3;"></i>
-            <p class="mt-3">{{ translate('organization.no_created_orgs') }}</p>
+            <p class="mt-3">暂无创建的团队</p>
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createOrgModal">
-                <i class="bi bi-plus-circle"></i> {{ translate('organization.create_first_org') }}
+                <i class="bi bi-plus-circle"></i> 创建第一个团队
             </button>
         </div>
         {% endif %}
     </div>
 </div>
 
-<!-- 我加入的组织 -->
+<!-- 我加入的团队 -->
 <div class="card">
     <div class="card-header">
-        <h5 class="mb-0" style="color: white; font-weight: 600;"><i class="bi bi-people"></i> {{ translate('organization.my_joined_orgs') }}</h5>
+        <h5 class="mb-0" style="color: white; font-weight: 600;"><i class="bi bi-people"></i> 我加入的团队</h5>
     </div>
     <div class="card-body">
         {% if joined_orgs %}
@@ -169,7 +174,7 @@
                     {% endif %}
                     <div class="d-flex justify-content-between align-items-center">
                         <small class="text-muted">
-                            <i class="bi bi-people"></i> {{ membership.organization.members|length }} {{ translate('organization.members_count') }} |
+                            <i class="bi bi-people"></i> {{ membership.organization.members|length }} 人 |
                             <i class="bi bi-calendar-check"></i> {{ translate('organization.joined_at') }} {{ membership.joined_at.strftime('%Y-%m-%d') }}
                         </small>
                         <a href="{{ url_for('quickform.organization_detail', org_id=membership.organization.id) }}" class="btn btn-sm btn-primary">
@@ -183,21 +188,51 @@
         {% else %}
         <div class="text-center py-5 text-muted">
             <i class="bi bi-inbox" style="font-size: 3rem; opacity: 0.3;"></i>
-            <p class="mt-3">{{ translate('organization.no_joined_orgs') }}</p>
-            <button class="btn" style="background-color: #10b981; color: white;" data-bs-toggle="modal" data-bs-target="#joinOrgModal">
-                <i class="bi bi-box-arrow-in-right"></i> {{ translate('organization.join_first_org') }}
-            </button>
+            <p class="mt-3">暂无加入的团队</p>
+            <a href="{{ url_for('quickform.teams_list') }}" class="btn" style="background-color: #10b981; color: white;">
+                <i class="bi bi-box-arrow-in-right"></i> 去入驻团队页加入
+            </a>
         </div>
         {% endif %}
     </div>
 </div>
+
+<!-- 改名模态框（每个创建的团队一个） -->
+{% for org in created_orgs %}
+<div class="modal fade" id="renameOrgModal{{ org.id }}" tabindex="-1" aria-labelledby="renameOrgModalLabel{{ org.id }}">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="renameOrgModalLabel{{ org.id }}"><i class="bi bi-pencil-square"></i> {{ translate('organization.rename_modal_title') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ translate('common.close') }}"></button>
+            </div>
+            <form method="POST" action="{{ url_for('quickform.rename_organization', org_id=org.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">{{ translate('organization.rename_name_label') }} <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name" required maxlength="200" value="{{ org.name }}" placeholder="{{ translate('organization.create_modal_name_placeholder') }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ translate('organization.rename_desc_label') }}</label>
+                        <textarea class="form-control" name="description" rows="3" placeholder="{{ translate('organization.create_modal_desc_placeholder') }}">{{ org.description or '' }}</textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ translate('common.cancel') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ translate('common.save') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
 
 <!-- 创建组织模态框 -->
 <div class="modal fade" id="createOrgModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> 创建组织</h5>
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> 创建团队</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="{{ url_for('quickform.create_organization') }}">

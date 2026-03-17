@@ -418,56 +418,20 @@
             <div class="product-showcase-dot"></div>
         </div>
         <div class="product-showcase-content">
-            <!-- 视频播放区域 - 轮播 -->
-            {% if video_files and video_files|length > 0 %}
+            <!-- 教程视频：B 站嵌入（不再使用本地 mp4） -->
             <div class="video-carousel-container">
                 <div class="video-carousel-wrapper">
-                    <video 
-                        id="main-video-player"
-                        class="w-100" 
-                        controls 
-                        muted 
-                        preload="none"
-                        style="max-height: 600px; background: #000; display: block; border-radius: 8px;"
-                        poster="">
-                        <source id="video-source" src="{{ url_for('static', filename='videos/' + video_files[0]) }}" type="video/mp4">
-                        {{ translate('common.browser_not_support_video') if translate('common.browser_not_support_video') != 'common.browser_not_support_video' else '您的浏览器不支持视频播放。' }}
-                    </video>
-                    
-                    {% if video_files|length > 1 %}
-                    <button class="video-carousel-nav prev" onclick="changeVideo(-1)" id="prev-btn">
-                        ‹
-                    </button>
-                    <button class="video-carousel-nav next" onclick="changeVideo(1)" id="next-btn">
-                        ›
-                    </button>
-                    
-                    <div class="video-indicator">
-                        {% for video_file in video_files %}
-                        <div class="video-indicator-dot {% if loop.index0 == 0 %}active{% endif %}" 
-                             onclick="goToVideo({{ loop.index0 }})" 
-                             data-video-index="{{ loop.index0 }}"></div>
-                        {% endfor %}
+                    <div class="ratio ratio-16x9" style="max-height: 600px;">
+                        <iframe
+                            src="//player.bilibili.com/player.html?isOutside=true&aid=116215053812928&bvid=BV1hsc6zHEoN&cid=36643342242&p=1"
+                            scrolling="no"
+                            frameborder="no"
+                            allowfullscreen="true"
+                            style="border-radius: 8px;"
+                        ></iframe>
                     </div>
-                    {% endif %}
                 </div>
             </div>
-            {% else %}
-            <div class="video-carousel-container">
-                <div class="video-carousel-wrapper">
-                    <video 
-                        class="w-100" 
-                        controls 
-                        muted 
-                        loop
-                        preload="none"
-                        style="max-height: 600px; background: #000; display: block; border-radius: 8px;">
-                        <source src="{{ url_for('static', filename='videos/index.mp4') }}" type="video/mp4">
-                        {{ translate('common.browser_not_support_video') if translate('common.browser_not_support_video') != 'common.browser_not_support_video' else '您的浏览器不支持视频播放。' }}
-                    </video>
-                </div>
-            </div>
-            {% endif %}
         </div>
     </div>
 
