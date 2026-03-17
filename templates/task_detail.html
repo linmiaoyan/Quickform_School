@@ -22,9 +22,11 @@
                 <a href="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" class="btn btn-info me-2" style="font-weight: 500;">
                     <i class="bi bi-bar-chart"></i>{{ translate('task_detail.analyze') }}
                 </a>
+                {% if can_edit_task %}
                 <a href="{{ url_for('quickform.edit_task', task_id=task.id) }}" class="btn btn-primary me-2" style="font-weight: 500;">
                     <i class="bi bi-pencil"></i>{{ translate('task_detail.edit_task') }}
                 </a>
+                {% endif %}
                 {% endif %}
                 {% if task.sharing_type == 'public' and current_user.is_authenticated %}
                 <button 
@@ -95,15 +97,17 @@
                     <p>{{ task.description }}</p>
                 </div>
                 {% endif %}
-                {% if (task.share_url or task.tutorial_link) and not is_public_visitor %}
+                {% if task.share_url or task.tutorial_link %}
+                {% if task.sharing_type == 'public' or not is_public_visitor %}
                 <div class="mt-3">
                     {% if task.share_url %}
                     <p class="mb-1"><strong>URL 地址：</strong><a href="{{ task.share_url }}" target="_blank" rel="noopener">{{ task.share_url[:60] }}{% if task.share_url|length > 60 %}...{% endif %}</a></p>
                     {% endif %}
                     {% if task.tutorial_link %}
-                    <p class="mb-0"><strong>教程链接：</strong><a href="{{ task.tutorial_link }}" target="_blank" rel="noopener">{{ task.tutorial_link[:60] }}{% if task.tutorial_link|length > 60 %}...{% endif %}</a></p>
+                    <p class="mb-0"><strong>教程地址：</strong><a href="{{ task.tutorial_link }}" target="_blank" rel="noopener">{{ task.tutorial_link[:60] }}{% if task.tutorial_link|length > 60 %}...{% endif %}</a></p>
                     {% endif %}
                 </div>
+                {% endif %}
                 {% endif %}
                 
                 <div class="mt-3">
@@ -208,8 +212,19 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label"><strong>{{ translate('task_detail.share_to_user') }}</strong></label>
-                        <form method="POST" action="{{ url_for('quickform.share_task_to_user', task_id=task.id) }}" class="d-flex gap-2" id="shareUserForm">
-                            <input type="text" name="username" class="form-control" placeholder="{{ translate('task_detail.enter_username') }}" required>
+                        <form method="POST" action="{{ url_for('quickform.share_task_to_user', task_id=task.id) }}" class="d-flex flex-wrap align-items-end gap-2" id="shareUserForm">
+                            <input type="text" name="username" class="form-control" placeholder="{{ translate('task_detail.enter_username') }}" required style="min-width: 120px;">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="small text-muted me-1">权限：</span>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="radio" name="share_permission" id="share_readonly" value="readonly" checked>
+                                    <label class="form-check-label small" for="share_readonly">只读</label>
+                                </div>
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="radio" name="share_permission" id="share_edit" value="edit">
+                                    <label class="form-check-label small" for="share_edit">编辑</label>
+                                </div>
+                            </div>
                             <button type="submit" class="btn btn-success" style="white-space: nowrap;">
                                 <i class="bi bi-person-plus"></i> {{ translate('task_detail.add') }}
                             </button>
@@ -226,6 +241,7 @@
                         <div class="badge" style="background-color: #e0e7ff; color: #3730a3; font-size: 0.9rem; padding: 0.5rem 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="bi bi-person"></i>
                             {{ share.user.username }}
+                            <span class="small opacity-75">({{ '编辑' if share.can_edit else '只读' }})</span>
                             <button type="button" class="btn-close btn-close-sm" onclick="removeShare({{ share.id }})" style="font-size: 0.6rem; margin-left: 0.25rem;"></button>
                         </div>
                         {% endfor %}

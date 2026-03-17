@@ -955,18 +955,31 @@ def dashboard():
         org_ids = [m.organization_id for m in user_orgs]
         org_tasks = db.query(Task).filter(Task.organization_id.in_(org_ids)).all() if org_ids else []
         
-        # 3. 共享给用户的任务
-        shared_task_ids = [s.task_id for s in db.query(TaskShare).filter_by(user_id=current_user.id).all()]
+        # 3. 共享给用户的任务（带权限：只读/编辑）
+        shared_records = db.query(TaskShare).filter_by(user_id=current_user.id).all()
+        shared_task_ids = [s.task_id for s in shared_records]
         shared_tasks = db.query(Task).filter(Task.id.in_(shared_task_ids)).all() if shared_task_ids else []
+        shared_can_edit = {s.task_id: s.can_edit for s in shared_records}
         
-        # 合并并去重
+        # 合并并去重，并标记访问类型：owner / org / shared_edit / shared_readonly
         all_task_ids = set()
         tasks = []
-        for task_list in [own_tasks, org_tasks, shared_tasks]:
-            for task in task_list:
-                if task.id not in all_task_ids:
-                    all_task_ids.add(task.id)
-                    tasks.append(task)
+        task_access = {}  # task_id -> 'owner' | 'org' | 'shared_edit' | 'shared_readonly'
+        for task in own_tasks:
+            if task.id not in all_task_ids:
+                all_task_ids.add(task.id)
+                tasks.append(task)
+                task_access[task.id] = 'owner'
+        for task in org_tasks:
+            if task.id not in all_task_ids:
+                all_task_ids.add(task.id)
+                tasks.append(task)
+                task_access[task.id] = 'org'
+        for task in shared_tasks:
+            if task.id not in all_task_ids:
+                all_task_ids.add(task.id)
+                tasks.append(task)
+                task_access[task.id] = 'shared_edit' if shared_can_edit.get(task.id, False) else 'shared_readonly'
         
         # 按创建时间倒序排序
         tasks.sort(key=lambda t: t.created_at, reverse=True)
@@ -984,6 +997,7 @@ def dashboard():
         return render_template(
             'dashboard.html',
             tasks=tasks,
+            task_access=task_access,
             task_count=task_count,
             task_limit=task_limit,
             is_certified=is_certified
@@ -1384,6 +1398,22 @@ def task_detail(task_id):
         # 公开项目且当前用户非所有者/管理员等：仅展示任务名称、简介、网页（不展示数据与导出等）
         is_public_visitor = (task.sharing_type == 'public' and not can_analyze_export)
 
+        # 是否可编辑（仅所有者/管理员/组织成员/被共享且权限为编辑）：只读用户可查看与导出，不可编辑任务与删除数据
+        can_edit_task = False
+        if current_user.is_authenticated:
+            if current_user.is_admin() or task.user_id == current_user.id:
+                can_edit_task = True
+            elif task.organization_id and db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first() is not None:
+                can_edit_task = True
+            else:
+                share_record = db.query(TaskShare).filter_by(
+                    task_id=task.id, user_id=current_user.id
+                ).first()
+                if share_record and share_record.can_edit:
+                    can_edit_task = True
+
         return render_template(
             'task_detail.html',
             task=task,
@@ -1395,6 +1425,7 @@ def task_detail(task_id):
             user_organizations=user_organizations,
             shared_users=shared_users,
             can_analyze_export=can_analyze_export,
+            can_edit_task=can_edit_task,
             user_liked=user_liked,
             is_public_visitor=is_public_visitor
         )
@@ -1437,6 +1468,20 @@ def task_data_view(task_id):
         if not can_analyze_export:
             flash('无权查看该任务的提交数据', 'danger')
             return redirect(url_for('quickform.task_detail', task_id=task_id))
+        # 是否可编辑/删除数据（仅所有者、管理员、组织成员、被共享且编辑权限）
+        can_edit_task = False
+        if current_user.is_admin() or task.user_id == current_user.id:
+            can_edit_task = True
+        elif task.organization_id and db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id, user_id=current_user.id
+        ).first() is not None:
+            can_edit_task = True
+        else:
+            share_record = db.query(TaskShare).filter_by(
+                task_id=task.id, user_id=current_user.id
+            ).first()
+            if share_record and share_record.can_edit:
+                can_edit_task = True
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
         page = max(1, page)
@@ -1462,7 +1507,8 @@ def task_data_view(task_id):
             task=task,
             submissions=submissions,
             total_submissions=total_submissions,
-            pagination=pagination
+            pagination=pagination,
+            can_edit_task=can_edit_task
         )
     finally:
         db.close()
@@ -1479,12 +1525,11 @@ def edit_task(task_id):
             flash('任务不存在', 'danger')
             return redirect(url_for('quickform.dashboard'))
         
-        # 权限检查：管理员、任务所有者、组织成员、被共享者可以编辑
+        # 权限检查：管理员、任务所有者、组织成员、被共享且权限为「编辑」者可编辑
         has_edit_permission = False
         if current_user.is_admin() or task.user_id == current_user.id:
             has_edit_permission = True
         elif task.organization_id:
-            # 检查是否是组织成员
             is_org_member = db.query(OrganizationMember).filter_by(
                 organization_id=task.organization_id,
                 user_id=current_user.id
@@ -1492,12 +1537,11 @@ def edit_task(task_id):
             if is_org_member:
                 has_edit_permission = True
         else:
-            # 检查是否被共享
-            is_shared = db.query(TaskShare).filter_by(
+            share_record = db.query(TaskShare).filter_by(
                 task_id=task.id,
                 user_id=current_user.id
-            ).first() is not None
-            if is_shared:
+            ).first()
+            if share_record and share_record.can_edit:
                 has_edit_permission = True
         
         if not has_edit_permission:
@@ -4727,11 +4771,20 @@ def remove_submission(task_id):
     )
     try:
         task = db.get(Task, task_id)
-        if not task or task.user_id != current_user.id:
+        if not task:
+            return make_response({'success': False, 'message': '任务不存在'}, 404)
+        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+        can_edit = (
+            current_user.is_admin() or task.user_id == current_user.id or
+            (task.organization_id and db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first() is not None) or (share_rec and share_rec.can_edit)
+        )
+        if not can_edit:
             logger.warning(
                 f"[remove_submission] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
             )
-            return make_response({'success': False, 'message': '无权访问此任务'}, 403)
+            return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
         if not submission_id:
             logger.warning(f"[remove_submission] missing submission_id task={task_id}")
             return make_response({'success': False, 'message': '缺少提交ID'}, 400)
@@ -4778,11 +4831,20 @@ def clear_all_submissions(task_id):
     )
     try:
         task = db.get(Task, task_id)
-        if not task or task.user_id != current_user.id:
+        if not task:
+            return make_response({'success': False, 'message': '任务不存在'}, 404)
+        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+        can_edit = (
+            current_user.is_admin() or task.user_id == current_user.id or
+            (task.organization_id and db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first() is not None) or (share_rec and share_rec.can_edit)
+        )
+        if not can_edit:
             logger.warning(
                 f"[clear_all_submissions] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
             )
-            return make_response({'success': False, 'message': '无权访问此任务'}, 403)
+            return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
         
         submissions = db.query(Submission).filter_by(task_id=task_id).all()
         count = len(submissions)
@@ -4825,8 +4887,17 @@ def clear_submissions_by_date_range(task_id):
 
     try:
         task = db.get(Task, task_id)
-        if not task or task.user_id != current_user.id:
-            return make_response({'success': False, 'message': '无权访问此任务'}, 403)
+        if not task:
+            return make_response({'success': False, 'message': '任务不存在'}, 404)
+        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+        can_edit = (
+            current_user.is_admin() or task.user_id == current_user.id or
+            (task.organization_id and db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first() is not None) or (share_rec and share_rec.can_edit)
+        )
+        if not can_edit:
+            return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
         if not date_start_s or not date_end_s:
             return make_response({'success': False, 'message': '请填写开始日期和结束日期'}, 400)
         try:
@@ -5323,11 +5394,13 @@ def share_task_to_user(task_id):
             flash(f'已经共享给用户"{username}"', 'warning')
             return redirect(url_for('quickform.task_detail', task_id=task_id))
         
-        # 创建共享记录
+        # 权限：只读（默认）或 编辑
+        share_permission = request.form.get('share_permission', 'readonly')
+        can_edit = (share_permission == 'edit')
         share = TaskShare(
             task_id=task_id,
             user_id=target_user.id,
-            can_edit=True
+            can_edit=can_edit
         )
         db.add(share)
         
@@ -5337,7 +5410,8 @@ def share_task_to_user(task_id):
         
         db.commit()
         
-        flash(f'成功共享给用户"{username}"', 'success')
+        perm_text = '编辑' if can_edit else '只读'
+        flash(f'已共享给用户"{username}"（{perm_text}权限）', 'success')
         return redirect(url_for('quickform.task_detail', task_id=task_id))
     except Exception as e:
         db.rollback()

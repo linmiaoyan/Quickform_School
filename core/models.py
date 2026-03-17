@@ -219,7 +219,7 @@ class TaskShare(Base):
     task_id = Column(Integer, ForeignKey('task.id', ondelete='CASCADE'), nullable=False)
     user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
     shared_at = Column(DateTime, default=datetime.now)
-    can_edit = Column(Boolean, default=True)  # 是否可编辑
+    can_edit = Column(Boolean, default=False)  # 是否可编辑；默认只读，共享时可选择「编辑」
     
     task = relationship('Task', back_populates='shares')
     user = relationship('User', foreign_keys=[user_id])
