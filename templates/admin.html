@@ -24,6 +24,9 @@
         <a href="{{ url_for('quickform.admin_panel', tab='public-review') }}" class="sidebar-item {{ 'active' if current_tab == 'public-review' else '' }}" data-tab="public-review">
             <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> {{ translate('admin.public_review') }}
         </a>
+        <a href="{{ url_for('quickform.admin_panel', tab='org-review') }}" class="sidebar-item {{ 'active' if current_tab == 'org-review' else '' }}" data-tab="org-review">
+            <i class="bi bi-building-check" style="margin-right: 0.75rem;"></i> {{ translate('admin.org_review') }}
+        </a>
         <a href="{{ url_for('quickform.admin_panel', tab='open-source') }}" class="sidebar-item {{ 'active' if current_tab == 'open-source' else '' }}" data-tab="open-source">
             <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> {{ translate('admin.open_source') }}
         </a>
@@ -67,7 +70,8 @@
             <div class="col-md-3 col-sm-6">
                 <div class="stat-card" style="border-left: 4px solid #f59e0b;">
                     <div class="stat-label">{{ translate('admin.total_submissions') }}</div>
-                    <div class="stat-number">{{ stats.total_submissions }}</div>
+                    <div class="stat-number">{% if stats.total_submissions is not none %}{{ stats.total_submissions }}{% else %}—{% endif %}</div>
+                    <div class="stat-label text-muted" style="font-size: 0.7rem; margin-top: 0.25rem;">{% if stats.total_submissions is none %}进入「数据报表」后加载{% endif %}</div>
                 </div>
             </div>
         </div>
@@ -97,6 +101,11 @@
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="public-review-tab" data-bs-toggle="tab" data-bs-target="#public-review" type="button" role="tab">
                     {{ translate('admin.public_review') }}
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="org-review-tab" data-bs-toggle="tab" data-bs-target="#org-review" type="button" role="tab">
+                    {{ translate('admin.org_review') }}
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -513,6 +522,56 @@
                         </div>
                         {% else %}
                         <p class="text-muted mb-0">{{ translate('admin.no_pending_public') }}。</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 团队入驻审核（入驻团队 / 首页公开） -->
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'org-review' else '' }}" id="org-review" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">{{ translate('admin.org_review') }}</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">{{ translate('admin.org_review_desc') }}</p>
+                        {% if org_pending_with_creator and org_pending_with_creator|length > 0 %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>组织ID</th>
+                                        <th>组织名称</th>
+                                        <th>组织代码</th>
+                                        <th>创建者</th>
+                                        <th>创建时间</th>
+                                        <th>{{ translate('admin.actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in org_pending_with_creator %}
+                                    <tr>
+                                        <td>{{ item.org.id }}</td>
+                                        <td>{{ item.org.name }}</td>
+                                        <td><code>{{ item.org.org_code }}</code></td>
+                                        <td>{{ item.creator.username if item.creator else '-' }}</td>
+                                        <td>{{ item.org.created_at.strftime('%Y-%m-%d %H:%M') if item.org.created_at else '-' }}</td>
+                                        <td>
+                                            <a href="{{ url_for('quickform.organization_detail', org_id=item.org.id) }}" class="btn btn-sm btn-outline-secondary me-1" target="_blank">查看</a>
+                                            <form method="POST" action="{{ url_for('quickform.admin_org_teams_approve', org_id=item.org.id) }}" class="d-inline">
+                                                <button type="submit" class="btn btn-sm btn-success">{{ translate('admin.pass') }}</button>
+                                            </form>
+                                            <form method="POST" action="{{ url_for('quickform.admin_org_teams_reject', org_id=item.org.id) }}" class="d-inline" onsubmit="return confirm('{{ translate('admin.confirm_reject_org_teams') }}');">
+                                                <button type="submit" class="btn btn-sm btn-danger">{{ translate('admin.reject') }}</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted mb-0">{{ translate('admin.no_pending_org_teams') }}</p>
                         {% endif %}
                     </div>
                 </div>
@@ -1025,23 +1084,6 @@
                                 </ul>
                             </div>
                         </div>
-                        {% if stats.org_list_with_task_count %}
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <h6>各组织任务数（按任务数降序，仅显示前5个）</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-bordered">
-                                        <thead><tr><th>组织名称</th><th>任务数</th></tr></thead>
-                                        <tbody>
-                                        {% for item in stats.org_list_with_task_count %}
-                                        <tr><td>{{ item[0].name }}</td><td>{{ item.task_count }}</td></tr>
-                                        {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
                         <div class="row">
                             <div class="col-md-6">
                                 <h6>其他统计</h6>

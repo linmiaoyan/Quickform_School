@@ -319,9 +319,13 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
             for i, data in enumerate(all_data, 1):
                 data_section += f"\n提交 #{i}:\n"
                 for key, value in data.items():
-                    value_str = str(value)
-                    if len(value_str) > 100:
-                        value_str = value_str[:100] + "...[截断]"
+                    if isinstance(value, (dict, list)):
+                        try:
+                            value_str = json.dumps(value, ensure_ascii=False)
+                        except Exception:
+                            value_str = str(value)
+                    else:
+                        value_str = str(value)
                     data_section += f"  - {key}: {value_str}\n"
         else:
             if total_count <= SAMPLE_DISPLAY_MIN:
@@ -346,13 +350,17 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                     data = all_data[i]
                     data_section += f"\n样例 #{idx} (第 {i+1} 条记录):\n"
                     for key, value in data.items():
-                        value_str = str(value)
-                        if len(value_str) > 100:
-                            value_str = value_str[:100] + "...[截断]"
+                        if isinstance(value, (dict, list)):
+                            try:
+                                value_str = json.dumps(value, ensure_ascii=False)
+                            except Exception:
+                                value_str = str(value)
+                        else:
+                            value_str = str(value)
                         data_section += f"  - {key}: {value_str}\n"
                 except:
                     if i < len(submission):
-                        data_section += f"\n样例 #{idx}: {submission[i].data[:100]}...\n"
+                        data_section += f"\n样例 #{idx}: {submission[i].data}\n"
     else:
         data_section += "暂无提交数据\n"
     

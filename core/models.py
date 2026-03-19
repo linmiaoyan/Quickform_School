@@ -195,6 +195,9 @@ class Organization(Base):
     creator_id = Column(Integer, ForeignKey('user.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.now)
     members_can_edit_tasks = Column(Boolean, default=False)  # 组织成员对组织内任务的权限：False=只读（默认），True=可编辑
+    # 入驻团队页（首页公开）展示：需管理员审核；默认不申请、未通过则不出现在 /teams
+    teams_public_requested = Column(Boolean, default=False)  # 是否已申请在「入驻团队」公开展示
+    teams_public_approved = Column(Integer, default=0)  # 0=未申请或待审核(已申请时), 1=已通过, -1=已拒绝
     
     creator = relationship('User', foreign_keys=[creator_id])
     members = relationship('OrganizationMember', back_populates='organization', cascade='all, delete-orphan')
@@ -550,5 +553,22 @@ def migrate_database(engine):
                     logger.info("成功为organization添加members_can_edit_tasks字段")
                 except Exception as e:
                     logger.warning(f"添加members_can_edit_tasks失败（可能已存在）: {str(e)}")
+            # organization 入驻团队（首页公开）审核
+            if org_cols and 'teams_public_requested' not in org_cols:
+                try:
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE organization ADD COLUMN teams_public_requested TINYINT(1) DEFAULT 0"))
+                    else:
+                        conn.execute(text("ALTER TABLE organization ADD COLUMN teams_public_requested BOOLEAN DEFAULT 0"))
+                    logger.info("成功为organization添加teams_public_requested字段")
+                except Exception as e:
+                    logger.warning(f"添加teams_public_requested失败（可能已存在）: {str(e)}")
+            if org_cols and 'teams_public_approved' not in org_cols:
+                try:
+                    conn.execute(text("ALTER TABLE organization ADD COLUMN teams_public_approved INTEGER DEFAULT 0"))
+                    logger.info("成功为organization添加teams_public_approved字段")
+                except Exception as e:
+                    logger.warning(f"添加teams_public_approved失败（可能已存在）: {str(e)}")
     except Exception as e:
         logger.error(f"数据库迁移失败: {str(e)}")

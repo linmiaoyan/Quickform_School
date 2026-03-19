@@ -49,6 +49,67 @@
             </div>
         </div>
 
+        {# 入驻团队：内部交流 / 首页公开（需审核） #}
+        {% set tpr = organization.teams_public_requested %}
+        {% set tpa = organization.teams_public_approved %}
+        {% if not tpr %}
+            {% set teams_scope = 'internal' %}
+        {% elif tpa == 1 %}
+            {% set teams_scope = 'public' %}
+        {% elif tpa == 0 %}
+            {% set teams_scope = 'pending' %}
+        {% else %}
+            {% set teams_scope = 'rejected' %}
+        {% endif %}
+        <div class="card mb-4 border-primary border-opacity-25">
+            <div class="card-header" style="background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%); color: white;">
+                <h5 class="mb-0" style="font-weight: 600;">
+                    <i class="bi bi-globe2"></i> {{ translate('organization_detail.teams_listing_title') }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">{{ translate('organization_detail.teams_listing_desc') }}</p>
+                <div class="mb-3">
+                    {% if teams_scope == 'internal' %}
+                    <span class="badge bg-secondary me-2">{{ translate('organization_detail.visibility_internal') }}</span>
+                    <span class="text-muted">{{ translate('organization_detail.status_internal') }}</span>
+                    {% elif teams_scope == 'pending' %}
+                    <span class="badge bg-warning text-dark me-2">{{ translate('admin.reviewing') }}</span>
+                    <span class="text-muted">{{ translate('organization_detail.status_pending') }}</span>
+                    {% elif teams_scope == 'public' %}
+                    <span class="badge bg-success me-2">{{ translate('organization_detail.visibility_public') }}</span>
+                    <span class="text-muted">{{ translate('organization_detail.status_approved') }}</span>
+                    {% else %}
+                    <span class="badge bg-danger me-2">{{ translate('admin.rejected') }}</span>
+                    <span class="text-muted">{{ translate('organization_detail.status_rejected') }}</span>
+                    {% endif %}
+                </div>
+                {% if teams_scope == 'pending' and is_org_admin %}
+                <p class="small text-muted mb-3"><i class="bi bi-info-circle"></i> {{ translate('organization_detail.pending_hint') }}</p>
+                {% endif %}
+                {% if is_org_admin %}
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <form id="formTeamsInternal" method="post" action="{{ url_for('quickform.organization_set_teams_internal', org_id=organization.id) }}" class="d-inline">
+                        <button type="submit" class="btn btn-outline-secondary" id="btnTeamsInternal"
+                            {% if teams_scope == 'internal' %}disabled{% endif %}
+                            data-needs-confirm="{% if teams_scope == 'public' %}1{% else %}0{% endif %}">
+                            <i class="bi bi-lock"></i> {{ translate('organization_detail.switch_internal') }}
+                        </button>
+                    </form>
+                    <form id="formTeamsPublic" method="post" action="{{ url_for('quickform.organization_request_teams_public', org_id=organization.id) }}" class="d-inline">
+                        <button type="button" class="btn btn-primary" id="btnTeamsPublic"
+                            {% if teams_scope == 'public' or teams_scope == 'pending' %}disabled{% endif %}
+                            title="{{ translate('organization_detail.visibility_public') }}">
+                            <i class="bi bi-send"></i> {{ translate('organization_detail.apply_submit') }}
+                        </button>
+                    </form>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">{{ translate('organization_detail.admin_only_hint') }}</p>
+                {% endif %}
+            </div>
+        </div>
+
         <!-- 成员列表 -->
         <div class="card mb-4">
             <div class="card-header">
@@ -161,6 +222,30 @@
 
 {% block scripts %}
 <script>
+(function() {
+    var msgPublic = {{ translate('organization_detail.apply_public_confirm')|tojson }};
+    var msgInternal = {{ translate('organization_detail.confirm_switch_internal')|tojson }};
+    var btnPub = document.getElementById('btnTeamsPublic');
+    var btnInt = document.getElementById('btnTeamsInternal');
+    var formPub = document.getElementById('formTeamsPublic');
+    if (btnPub && formPub) {
+        btnPub.addEventListener('click', function() {
+            if (btnPub.disabled) return;
+            if (typeof msgPublic === 'string' && !confirm(msgPublic)) return;
+            formPub.submit();
+        });
+    }
+    if (btnInt) {
+        btnInt.addEventListener('click', function(e) {
+            if (btnInt.disabled) return;
+            if (btnInt.getAttribute('data-needs-confirm') === '1') {
+                e.preventDefault();
+                if (typeof msgInternal === 'string' && !confirm(msgInternal)) return;
+                btnInt.closest('form').submit();
+            }
+        });
+    }
+})();
 function removeMember(memberId, username) {
     if (!confirm(`确定要将"${username}"移出组织吗？`)) {
         return;

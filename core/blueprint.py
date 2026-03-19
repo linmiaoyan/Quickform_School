@@ -2331,14 +2331,22 @@ def submit_form(task_id):
     try:
         task = db.query(Task).filter_by(task_id=task_id).first()
         if not task:
-            response = jsonify({'error': '任务不存在', 'task_id': task_id, 'message': f'未找到ID为 {task_id} 的任务'})
+            response = jsonify({
+                'error': 'task_not_found',
+                'task_id': task_id,
+                'message': f'No task found for task_id "{task_id}".',
+            })
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             logger.warning(f"请求失败: 任务不存在 - task_id: {task_id}")
             return response, 404
         if not getattr(task, 'is_active', True):
-            response = jsonify({'error': '任务已停用', 'task_id': task_id, 'message': '该数据任务已停用，暂不接收与读取数据'})
+            response = jsonify({
+                'error': 'task_disabled',
+                'task_id': task_id,
+                'message': 'This task is disabled. Submissions and data reads are not accepted.',
+            })
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2374,7 +2382,7 @@ def submit_form(task_id):
             all_url = f"{base_url}/all"
             _record_api_get('api_task_get')
             response = jsonify({
-                'note': f'当前路由会返回最新三条数据，获取全部数据请访问：{all_url}',
+                'note': f'This endpoint returns the 3 most recent submissions. Full list: {all_url}',
                 'task_id': task.task_id,
                 'task_title': task.title,
                 'total_submissions': total_count,
@@ -2408,7 +2416,7 @@ def submit_form(task_id):
                 form_data = request.form.to_dict()
         except Exception as e:
             logger.error(f"解析请求数据失败: {str(e)}")
-            response = jsonify({'error': '数据格式错误', 'message': str(e)})
+            response = jsonify({'error': 'invalid_body', 'message': 'Invalid JSON or form data.', 'detail': str(e)})
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2436,20 +2444,20 @@ def submit_form(task_id):
         except Exception as e:
             db.rollback()
             logger.error(f"保存提交数据失败: {str(e)}")
-            response = jsonify({'error': '保存失败', 'message': str(e)})
+            response = jsonify({'error': 'save_failed', 'message': 'Failed to save submission.', 'detail': str(e)})
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             return response, 500
         
-        response = jsonify({'message': '提交成功', 'status': 'success'})
+        response = jsonify({'message': 'Submitted successfully.', 'status': 'success'})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response, 200
     except Exception as e:
         logger.error(f"API异常: {str(e)}", exc_info=True)
-        response = jsonify({'error': '服务器错误', 'message': str(e)})
+        response = jsonify({'error': 'internal_error', 'message': 'Internal server error.', 'detail': str(e)})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2475,7 +2483,7 @@ def _rate_limit_response(task_id, client_ip, ts, db):
                 db.rollback()
                 logger.error(f"记录限流日志失败: {str(e)}")
  
-    response = jsonify({'error': 'rate_limit', 'message': '提交过于频繁，请稍后再试'})
+    response = jsonify({'error': 'rate_limit', 'message': 'Too many requests. Please try again later.'})
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2505,7 +2513,7 @@ def submit_form_all(task_id):
     # 限制 /all 接口1秒最多访问1次
     if now_ts - ip_info.get('last_all_access', 0) < 1.0:
         logger.warning(f"IP {client_ip} 访问 /all 接口过快，被限流")
-        response = jsonify({'error': '请求过于频繁', 'message': '接口调用频率过高，请控制在每秒1次以内。'})
+        response = jsonify({'error': 'rate_limit', 'message': 'Too many requests. Limit: at most once per second for this endpoint.'})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2517,14 +2525,22 @@ def submit_form_all(task_id):
     try:
         task = db.query(Task).filter_by(task_id=task_id).first()
         if not task:
-            response = jsonify({'error': '任务不存在', 'task_id': task_id, 'message': f'未找到ID为 {task_id} 的任务'})
+            response = jsonify({
+                'error': 'task_not_found',
+                'task_id': task_id,
+                'message': f'No task found for task_id "{task_id}".',
+            })
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             logger.warning(f"请求失败: 任务不存在 - task_id: {task_id}")
             return response, 404
         if not getattr(task, 'is_active', True):
-            response = jsonify({'error': '任务已停用', 'task_id': task_id, 'message': '该数据任务已停用，暂不读取数据'})
+            response = jsonify({
+                'error': 'task_disabled',
+                'task_id': task_id,
+                'message': 'This task is disabled. Data reads are not allowed.',
+            })
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2555,7 +2571,7 @@ def submit_form_all(task_id):
         total_count = len(data_list)
         _record_api_get('api_task_all')
         response = jsonify({
-            'note': f'当前共有 {total_count} 条数据',
+            'note': f'Total {total_count} submission(s).',
             'task_id': task.task_id,
             'task_title': task.title,
             'total_submissions': total_count,
@@ -2567,7 +2583,7 @@ def submit_form_all(task_id):
         return response, 200
     except Exception as e:
         logger.error(f"API异常: {str(e)}", exc_info=True)
-        response = jsonify({'error': '服务器错误', 'message': str(e)})
+        response = jsonify({'error': 'internal_error', 'message': 'Internal server error.', 'detail': str(e)})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2597,7 +2613,7 @@ def list_tasks():
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response, 200
     except Exception as e:
-        response = jsonify({'error': '服务器错误', 'message': str(e)})
+        response = jsonify({'error': 'internal_error', 'message': 'Internal server error.', 'detail': str(e)})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -3524,11 +3540,11 @@ def admin_panel():
         html_review_per_page = 20
         cert_review_per_page = 20
 
-        # 顶部 4 个统计卡片：始终只查这 4 个 count，保证首屏快
+        # 顶部统计：用户/管理员/任务始终 count；提交总数仅在「数据报表」tab 查询（避免每次进后台全表扫 submission）
         total_users = db.query(User).count()
         admin_users = db.query(User).filter_by(role='admin').count()
         total_tasks = db.query(Task).count()
-        total_submissions = db.query(Submission).count()
+        total_submissions = db.query(Submission).count() if current_tab == 'data' else None
 
         # 默认值：未选中的 tab 不查数据
         users = []
@@ -3554,6 +3570,7 @@ def admin_panel():
         total_cert_requests = 0
 
         public_pending_with_author = []
+        org_pending_with_creator = []
         open_source_tasks_with_author = []
         tutorials_json_content = '[]'
 
@@ -3655,6 +3672,20 @@ def admin_panel():
             authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
             public_pending_with_author = [{'task': t, 'author': authors_map.get(t.user_id)} for t in public_pending_tasks]
 
+        elif current_tab == 'org-review':
+            org_pending = (
+                db.query(Organization)
+                .filter(
+                    Organization.teams_public_requested == True,
+                    Organization.teams_public_approved == 0,
+                )
+                .order_by(Organization.created_at.desc())
+                .all()
+            )
+            creator_ids = {o.creator_id for o in org_pending}
+            creators_map = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
+            org_pending_with_creator = [{'org': o, 'creator': creators_map.get(o.creator_id)} for o in org_pending]
+
         elif current_tab == 'open-source':
             open_tasks = (
                 db.query(Task)
@@ -3710,7 +3741,6 @@ def admin_panel():
             'total_organizations': 0,
             'total_org_members': 0,
             'tasks_in_organizations': 0,
-            'org_list_with_task_count': [],
             'certified_users': 0,
             'public_tasks': 0,
             'public_approved_tasks': 0,
@@ -3733,14 +3763,6 @@ def admin_panel():
             total_organizations = db.query(Organization).count()
             total_org_members = db.query(OrganizationMember).count()
             tasks_in_organizations = db.query(Task).filter(Task.organization_id.isnot(None)).count()
-            org_list_with_task_count = (
-                db.query(Organization, func.count(Task.id).label('task_count'))
-                .outerjoin(Task, Task.organization_id == Organization.id)
-                .group_by(Organization.id)
-                .order_by(func.count(Task.id).desc())
-                .limit(5)
-                .all()
-            )
             certified_users = db.query(User).filter(User.is_certified == True).count()
             public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
             public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
@@ -3762,7 +3784,6 @@ def admin_panel():
                 total_organizations=total_organizations,
                 total_org_members=total_org_members,
                 tasks_in_organizations=tasks_in_organizations,
-                org_list_with_task_count=org_list_with_task_count,
                 certified_users=certified_users,
                 public_tasks=public_tasks,
                 public_approved_tasks=public_approved_tasks,
@@ -3802,6 +3823,7 @@ def admin_panel():
             cert_review_per_page=cert_review_per_page,
             current_tab=current_tab,
             public_pending_with_author=public_pending_with_author,
+            org_pending_with_creator=org_pending_with_creator,
             open_source_tasks_with_author=open_source_tasks_with_author,
             tutorials_json_content=tutorials_json_content,
             api_traffic=api_traffic
@@ -3844,6 +3866,42 @@ def admin_public_reject(task_id):
     finally:
         db.close()
     return redirect(url_for('quickform.admin_panel', tab='public-review'))
+
+
+@quickform_bp.route('/admin/org_teams_approve/<int:org_id>', methods=['POST'])
+@admin_required
+def admin_org_teams_approve(org_id):
+    """管理员通过组织「入驻团队 / 首页公开」申请"""
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, org_id)
+        if not org or not org.teams_public_requested or org.teams_public_approved != 0:
+            flash('组织不存在或无需审核', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='org-review'))
+        org.teams_public_approved = 1
+        db.commit()
+        flash(f'已通过组织「{org.name}」的入驻团队展示申请。', 'success')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='org-review'))
+
+
+@quickform_bp.route('/admin/org_teams_reject/<int:org_id>', methods=['POST'])
+@admin_required
+def admin_org_teams_reject(org_id):
+    """管理员拒绝组织「入驻团队」申请"""
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, org_id)
+        if not org or not org.teams_public_requested or org.teams_public_approved != 0:
+            flash('组织不存在或无需审核', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='org-review'))
+        org.teams_public_approved = -1
+        db.commit()
+        flash(f'已拒绝组织「{org.name}」的入驻团队展示申请。创建者可改为「内部交流」后重新申请。', 'success')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='org-review'))
 
 
 @quickform_bp.route('/admin/public_batch_approve', methods=['POST'])
@@ -5111,7 +5169,14 @@ def teams_list():
         q = request.args.get('q', '').strip()
         page = max(1, request.args.get('page', 1, type=int))
         per_page = 10
-        base = db.query(Organization).outerjoin(User, Organization.creator_id == User.id)
+        base = (
+            db.query(Organization)
+            .outerjoin(User, Organization.creator_id == User.id)
+            .filter(
+                Organization.teams_public_requested == True,
+                Organization.teams_public_approved == 1,
+            )
+        )
         if q:
             base = base.filter(or_(Organization.name.ilike(f'%{q}%'), User.username.ilike(f'%{q}%')))
         base = base.order_by(Organization.created_at.desc())
@@ -5292,11 +5357,80 @@ def organization_detail(org_id):
         
         # 查询组织任务
         org_tasks = db.query(Task).filter_by(organization_id=org_id).all()
-        
+        is_org_admin = org.creator_id == current_user.id or (
+            db.query(OrganizationMember).filter_by(
+                organization_id=org_id, user_id=current_user.id, role='admin'
+            ).first() is not None
+        )
         return render_template('organization_detail.html',
                              organization=org,
                              org_tasks=org_tasks,
-                             is_creator=(org.creator_id == current_user.id))
+                             is_creator=(org.creator_id == current_user.id),
+                             is_org_admin=is_org_admin)
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/organization/<int:org_id>/request_teams_public', methods=['POST'])
+@login_required
+def organization_request_teams_public(org_id):
+    """申请将组织展示在「入驻团队」首页列表（需管理员审核）"""
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, org_id)
+        if not org:
+            flash('组织不存在', 'danger')
+            return redirect(url_for('quickform.organization'))
+        is_creator = org.creator_id == current_user.id
+        member = db.query(OrganizationMember).filter_by(
+            organization_id=org_id, user_id=current_user.id
+        ).first()
+        is_admin = member and member.role == 'admin'
+        if not (is_creator or is_admin):
+            flash('只有组织创建者或管理员可发起申请', 'danger')
+            return redirect(url_for('quickform.organization_detail', org_id=org_id))
+        org.teams_public_requested = True
+        org.teams_public_approved = 0
+        db.commit()
+        flash('已发起「首页公开」申请，请等待管理员审核。审核通过后将出现在「入驻团队」列表。', 'success')
+        return redirect(url_for('quickform.organization_detail', org_id=org_id))
+    except Exception as e:
+        db.rollback()
+        logger.exception('organization_request_teams_public failed: %s', e)
+        flash('操作失败', 'danger')
+        return redirect(url_for('quickform.organization_detail', org_id=org_id))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/organization/<int:org_id>/set_teams_internal', methods=['POST'])
+@login_required
+def organization_set_teams_internal(org_id):
+    """改回仅内部交流：不再在入驻团队公开展示"""
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, org_id)
+        if not org:
+            flash('组织不存在', 'danger')
+            return redirect(url_for('quickform.organization'))
+        is_creator = org.creator_id == current_user.id
+        member = db.query(OrganizationMember).filter_by(
+            organization_id=org_id, user_id=current_user.id
+        ).first()
+        is_admin = member and member.role == 'admin'
+        if not (is_creator or is_admin):
+            flash('只有组织创建者或管理员可修改', 'danger')
+            return redirect(url_for('quickform.organization_detail', org_id=org_id))
+        org.teams_public_requested = False
+        org.teams_public_approved = 0
+        db.commit()
+        flash('已切换为「内部交流」，组织将不再出现在「入驻团队」列表。', 'success')
+        return redirect(url_for('quickform.organization_detail', org_id=org_id))
+    except Exception as e:
+        db.rollback()
+        logger.exception('organization_set_teams_internal failed: %s', e)
+        flash('操作失败', 'danger')
+        return redirect(url_for('quickform.organization_detail', org_id=org_id))
     finally:
         db.close()
 
