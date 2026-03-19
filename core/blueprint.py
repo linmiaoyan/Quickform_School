@@ -4504,25 +4504,58 @@ def admin_users_statistics():
         certified_users = db.query(User).filter_by(is_certified=True).count()
         
         # 生成学校数据（包含省份、城市、区县、类型）
-        school_dict = {}
+        # 说明：省份支持管理员手动覆盖，避免自动解析把台湾等学校归错。
+        school_dict = {}  # school_text -> {name, province_auto, province, province_source, city, district, type}
+        db_updated = False
+
         for user in db.query(User).filter(User.school.isnot(None), User.school != '').all():
-            school = user.school.strip()
+            school = (user.school or '').strip()
             if not school or school in ['', 'xx', '1', 'wkg'] or len(school) < 2:
                 continue
-            
+
+            user_province_source = getattr(user, 'school_province_source', None)
+            manual_province = None
+            if user_province_source == 'admin' and getattr(user, 'school_province', None):
+                manual_province = user.school_province.strip()
+
             if school not in school_dict:
-                province, city = extract_city_and_province(school)
+                province_auto, city = extract_city_and_province(school)
                 district = extract_district(school, city)
                 school_type = extract_school_type(school)
-                
+
+                effective_province = manual_province if manual_province else province_auto
+                province_source = 'admin' if manual_province else 'auto'
+
                 school_dict[school] = {
                     'name': school,
-                    'province': province,
+                    'province_auto': province_auto,
+                    'province': effective_province,
+                    'province_source': province_source,
                     'city': city,
                     'district': district,
-                    'type': school_type
+                    'type': school_type,
                 }
+
+            entry = school_dict[school]
+
+            # 1) 若当前用户有管理员覆盖省份，则覆盖该 school_text 的统计省份
+            if manual_province:
+                entry['province'] = manual_province
+                entry['province_source'] = 'admin'
+                if user.school_province != manual_province or user.school_province_source != 'admin':
+                    user.school_province = manual_province
+                    user.school_province_source = 'admin'
+                    db_updated = True
+            else:
+                # 2) 自动缓存该用户的“省份（auto）”，用于后续页面/导出减少重复解析
+                if not getattr(user, 'school_province', None) and entry.get('province_auto') and entry.get('province_auto') != '未知':
+                    user.school_province = entry['province_auto']
+                    user.school_province_source = 'auto'
+                    db_updated = True
         
+        if db_updated:
+            db.commit()
+
         school_data = list(school_dict.values())
         
         # 计算统计信息
@@ -4550,6 +4583,40 @@ def admin_users_statistics():
         logger.error(f"获取统计数据失败: {str(e)}", exc_info=True)
         flash(f'获取统计数据失败: {str(e)}', 'danger')
         return redirect(url_for('quickform.admin_panel'))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/admin/users/<int:user_id>/set_school_province', methods=['POST'])
+@admin_required
+def admin_set_school_province(user_id):
+    """管理员手动设置某个用户的学校省份（仅覆盖统计地区用）"""
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            return jsonify({'success': False, 'message': '用户不存在'}), 404
+
+        province = (request.form.get('school_province') or '').strip()
+
+        # 留空则清除管理员覆盖，让统计页回退到自动解析
+        if not province:
+            user.school_province = None
+            user.school_province_source = None
+        else:
+            user.school_province = province
+            user.school_province_source = 'admin'
+
+        db.commit()
+        return jsonify({
+            'success': True,
+            'school_province': user.school_province,
+            'school_province_source': user.school_province_source,
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("设置用户学校省份失败: %s", e)
+        return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         db.close()
 

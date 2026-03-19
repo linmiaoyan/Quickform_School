@@ -166,6 +166,7 @@
                                         <th style="width: 100px;">用户名</th>
                                         <th style="width: 180px;">邮箱</th>
                                         <th style="width: 220px; min-width: 180px;">{{ translate('admin.school') }}</th>
+                                        <th style="width: 160px; min-width: 140px;">{{ translate('admin.province') }}</th>
                                         <th style="width: 120px;">手机号</th>
                                         <th style="width: 80px;">角色</th>
                                         <th style="width: 90px;">{{ translate('admin.auth_status') }}</th>
@@ -181,6 +182,14 @@
                                         <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.username }}">{{ user.username }}</td>
                                         <td style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.email }}">{{ user.email }}</td>
                                         <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.school or translate('admin.not_filled') }}">{{ user.school or translate('admin.not_filled') }}</td>
+                                        <td style="white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;">
+                                            {{ user.school_province or translate('admin.not_filled') }}
+                                            {% if user.school_province_source == 'admin' %}
+                                                <span class="badge bg-warning text-dark ms-1">{{ translate('admin.province_manual') }}</span>
+                                            {% elif user.school_province_source == 'auto' %}
+                                                <span class="badge bg-secondary ms-1">{{ translate('admin.province_auto') }}</span>
+                                            {% endif %}
+                                        </td>
                                         <td style="white-space: nowrap;">{{ user.phone or translate('admin.not_filled') }}</td>
                                         <td>
                                             <span class="badge {% if user.role == 'admin' %}bg-danger{% else %}bg-secondary{% endif %}">
@@ -224,6 +233,14 @@
                                                     <li>
                                                         <a class="dropdown-item" href="#" onclick="resetPassword({{ user.id }}, '{{ user.username }}'); return false;">
                                                             <i class="bi bi-key text-primary"></i> {{ translate('admin.reset_pwd') }}
+                                                        </a>
+                                                    </li>
+                                                    <li>
+                                                        <a class="dropdown-item" href="#"
+                                                           onclick="setUserProvincePrompt(this); return false;"
+                                                           data-set-province-url="{{ url_for('quickform.admin_set_school_province', user_id=user.id) }}"
+                                                           data-current-province="{{ user.school_province or '' }}">
+                                                            <i class="bi bi-geo-alt text-info"></i> {{ translate('admin.set_province') }}
                                                         </a>
                                                     </li>
                                                     {% if user.role != 'admin' %}
@@ -1600,6 +1617,35 @@
         });
         if (window.location.search.indexOf('tab=data') !== -1) setTimeout(loadRegChart, 300);
     })();
+
+    // 手动设置用户学校省份（管理员覆盖，用于统计地区编码）
+    function setUserProvincePrompt(trigger) {
+        const url = trigger.getAttribute('data-set-province-url');
+        const current = trigger.getAttribute('data-current-province') || '';
+        const provincePromptText = {{ translate('admin.province_prompt')|tojson }};
+
+        const province = window.prompt(provincePromptText, current);
+        if (province === null) return;
+
+        const body = new URLSearchParams();
+        body.append('school_province', province.trim());
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body,
+            credentials: 'same-origin'
+        })
+        .then(r => r.json().catch(() => ({ success: false })))
+        .then(data => {
+            if (data && data.success) {
+                window.location.reload();
+            } else {
+                alert((data && data.message) ? data.message : '设置失败');
+            }
+        })
+        .catch(() => alert('设置失败：网络错误'));
+    }
 </script>
 {% endblock %}
 {% endblock %}

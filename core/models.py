@@ -30,6 +30,11 @@ class User(UserMixin, Base):
     email = Column(String(100), unique=True, nullable=False)  # 注册可不填时存占位邮箱 {username}@noreply.local；创建第二个任务时需绑定并验证
     password = Column(String(200), nullable=False)
     school = Column(String(200))
+    # 学校所在省份（仅用于统计/地区编码；支持管理员手动覆盖，避免自动解析错误）
+    # - school_province_source='auto'：由解析逻辑从 school 文本推断
+    # - school_province_source='admin'：管理员手动填写覆盖
+    school_province = Column(String(50))
+    school_province_source = Column(String(20), default='auto')
     phone = Column(String(20))
     role = Column(String(20), default='user')
     task_limit = Column(Integer, default=3)  # 任务创建上限，-1表示无限制
@@ -260,6 +265,26 @@ def migrate_database(engine):
                     logger.info("成功添加school字段到user表")
                 except Exception as e:
                     logger.warning(f"添加school字段失败（可能已存在）: {str(e)}")
+            
+            if 'school_province' not in columns:
+                try:
+                    conn.execute(text("ALTER TABLE user ADD COLUMN school_province VARCHAR(50)"))
+                    logger.info("成功为user表添加school_province字段")
+                except Exception as e:
+                    logger.warning(f"添加school_province字段失败（可能已存在）: {str(e)}")
+            
+            if 'school_province_source' not in columns:
+                try:
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    # MySQL: VARCHAR DEFAULT；SQLite: 也支持 DEFAULT
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE user ADD COLUMN school_province_source VARCHAR(20) DEFAULT 'auto'"))
+                    else:
+                        conn.execute(text("ALTER TABLE user ADD COLUMN school_province_source VARCHAR(20) DEFAULT 'auto'"))
+                    conn.execute(text("UPDATE user SET school_province_source = 'auto' WHERE school_province_source IS NULL"))
+                    logger.info("成功为user表添加school_province_source字段")
+                except Exception as e:
+                    logger.warning(f"添加school_province_source字段失败（可能已存在）: {str(e)}")
             
             if 'phone' not in columns:
                 try:
