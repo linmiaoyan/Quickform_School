@@ -42,7 +42,7 @@ from services.file_service import save_uploaded_file, read_file_content, ALLOWED
 from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file, generate_html_page_from_prompt, revise_html_with_ai
 from services.report_service import (
     save_analysis_report, generate_report_image, build_report_html, perform_analysis_with_custom_prompt,
-    analysis_progress, analysis_results, completed_reports, progress_lock, timeout
+    analysis_progress, analysis_results, completed_reports, progress_lock, timeout, markdown_to_html
 )
 
 # 配置日志
@@ -421,8 +421,25 @@ def docs():
 
 @quickform_bp.route('/tutorials')
 def tutorials():
-    """开源教程 - 使用 B 站嵌入视频，不再读取本地 tutorials.json"""
-    return render_template('tutorials.html')
+    """开源教程：读取 static/tutorials/tutorials.json 渲染列表，并保留 B 站视频区块"""
+    tutorials_items = []
+    try:
+        tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
+        json_path = os.path.join(tutorials_dir, 'tutorials.json')
+        if os.path.exists(json_path):
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                tutorials_items = data
+            else:
+                logger.warning('tutorials.json 根节点不是数组，已忽略')
+    except Exception as e:
+        logger.warning('读取 tutorials.json 失败: %s', e)
+    for item in tutorials_items:
+        if isinstance(item, dict):
+            desc = (item.get('description') or '').strip()
+            item['description_html'] = markdown_to_html(desc) if desc else ''
+    return render_template('tutorials.html', tutorials_items=tutorials_items)
 
 @quickform_bp.route('/cases')
 def cases():
@@ -5429,11 +5446,14 @@ def organization_detail(org_id):
                 organization_id=org_id, user_id=current_user.id, role='admin'
             ).first() is not None
         )
+        desc_raw = (org.description or '').strip()
+        org_description_html = markdown_to_html(desc_raw) if desc_raw else ''
         return render_template('organization_detail.html',
                              organization=org,
                              org_tasks=org_tasks,
                              is_creator=(org.creator_id == current_user.id),
-                             is_org_admin=is_org_admin)
+                             is_org_admin=is_org_admin,
+                             org_description_html=org_description_html)
     finally:
         db.close()
 
@@ -5497,6 +5517,38 @@ def organization_set_teams_internal(org_id):
         db.rollback()
         logger.exception('organization_set_teams_internal failed: %s', e)
         flash('操作失败', 'danger')
+        return redirect(url_for('quickform.organization_detail', org_id=org_id))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/organization/<int:org_id>/description', methods=['POST'])
+@login_required
+def update_organization_description(org_id):
+    """创建者或组织管理员可更新团队简介（支持 Markdown）"""
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, org_id)
+        if not org:
+            flash('团队不存在', 'danger')
+            return redirect(url_for('quickform.organization'))
+        is_creator = org.creator_id == current_user.id
+        member = db.query(OrganizationMember).filter_by(
+            organization_id=org_id, user_id=current_user.id
+        ).first()
+        is_admin = member and member.role == 'admin'
+        if not (is_creator or is_admin):
+            flash('只有创建者或组织管理员可编辑团队简介', 'danger')
+            return redirect(url_for('quickform.organization_detail', org_id=org_id))
+        raw = request.form.get('description', '')
+        org.description = raw.strip() if raw and raw.strip() else None
+        db.commit()
+        flash('团队简介已更新', 'success')
+        return redirect(url_for('quickform.organization_detail', org_id=org_id))
+    except Exception as e:
+        db.rollback()
+        logger.exception('update_organization_description failed: %s', e)
+        flash('更新失败', 'danger')
         return redirect(url_for('quickform.organization_detail', org_id=org_id))
     finally:
         db.close()

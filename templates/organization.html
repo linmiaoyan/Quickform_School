@@ -64,11 +64,29 @@
     color: #1f2937;
     letter-spacing: 2px;
 }
+.org-visibility-badges .badge { font-weight: 500; }
+.markdown-body-preview { font-size: 0.9rem; line-height: 1.5; }
+.markdown-body-preview p:last-child { margin-bottom: 0; }
 </style>
+
+{# 入驻团队展示状态：与详情页逻辑一致 #}
+{% macro org_teams_visibility_badge(org) -%}
+{% set tpr = org.teams_public_requested %}
+{% set tpa = org.teams_public_approved %}
+{% if not tpr %}
+<span class="badge bg-secondary">{{ translate('organization_detail.visibility_internal') if translate('organization_detail.visibility_internal') != 'organization_detail.visibility_internal' else '内部交流' }}</span>
+{% elif tpa == 1 %}
+<span class="badge bg-success">{{ translate('organization_detail.visibility_public') if translate('organization_detail.visibility_public') != 'organization_detail.visibility_public' else '首页公开' }}</span>
+{% elif tpa == 0 %}
+<span class="badge bg-warning text-dark">{{ translate('admin.reviewing') }}</span>
+{% else %}
+<span class="badge bg-danger">{{ translate('admin.rejected') }}</span>
+{% endif %}
+{%- endmacro %}
 
 <div class="org-header">
     <h1 style="margin: 0 0 0.5rem 0; font-size: 1.75rem;"><i class="bi bi-people-fill"></i> 团队管理</h1>
-    <p style="margin: 0; opacity: 0.9;">创建团队、加入团队，管理团队内的数据任务。</p>
+    <p style="margin: 0; opacity: 0.9;">创建团队、加入团队，管理团队内的数据任务。卡片上的标签表示该团队在「入驻团队」页的公开状态。</p>
 </div>
 
 <!-- 快捷操作按钮 -->
@@ -95,7 +113,10 @@
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
                             <h6 style="margin: 0; font-weight: 600;">{{ org.name }}</h6>
-                            <span class="org-badge creator mt-1"><i class="bi bi-person-badge"></i> {{ translate('organization.creator') }}</span>
+                            <div class="d-flex flex-wrap align-items-center gap-1 mt-1 org-visibility-badges">
+                                <span class="org-badge creator"><i class="bi bi-person-badge"></i> {{ translate('organization.creator') }}</span>
+                                {{ org_teams_visibility_badge(org) }}
+                            </div>
                         </div>
                         <div class="d-flex gap-1">
                             <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#renameOrgModal{{ org.id }}" title="{{ translate('organization.rename') }}">
@@ -109,7 +130,7 @@
                         </div>
                     </div>
                     {% if org.description %}
-                    <p class="text-muted small mb-2">{{ org.description }}</p>
+                    <div class="text-muted small mb-2 markdown-body-preview">{{ org.description | truncate(200) }}</div>
                     {% endif %}
                     <div class="mb-2">
                         <strong>团队代码</strong>
@@ -155,13 +176,16 @@
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
                             <h6 style="margin: 0; font-weight: 600;">{{ membership.organization.name }}</h6>
-                            <span class="org-badge {{ membership.role }} mt-1">
-                                {% if membership.role == 'admin' %}
-                                <i class="bi bi-shield-check"></i> {{ translate('organization.admin') }}
-                                {% else %}
-                                <i class="bi bi-person"></i> {{ translate('organization.member') }}
-                                {% endif %}
-                            </span>
+                            <div class="d-flex flex-wrap align-items-center gap-1 mt-1 org-visibility-badges">
+                                <span class="org-badge {{ membership.role }}">
+                                    {% if membership.role == 'admin' %}
+                                    <i class="bi bi-shield-check"></i> {{ translate('organization.admin') }}
+                                    {% else %}
+                                    <i class="bi bi-person"></i> {{ translate('organization.member') }}
+                                    {% endif %}
+                                </span>
+                                {{ org_teams_visibility_badge(membership.organization) }}
+                            </div>
                         </div>
                         <form method="POST" action="{{ url_for('quickform.leave_organization', org_id=membership.organization.id) }}" class="d-inline" onsubmit='return confirm({{ (translate("organization.leave_confirm")|replace("{name}", membership.organization.name))|tojson }});'>
                             <button type="submit" class="btn btn-sm btn-outline-secondary">
@@ -170,7 +194,7 @@
                         </form>
                     </div>
                     {% if membership.organization.description %}
-                    <p class="text-muted small mb-2">{{ membership.organization.description }}</p>
+                    <div class="text-muted small mb-2 markdown-body-preview">{{ membership.organization.description | truncate(200) }}</div>
                     {% endif %}
                     <div class="d-flex justify-content-between align-items-center">
                         <small class="text-muted">

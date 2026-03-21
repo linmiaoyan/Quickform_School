@@ -3,6 +3,12 @@
 {% block title %}{{ organization.name }} - 组织详情{% endblock %}
 
 {% block content %}
+<style>
+.org-intro-markdown { font-size: 0.95rem; line-height: 1.65; }
+.org-intro-markdown h1, .org-intro-markdown h2, .org-intro-markdown h3 { margin-top: 1rem; font-size: 1.1rem; font-weight: 600; }
+.org-intro-markdown pre { background: #f6f8fa; padding: 0.75rem; border-radius: 6px; overflow-x: auto; }
+.org-intro-markdown ul, .org-intro-markdown ol { padding-left: 1.25rem; }
+</style>
 <div class="row">
     <div class="col-12">
         <!-- 面包屑导航 -->
@@ -26,9 +32,6 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-8">
-                        {% if organization.description %}
-                        <p class="mb-2"><strong>描述：</strong>{{ organization.description }}</p>
-                        {% endif %}
                         <p class="mb-2"><strong>创建者：</strong>{{ organization.creator.username }}</p>
                         <p class="mb-2"><strong>创建时间：</strong>{{ organization.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
                         <p class="mb-2"><strong>成员数量：</strong>{{ organization.members|length }} 人</p>
@@ -46,6 +49,34 @@
                         {% endif %}
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- 团队简介（Markdown 渲染 + 管理员可编辑） -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0" style="color: white; font-weight: 600;">
+                    <i class="bi bi-journal-text"></i> {{ translate('organization_detail.intro_title') }}
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if org_description_html %}
+                <div class="org-intro-markdown markdown-body mb-3">{{ org_description_html|safe }}</div>
+                {% else %}
+                <p class="text-muted mb-3">{{ translate('organization_detail.intro_empty') }}</p>
+                {% endif %}
+                {% if is_org_admin %}
+                <p class="small text-muted mb-2">{{ translate('organization_detail.intro_hint') }}</p>
+                <form method="post" action="{{ url_for('quickform.update_organization_description', org_id=organization.id) }}">
+                    <div class="mb-2">
+                        <label class="form-label visually-hidden" for="orgDescMd">{{ translate('organization_detail.intro_edit') }}</label>
+                        <textarea id="orgDescMd" name="description" class="form-control font-monospace" rows="10" placeholder="Markdown">{{ organization.description or '' }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check2"></i> {{ translate('organization_detail.intro_save') }}
+                    </button>
+                </form>
+                {% endif %}
             </div>
         </div>
 
