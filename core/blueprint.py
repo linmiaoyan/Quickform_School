@@ -38,6 +38,7 @@ from email.utils import formataddr
 
 # 导入分离的模块
 from .models import Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply, Organization, OrganizationMember, TaskShare, TaskLike
+from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
 from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file, CERTIFICATION_ALLOWED_EXTENSIONS
 from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file, generate_html_page_from_prompt, revise_html_with_ai
 from services.report_service import (
@@ -70,6 +71,13 @@ def _is_placeholder_or_empty_email(email):
 # 简单的邮箱验证码存储（开发环境用，生产建议换成 Redis）
 EMAIL_CODE_STORE = {}
 
+# /mcp/upload 防爆破（按 IP+用户名）
+UPLOAD_AUTH_WINDOW_SECONDS = 10 * 60
+UPLOAD_AUTH_MAX_FAILS = 8
+UPLOAD_AUTH_BLOCK_SECONDS = 15 * 60
+_upload_auth_failures = {}
+_upload_auth_lock = threading.Lock()
+
 
 def set_email_code(email: str, code: str, ttl_seconds: int = 600):
     """保存邮箱验证码"""
@@ -92,6 +100,44 @@ def verify_email_code(email: str, code: str) -> bool:
     # 一次性验证码，用完即删
     EMAIL_CODE_STORE.pop(email, None)
     return True
+
+
+def _upload_auth_client_key(username: str) -> str:
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr or '') or 'unknown'
+    ip = ip.split(',')[0].strip()
+    return f"{ip}|{(username or '').strip().lower()}"
+
+
+def _upload_auth_is_blocked(client_key: str) -> bool:
+    now = time.time()
+    with _upload_auth_lock:
+        info = _upload_auth_failures.get(client_key)
+        if not info:
+            return False
+        blocked_until = info.get('blocked_until', 0)
+        if blocked_until and blocked_until > now:
+            return True
+        if blocked_until and blocked_until <= now:
+            _upload_auth_failures.pop(client_key, None)
+    return False
+
+
+def _upload_auth_record_failure(client_key: str):
+    now = time.time()
+    with _upload_auth_lock:
+        info = _upload_auth_failures.get(client_key)
+        if not info or (now - info.get('window_start', now) > UPLOAD_AUTH_WINDOW_SECONDS):
+            info = {'count': 0, 'window_start': now, 'blocked_until': 0}
+        info['count'] = int(info.get('count', 0)) + 1
+        if info['count'] >= UPLOAD_AUTH_MAX_FAILS:
+            info['blocked_until'] = now + UPLOAD_AUTH_BLOCK_SECONDS
+            logger.warning("上传认证触发限流：%s，失败次数=%s", client_key, info['count'])
+        _upload_auth_failures[client_key] = info
+
+
+def _upload_auth_clear_failures(client_key: str):
+    with _upload_auth_lock:
+        _upload_auth_failures.pop(client_key, None)
 
 
 def send_email_code(to_email: str, code: str):
@@ -1078,6 +1124,7 @@ def oneclick_create_task():
         task.description = requirements  # 任务描述只存用户输入的那段，不包含勾选的预设说明
         # 获取用户 AI 配置。一键内测优先用用户自己在个人中心配置的 API；未配置时直接使用您提供的 API（环境变量 CHAT_SERVER_API_TOKEN）
         ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
+        decrypt_ai_config_inplace(ai_config)
         if not ai_config:
             # 用户从未保存过配置：用 chat_server + 空 Token，call_ai_model 会回退到环境变量 CHAT_SERVER_API_TOKEN
             ai_config = AIConfig(user_id=current_user.id, selected_model='chat_server')
@@ -1614,6 +1661,7 @@ def edit_task(task_id):
                     flash('当前 HTML 内容无效，无法继续修改。', 'danger')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
                 ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
+                decrypt_ai_config_inplace(ai_config)
                 if not ai_config:
                     flash('请先在个人中心配置 AI 后再使用「AI 继续修改」。', 'danger')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
@@ -2297,12 +2345,18 @@ def cli_upload_html():
     """
     username = (request.form.get('username') or '').strip()
     password = request.form.get('password') or ''
+    client_key = _upload_auth_client_key(username)
+    if _upload_auth_is_blocked(client_key):
+        return jsonify({'success': False, 'message': '认证失败次数过多，请稍后再试'}), 429
     if not username or not password:
+        _upload_auth_record_failure(client_key)
         return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
 
     user = _mcp_authenticate(username, password)
     if not user:
+        _upload_auth_record_failure(client_key)
         return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
+    _upload_auth_clear_failures(client_key)
 
     file = request.files.get('file')
     if not file or not (file.filename or '').strip():
@@ -2746,6 +2800,7 @@ def profile():
     db = SessionLocal()
     try:
         ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
+        decrypt_ai_config_inplace(ai_config)
         user_record = db.get(User, current_user.id)
         pending_cert_request = db.query(CertificationRequest).filter_by(user_id=current_user.id, status=0).order_by(CertificationRequest.created_at.desc()).first()
         last_cert_request = db.query(CertificationRequest).filter_by(user_id=current_user.id).order_by(CertificationRequest.created_at.desc()).first()
@@ -2772,6 +2827,7 @@ def profile():
                 ai_config.ernie_secret_key = ''
                 ai_config.openrouter_api_key = ''
 
+                encrypt_ai_config_inplace(ai_config)
                 db.commit()
                 flash('已恢复为空，将使用系统默认 API（管理员配置）供您试用；如需用自己的密钥请在下方填写后保存。', 'success')
                 return redirect(url_for('quickform.profile') + '#config')
@@ -2818,7 +2874,7 @@ def profile():
                         openrouter_api_key=openrouter_api_key
                     )
                     db.add(ai_config)
-                
+                encrypt_ai_config_inplace(ai_config)
                 db.commit()
                 flash('AI配置更新成功', 'success')
                 return redirect(url_for('quickform.profile') + '#config')
@@ -3006,6 +3062,7 @@ def test_ai_api():
             ai_config = _config_from_payload(cfg_payload)
         else:
             ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
+            decrypt_ai_config_inplace(ai_config)
             if not ai_config or not ai_config.selected_model:
                 return jsonify({'success': False, 'message': '请先保存AI配置后再测试，或在上方选择模型并填写密钥后直接点击测试'}), 400
 
@@ -3075,6 +3132,7 @@ def smart_analyze(task_id):
             return redirect(url_for('quickform.dashboard'))
         
         ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
+        decrypt_ai_config_inplace(ai_config)
         
         if not ai_config or not ai_config.selected_model:
             return render_template('smart_analyze.html', task=task, error="请先在配置页面设置AI模型和API密钥", ai_config=ai_config, now=datetime.now(), model_label=None)
@@ -3673,7 +3731,11 @@ def admin_panel():
                 .limit(cert_review_per_page)
                 .all()
             )
-            pending_cert_count = sum(1 for req in cert_requests if req.status == 0)
+            pending_cert_count = (
+                db.query(CertificationRequest)
+                .filter(CertificationRequest.status == 0)
+                .count()
+            )
 
         elif current_tab == 'data':
             pass  # stats 在下方按 tab 计算
@@ -4785,7 +4847,12 @@ def admin_review_certification():
             .limit(per_page)
             .all()
         )
-        pending_cert_count = sum(1 for req in cert_requests if req.status == 0)
+        # 统计全部待审核数量，而非仅当前页
+        pending_cert_count = (
+            db.query(CertificationRequest)
+            .filter(CertificationRequest.status == 0)
+            .count()
+        )
 
         return render_template(
             'admin_review_certification.html',

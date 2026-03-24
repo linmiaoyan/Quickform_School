@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from functools import wraps
 from PIL import Image, ImageDraw, ImageFont
+from core.secret_store import decrypt_ai_config_inplace
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +409,7 @@ def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_p
             file_content = read_file_content_func(task.file_path)
         
         ai_config = db.query(AIConfig).filter_by(id=ai_config_id).first()
+        decrypt_ai_config_inplace(ai_config)
         if not ai_config:
             with progress_lock:
                 analysis_progress[task_id] = {

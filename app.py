@@ -52,7 +52,10 @@ def _clean_old_entries():
 
 # 创建Flask应用
 app = Flask(__name__)
-app.secret_key = os.getenv('SECRET_KEY', 'your_secret_key_here')
+_secret_key = (os.getenv('SECRET_KEY') or '').strip()
+if not _secret_key or _secret_key == 'your_secret_key_here':
+    raise RuntimeError('SECRET_KEY 未配置或仍为弱默认值，请在环境变量中设置强随机 SECRET_KEY 后再启动。')
+app.secret_key = _secret_key
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB（教师认证上传等）；任务内 HTML 单文件限制 4MB 在业务层校验
 # 由 Nginx 做 HTTPS 时，仍生成 https 链接（依赖 ProxyFix 传递 X-Forwarded-Proto）
 app.config['PREFERRED_URL_SCHEME'] = 'https'

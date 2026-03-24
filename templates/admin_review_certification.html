@@ -14,6 +14,18 @@
             <strong>待{{ translate('admin.audit') }}教师认证：</strong> {{ pending_cert_count }}
         </div>
 
+        {% set page_material_count = cert_requests | selectattr('status', 'equalto', 0) | selectattr('file_path') | list | length %}
+        <div class="d-flex justify-content-end mb-3">
+            <button
+                type="button"
+                id="openPageMaterialsBtn"
+                class="btn btn-sm btn-outline-primary"
+                {% if page_material_count == 0 %}disabled{% endif %}
+            >
+                一键查看本页材料（{{ page_material_count }}）
+            </button>
+        </div>
+
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0">教师认证{{ translate('admin.audit') }}</h5>
@@ -65,7 +77,11 @@
                                             <img src="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" alt="证明{{ translate('admin.materials') }}" class="rounded border" style="max-width: 48px; max-height: 48px; object-fit: cover;">
                                         </a>
                                         {% endif %}
-                                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank">查看{{ translate('admin.materials') }}</a>
+                                        <a
+                                            class="btn btn-sm btn-outline-primary {% if req.status == 0 %}cert-material-link{% endif %}"
+                                            href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}"
+                                            target="_blank"
+                                        >查看{{ translate('admin.materials') }}</a>
                                     </div>
                                     {% else %}
                                     -
@@ -140,5 +156,28 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const openPageMaterialsBtn = document.getElementById('openPageMaterialsBtn');
+    if (!openPageMaterialsBtn) {
+        return;
+    }
+
+    openPageMaterialsBtn.addEventListener('click', function () {
+        const links = Array.from(document.querySelectorAll('.cert-material-link'));
+        if (!links.length) {
+            return;
+        }
+
+        links.forEach(function (link) {
+            window.open(link.href, '_blank', 'noopener');
+        });
+    });
+});
+</script>
 {% endblock %}
 

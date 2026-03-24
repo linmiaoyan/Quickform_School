@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from collections import Counter
 from flask import current_app
+from core.secret_store import decrypt_ai_config_inplace
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ def _parse_deepseek_error(response):
 
 def call_ai_model(prompt, ai_config):
     """调用AI模型生成分析报告"""
+    decrypt_ai_config_inplace(ai_config)
     if ai_config.selected_model == 'deepseek':
         url = "https://api.deepseek.com/v1/chat/completions"
         headers = {
@@ -418,6 +420,7 @@ def analyze_html_file(task_id, user_id, file_path, SessionLocal, Task, AIConfig,
             
             # 获取用户的AI配置
             ai_config = db.query(AIConfig).filter_by(user_id=user_id).first()
+            decrypt_ai_config_inplace(ai_config)
             if not ai_config:
                 print(f"[HTML分析] ⚠ 用户 {user_id} 未配置AI，跳过HTML分析")
                 logger.warning(f"用户 {user_id} 未配置AI，跳过HTML分析")
