@@ -3603,7 +3603,7 @@ def generate_report(task_id):
 def report_status(task_id):
     """查询报告生成进度/结果（供前端轮询）"""
     try:
-        # 权限检查：管理员、任务所有者、组织成员、被共享者可以查看报告状态
+            # 权限检查：管理员、任务所有者、被共享者、组织成员可以查看报告状态
         db = SessionLocal()
         try:
             task = db.get(Task, task_id)
@@ -3613,21 +3613,17 @@ def report_status(task_id):
             has_access = False
             if current_user.is_admin() or task.user_id == current_user.id:
                 has_access = True
+            elif db.query(TaskShare).filter_by(
+                task_id=task.id,
+                user_id=current_user.id
+            ).first():
+                has_access = True
             elif task.organization_id:
-                # 检查是否是组织成员
                 is_org_member = db.query(OrganizationMember).filter_by(
                     organization_id=task.organization_id,
                     user_id=current_user.id
                 ).first() is not None
                 if is_org_member:
-                    has_access = True
-            else:
-                # 检查是否被共享
-                is_shared = db.query(TaskShare).filter_by(
-                    task_id=task.id,
-                    user_id=current_user.id
-                ).first() is not None
-                if is_shared:
                     has_access = True
             
             if not has_access:

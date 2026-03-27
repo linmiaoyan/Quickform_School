@@ -3,12 +3,45 @@ import json
 import requests
 import threading
 import logging
+import os
 from datetime import datetime
 from collections import Counter
 from flask import current_app
 from core.secret_store import decrypt_ai_config_inplace
 
 logger = logging.getLogger(__name__)
+
+
+def _get_int_env(name, default):
+    """读取整型环境变量，非法值回退默认值。"""
+    raw = (os.getenv(name) or '').strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("环境变量 %s 不是有效整数，已使用默认值 %s", name, default)
+        return default
+
+
+def _clip_prompt(prompt):
+    """
+    控制输入提示词长度，避免超大数据导致上游 400/500/超时。
+    默认上限 120000 字符，可通过 ANALYZE_PROMPT_MAX_CHARS 调整。
+    """
+    max_chars = _get_int_env('ANALYZE_PROMPT_MAX_CHARS', 120000)
+    if max_chars <= 0 or len(prompt) <= max_chars:
+        return prompt
+    omitted = len(prompt) - max_chars
+    notice = (
+        "\n\n【系统提示】由于数据量过大，已自动截断部分输入内容。"
+        f"本次省略约 {omitted} 个字符；如需更完整分析，请缩小数据范围后重试。\n"
+    )
+    clipped = prompt[:max_chars]
+    # 尽量把提示信息放在尾部，帮助模型理解是“截断后的数据”
+    if len(clipped) > len(notice):
+        clipped = clipped[:-len(notice)] + notice
+    return clipped
 
 
 def _parse_deepseek_error(response):
@@ -32,6 +65,7 @@ def _parse_deepseek_error(response):
 def call_ai_model(prompt, ai_config):
     """调用AI模型生成分析报告"""
     decrypt_ai_config_inplace(ai_config)
+    prompt = _clip_prompt(prompt)
     if ai_config.selected_model == 'deepseek':
         url = "https://api.deepseek.com/v1/chat/completions"
         headers = {
@@ -45,7 +79,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": 8192   # DeepSeek API 当前有效范围为 [1, 8192]
+            "max_tokens": min(_get_int_env('DEEPSEEK_MAX_TOKENS', 8192), 8192)   # DeepSeek 当前有效范围为 [1, 8192]
         }
         
         try:
@@ -84,7 +118,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": 16384
+            "max_tokens": _get_int_env('DOUBAO_MAX_TOKENS', 32768)
         }
         
         try:
@@ -112,7 +146,7 @@ def call_ai_model(prompt, ai_config):
             },
             "parameters": {
                 "temperature": 0.7,
-                "max_tokens": 16384
+                "max_tokens": _get_int_env('QWEN_MAX_TOKENS', 32768)
             }
         }
         
@@ -182,7 +216,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "system", "content": "你面向的用户一般是教师和学生"},
                 {"role": "user", "content": prompt}
             ],
-            'max_tokens': 16384
+            'max_tokens': _get_int_env('CHAT_SERVER_MAX_TOKENS', 32768)
         }
         try:
             resp = _requests.post(url, headers=headers, json=payload, timeout=(10, 240))

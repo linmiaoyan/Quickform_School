@@ -304,6 +304,8 @@
             if (overlay) overlay.style.display = 'block';
             if (overlayTimerId) clearInterval(overlayTimerId);
             seconds = 0;
+            var consecutiveFailures = 0;
+            var maxConsecutiveFailures = 6; // 约 12 秒连续失败后给出明确提示
             var elapsed = document.getElementById('elapsedSeconds');
             overlayTimerId = setInterval(function(){
                 seconds += 1;
@@ -311,8 +313,19 @@
             }, 1000);
             var pollId = setInterval(function(){
                 fetch("{{ url_for('quickform.report_status', task_id=task.id) }}")
-                  .then(function(r){ return r.json(); })
+                  .then(function(r){
+                      return r.text().then(function(t){
+                          var j = null;
+                          try { j = t ? JSON.parse(t) : {}; } catch(e) {}
+                          if (!r.ok) {
+                              var errMsg = (j && (j.message || j.error)) || ('HTTP ' + r.status);
+                              throw new Error(errMsg);
+                          }
+                          return j || {};
+                      });
+                  })
                   .then(function(j){
+                      consecutiveFailures = 0;
                       if (j.status === 'completed'){
                           try {
                               var markdownContainer = document.getElementById('markdown-content');
@@ -344,7 +357,15 @@
                           alert('{{ translate("smart_analyze.generate_failed") }}' + (j.message || '{{ translate("smart_analyze.unknown_error") }}'));
                       }
                   })
-                  .catch(function(){ /* 忽略一次失败，继续轮询 */ });
+                  .catch(function(err){
+                      consecutiveFailures += 1;
+                      if (consecutiveFailures >= maxConsecutiveFailures){
+                          if (overlay){ overlay.style.display = 'none'; }
+                          if (overlayTimerId){ clearInterval(overlayTimerId); overlayTimerId = null; }
+                          clearInterval(pollId);
+                          alert('{{ translate("smart_analyze.generate_failed") }}' + (err && err.message ? err.message : '{{ translate("smart_analyze.unknown_error") }}'));
+                      }
+                  });
             }, 2000);
         }
 

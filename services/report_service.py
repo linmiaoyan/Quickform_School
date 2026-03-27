@@ -23,6 +23,21 @@ completed_reports = set()
 progress_lock = threading.Lock()
 
 
+def _to_user_friendly_ai_error(err_msg):
+    """将模型/网关错误转换为可读提示，避免直接暴露 Internal Server Error。"""
+    msg = (err_msg or '').strip()
+    low = msg.lower()
+    if any(k in low for k in ['context length', 'maximum context', 'token', 'max_tokens', 'too long']):
+        return "本次分析数据量过大，超过模型可处理上限。请缩小日期范围、减少样本后重试。"
+    if any(k in low for k in ['413', 'payload too large', 'request entity too large']):
+        return "请求数据过大（413）。请缩小数据范围后重试。"
+    if any(k in low for k in ['504', 'gateway timeout', 'timed out', 'timeout']):
+        return "分析请求超时，请稍后重试；也可缩小数据范围提升成功率。"
+    if any(k in low for k in ['500', 'internal server error']):
+        return "服务暂时异常（500），请稍后重试；若数据量较大建议先缩小范围。"
+    return f"模型调用失败：{msg}" if msg else "模型调用失败，请稍后重试。"
+
+
 def timeout(seconds, error_message="函数执行超时"):
     """超时装饰器"""
     def decorator(func):
@@ -499,7 +514,7 @@ def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_p
             with progress_lock:
                 analysis_progress[task_id] = {
                     'status': 'error',
-                    'message': f"分析超时：{error_msg}，请检查网络连接或稍后重试"
+                    'message': _to_user_friendly_ai_error(error_msg)
                 }
             return
         except Exception as api_error:
@@ -508,7 +523,7 @@ def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_p
             with progress_lock:
                 analysis_progress[task_id] = {
                     'status': 'error',
-                    'message': f'API调用失败: {str(api_error)}'
+                    'message': _to_user_friendly_ai_error(str(api_error))
                 }
             return
         
