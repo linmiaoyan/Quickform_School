@@ -383,22 +383,50 @@ def generate_report_image(task, report_content):
     return buffers, filenames
 
 
+def _user_can_access_task_for_report(db, task, user_id, User, OrganizationMember, TaskShare):
+    """
+    与 smart_analyze / download_report 一致：所有者、管理员、被共享者、组织成员可生成/保存报告。
+    后台线程中不能使用 current_user，故单独校验。
+    """
+    user = db.get(User, user_id)
+    if not user:
+        return False
+    if user.is_admin() or task.user_id == user_id:
+        return True
+    if db.query(TaskShare).filter_by(task_id=task.id, user_id=user_id).first():
+        return True
+    if task.organization_id:
+        return db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id,
+            user_id=user_id
+        ).first() is not None
+    return False
+
+
 def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_prompt, 
                                          SessionLocal, Task, Submission, AIConfig,
                                          read_file_content_func, call_ai_model_func, 
-                                         save_analysis_report_func):
+                                         save_analysis_report_func,
+                                         User, OrganizationMember, TaskShare):
     """使用自定义提示词执行分析任务"""
     import traceback
     import logging
     
     db = SessionLocal()
     try:
-        task = db.query(Task).filter_by(id=task_id, user_id=user_id).first()
+        task = db.query(Task).filter_by(id=task_id).first()
         if not task:
             with progress_lock:
                 analysis_progress[task_id] = {
                     'status': 'error',
                     'message': '任务不存在'
+                }
+            return
+        if not _user_can_access_task_for_report(db, task, user_id, User, OrganizationMember, TaskShare):
+            with progress_lock:
+                analysis_progress[task_id] = {
+                    'status': 'error',
+                    'message': '无权访问此任务'
                 }
             return
         

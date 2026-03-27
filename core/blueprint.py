@@ -3168,25 +3168,21 @@ def smart_analyze(task_id):
             flash('任务不存在', 'danger')
             return redirect(url_for('quickform.dashboard'))
         
-        # 权限检查：管理员、任务所有者、组织成员、被共享者可以生成分析报告
+        # 权限检查：管理员、任务所有者、被共享者、组织成员可以生成分析报告
         has_access = False
         if current_user.is_admin() or task.user_id == current_user.id:
             has_access = True
+        elif db.query(TaskShare).filter_by(
+            task_id=task.id,
+            user_id=current_user.id
+        ).first():
+            has_access = True
         elif task.organization_id:
-            # 检查是否是组织成员
             is_org_member = db.query(OrganizationMember).filter_by(
                 organization_id=task.organization_id,
                 user_id=current_user.id
             ).first() is not None
             if is_org_member:
-                has_access = True
-        else:
-            # 检查是否被共享
-            is_shared = db.query(TaskShare).filter_by(
-                task_id=task.id,
-                user_id=current_user.id
-            ).first() is not None
-            if is_shared:
                 has_access = True
         
         if not has_access:
@@ -3291,7 +3287,8 @@ def smart_analyze(task_id):
                 t = threading.Thread(target=perform_analysis_with_custom_prompt, args=(
                     task_id, current_user.id, ai_config.id, custom_prompt,
                     SessionLocal, Task, Submission, AIConfig,
-                    read_file_content, call_ai_model, save_analysis_report
+                    read_file_content, call_ai_model, save_analysis_report,
+                    User, OrganizationMember, TaskShare
                 ), daemon=True)
                 t.start()
                 # 跳转到本页并标记运行中，前端据此开始轮询
@@ -3387,9 +3384,14 @@ def download_report(task_id):
             flash('任务不存在', 'danger')
             return redirect(url_for('quickform.dashboard'))
         
-        # 权限检查：管理员、任务所有者、组织成员、被共享者可以下载报告
+        # 权限检查：管理员、任务所有者、被共享者、组织成员可以下载报告
         has_access = False
         if current_user.is_admin() or task.user_id == current_user.id:
+            has_access = True
+        elif db.query(TaskShare).filter_by(
+            task_id=task.id,
+            user_id=current_user.id
+        ).first():
             has_access = True
         elif task.organization_id:
             is_org_member = db.query(OrganizationMember).filter_by(
@@ -3397,13 +3399,6 @@ def download_report(task_id):
                 user_id=current_user.id
             ).first() is not None
             if is_org_member:
-                has_access = True
-        else:
-            is_shared = db.query(TaskShare).filter_by(
-                task_id=task.id,
-                user_id=current_user.id
-            ).first() is not None
-            if is_shared:
                 has_access = True
         
         if not has_access:
