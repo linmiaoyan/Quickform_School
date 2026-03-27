@@ -892,10 +892,10 @@
                                     </thead>
                                     <tbody>
                                         {% for req in cert_requests %}
-                                        <tr>
+                                        <tr class="{% if req.status == 0 %}cert-review-row-selectable{% endif %}">
                                             <td>
                                                 {% if req.status == 0 %}
-                                                <input type="checkbox" class="form-check-input cert-check" form="certBatchForm" name="request_ids" value="{{ req.id }}">
+                                                <input type="checkbox" id="cert-check-{{ req.id }}" class="form-check-input cert-check" form="certBatchForm" name="request_ids" value="{{ req.id }}">
                                                 {% endif %}
                                             </td>
                                             <td>{{ req.user.username if req.user else translate('admin.unknown_user') }}</td>
@@ -1220,6 +1220,14 @@
     min-width: 240px;
 }
 
+/* 认证审核：整行可点选（待审核记录） */
+#cert-review tr.cert-review-row-selectable {
+    cursor: pointer;
+}
+#cert-review tr.cert-review-row-selectable:hover {
+    background-color: rgba(37, 99, 235, 0.06);
+}
+
 /* 移动端表格优化 */
 @media (max-width: 992px) {
     /* 统计卡片响应式 */
@@ -1400,17 +1408,39 @@
         updateButton();
     })();
 
-    // 教师认证材料：一键查看当前页全部材料
+    // 认证审核：点击行（非按钮/链接/复选框）切换勾选，扩大可操作区域
     (function () {
-        const openBtn = document.getElementById('openCertPageMaterialsBtn');
-        if (!openBtn) return;
-        openBtn.addEventListener('click', function () {
-            const links = Array.from(document.querySelectorAll('.cert-material-link'));
-            if (!links.length) return;
-            links.forEach(function (link) {
-                window.open(link.href, '_blank', 'noopener');
-            });
+        var certTbody = document.querySelector('#cert-review table tbody');
+        if (!certTbody) return;
+        certTbody.addEventListener('click', function (e) {
+            var tr = e.target.closest('tr.cert-review-row-selectable');
+            if (!tr || !certTbody.contains(tr)) return;
+            if (e.target.closest('a, button, input, label, textarea, select')) return;
+            var cb = tr.querySelector('input.cert-check[type="checkbox"]');
+            if (!cb || cb.disabled) return;
+            cb.checked = !cb.checked;
+            cb.dispatchEvent(new Event('change', { bubbles: true }));
         });
+    })();
+
+    // 教师认证材料：一键查看当前页全部材料（同 URL 只打开一次；onclick 避免重复 addEventListener）
+    (function () {
+        var openBtn = document.getElementById('openCertPageMaterialsBtn');
+        if (!openBtn) return;
+        openBtn.onclick = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var root = document.getElementById('cert-review');
+            if (!root) return;
+            var links = root.querySelectorAll('a.cert-material-link');
+            var seen = new Set();
+            links.forEach(function (link) {
+                var href = link.href || '';
+                if (!href || seen.has(href)) return;
+                seen.add(href);
+                window.open(href, '_blank', 'noopener');
+            });
+        };
     })();
 
     // 教师认证单条拒绝：点击时再输入原因

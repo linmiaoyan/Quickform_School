@@ -315,11 +315,11 @@
         
         <div class="stat-card">
             <div class="stat-icon stat-3">
-                <i class="bi bi-building"></i>
+                <i class="bi bi-person-badge"></i>
             </div>
             <div class="stat-info">
-                <h3 id="school-types">{{ total_types }}</h3>
-                <p>学校类型</p>
+                <h3 id="stat-teacher-count">{{ total_users }}</h3>
+                <p>教师数量</p>
             </div>
         </div>
         
@@ -396,23 +396,25 @@
 <!-- 中国地图 - 如果文件不存在，请下载到 static/js/china.js -->
 <script src="{{ url_for('static', filename='js/china.js') }}" onerror="console.warn('中国地图文件未找到，地图功能将不可用。请下载 china.js 到 static/js/ 目录')"></script>
 
+<script type="application/json" id="admin-stats-school-json">{{ school_data|tojson }}</script>
+<script type="application/json" id="admin-stats-unknown-json">{{ translate('admin_stats.unknown')|tojson }}</script>
 <script>
-// 学校数据（从后端传递）
-const schoolData = {{ school_data|tojson }};
+// 学校数据与「未知」文案由上方 JSON 注入，避免 Jinja 与 JS 引号冲突导致语法检查误报
+const schoolData = JSON.parse(document.getElementById('admin-stats-school-json').textContent);
+const STATS_UNKNOWN = JSON.parse(document.getElementById('admin-stats-unknown-json').textContent);
 
 // 初始化统计信息
 document.getElementById('total-schools').textContent = schoolData.length;
 
-// 计算省份数量（过滤掉{{ translate('admin_stats.unknown') }}等）
-const provinces = [...new Set(schoolData.map(item => item.province).filter(p => p && p !== '{{ translate('admin_stats.unknown') }}'))];
+// 计算省份数量（过滤掉「未知」等）
+const provinces = [...new Set(schoolData.map(item => item.province).filter(p => p && p !== STATS_UNKNOWN))];
 document.getElementById('total-provinces').textContent = provinces.length;
 
-// 计算学校类型数量
+// 学校类型列表（用于筛选与饼图，不再用于顶部第三张卡片）
 const schoolTypes = [...new Set(schoolData.map(item => item.type || '其他'))];
-document.getElementById('school-types').textContent = schoolTypes.length;
 
-// 计算城市数量（过滤掉{{ translate('admin_stats.unknown') }}等）
-const cities = [...new Set(schoolData.map(item => item.city).filter(c => c && c !== '{{ translate('admin_stats.unknown') }}'))];
+// 计算城市数量（过滤掉「未知」等）
+const cities = [...new Set(schoolData.map(item => item.city).filter(c => c && c !== STATS_UNKNOWN))];
 document.getElementById('total-cities').textContent = cities.length;
 
 // 填充筛选器选项
@@ -421,7 +423,7 @@ const typeFilter = document.getElementById('type-filter');
 const cityFilter = document.getElementById('city-filter');
 
 provinces.sort().forEach(province => {
-    if (province && province !== '{{ translate('admin_stats.unknown') }}') {
+    if (province && province !== STATS_UNKNOWN) {
         const option = document.createElement('option');
         option.value = province;
         option.textContent = province;
@@ -439,7 +441,7 @@ schoolTypes.sort().forEach(type => {
 });
 
 cities.sort().forEach(city => {
-    if (city && city !== '{{ translate('admin_stats.unknown') }}') {
+    if (city && city !== STATS_UNKNOWN) {
         const option = document.createElement('option');
         option.value = city;
         option.textContent = city;
@@ -474,19 +476,19 @@ function renderTable() {
             const row = document.createElement('tr');
             
             const nameCell = document.createElement('td');
-            nameCell.textContent = school.name || '{{ translate('admin_stats.unknown') }}';
+            nameCell.textContent = school.name || STATS_UNKNOWN;
             row.appendChild(nameCell);
             
             const provinceCell = document.createElement('td');
-            provinceCell.textContent = school.province || '{{ translate('admin_stats.unknown') }}';
+            provinceCell.textContent = school.province || STATS_UNKNOWN;
             row.appendChild(provinceCell);
             
             const cityCell = document.createElement('td');
-            cityCell.textContent = school.city || '{{ translate('admin_stats.unknown') }}';
+            cityCell.textContent = school.city || STATS_UNKNOWN;
             row.appendChild(cityCell);
             
             const districtCell = document.createElement('td');
-            districtCell.textContent = school.district || '{{ translate('admin_stats.unknown') }}';
+            districtCell.textContent = school.district || STATS_UNKNOWN;
             row.appendChild(districtCell);
             
             const typeCell = document.createElement('td');
@@ -615,7 +617,7 @@ function initCharts() {
     const provinceSchoolCount = {};
     schoolData.forEach(school => {
         if (school.province && 
-            school.province !== "{{ translate('admin_stats.unknown') }}" && 
+            school.province !== STATS_UNKNOWN && 
             school.province !== "海外" && 
             school.province !== "其他") {
             let province = school.province;

@@ -2692,6 +2692,68 @@ def list_tasks():
     finally:
         db.close()
 
+
+@quickform_bp.route('/api/stats/overview', methods=['GET', 'OPTIONS'])
+def public_stats_overview():
+    """运营概览统计（JSON）：用户数、学校数（去重）、任务数、提交数。
+
+    安全说明：仅靠「路径不常见」不能防扫描；若需限制访问，请在环境变量中设置 STATS_API_TOKEN，
+    请求时携带：查询参数 ?token=...、或请求头 X-Stats-Token、或 Authorization: Bearer ...。
+    """
+    token = (os.getenv('STATS_API_TOKEN') or '').strip()
+    if token:
+        q = (request.args.get('token') or '').strip()
+        hdr = (request.headers.get('X-Stats-Token') or '').strip()
+        auth = (request.headers.get('Authorization') or '').strip()
+        bearer = ''
+        if auth.lower().startswith('bearer '):
+            bearer = auth[7:].strip()
+        if q != token and hdr != token and bearer != token:
+            resp = jsonify({'error': 'unauthorized', 'message': 'Invalid or missing token'})
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Stats-Token'
+            return resp, 401
+
+    db = SessionLocal()
+    try:
+        total_users = db.query(User).count()
+        total_tasks = db.query(Task).count()
+        total_submissions = db.query(Submission).count()
+        # 学校数：与后台统计口径接近（非空、长度>=2、排除常见占位），在库内去重
+        school_count = (
+            db.query(func.count(func.distinct(User.school)))
+            .filter(
+                User.school.isnot(None),
+                User.school != '',
+                func.length(func.trim(User.school)) >= 2,
+                User.school.notin_(['xx', '1', 'wkg']),
+            )
+            .scalar()
+        ) or 0
+
+        _record_api_get('api_stats_overview')
+        response = jsonify({
+            'users': total_users,
+            'schools': int(school_count),
+            'tasks': total_tasks,
+            'submissions': total_submissions,
+        })
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Stats-Token'
+        return response, 200
+    except Exception as e:
+        logger.exception('public_stats_overview failed: %s', e)
+        response = jsonify({'error': 'internal_error', 'message': 'Internal server error.'})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Stats-Token'
+        return response, 500
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/export/<int:task_id>')
 @login_required
 def export_data(task_id):
@@ -3795,8 +3857,9 @@ def admin_panel():
                 'api_task_get': 'GET /api/<task_id>（最新3条）',
                 'api_task_all': 'GET /api/<task_id>/all（全部数据，数据大屏）',
                 'api_tasks': 'GET /api/tasks（任务列表）',
+                'api_stats_overview': 'GET /api/stats/overview（运营统计）',
             }
-            for key in ['api_task_get', 'api_task_all', 'api_tasks']:
+            for key in ['api_task_get', 'api_task_all', 'api_tasks', 'api_stats_overview']:
                 api_traffic.append({
                     'category': labels.get(key, key),
                     'count': copy_counts.get(key, 0),
@@ -4643,8 +4706,6 @@ def admin_users_statistics():
         total_provinces = len(provinces)
         cities = set([s['city'] for s in school_data if s['city'] != '未知'])
         total_cities = len(cities)
-        types = set([s['type'] for s in school_data])
-        total_types = len(types)
         
         return render_template(
             'admin_user_statistics.html',
@@ -4655,7 +4716,6 @@ def admin_users_statistics():
             total_schools=total_schools,
             total_provinces=total_provinces,
             total_cities=total_cities,
-            total_types=total_types,
             update_date=datetime.now().strftime('%Y年%m月%d日')
         )
     except Exception as e:
