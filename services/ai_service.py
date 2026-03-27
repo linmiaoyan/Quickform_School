@@ -11,25 +11,34 @@ from core.secret_store import decrypt_ai_config_inplace
 
 logger = logging.getLogger(__name__)
 
-
-def _get_int_env(name, default):
-    """读取整型环境变量，非法值回退默认值。"""
-    raw = (os.getenv(name) or '').strip()
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("环境变量 %s 不是有效整数，已使用默认值 %s", name, default)
-        return default
+# 分析参数默认固定在代码中（不依赖 .env）
+PROMPT_MAX_CHARS = 120000
+DEEPSEEK_MAX_TOKENS = 8192
+DOUBAO_MAX_TOKENS = 32768
+QWEN_MAX_TOKENS = 32768
+CHAT_SERVER_MAX_TOKENS = 32768
+COMPACT_MODE_ENABLED = True
+COMPACT_FIELD_MAX_LEN = 180
+REPEAT_FILTER_ENABLED = True
+REPEAT_MIN_SAMPLES = 20
+REPEAT_MAX_UNIQUE_RATIO = 0.05
+REPEAT_SHOW_TOPN = 8
+NOISE_KEYS = {
+    'timestamp', 'time', 'local_time', 'created_at', 'updated_at', 'submit_time',
+    'request_id', 'trace_id', 'session_id', 'device_id', 'ip', 'user_agent'
+}
+KEEP_KEYS = {
+    'title', 'teacher', 'comment', 'review', 'ratings', 'score', 'grade',
+    'lesson_index', 'class', 'subject', 'name'
+}
 
 
 def _clip_prompt(prompt):
     """
     控制输入提示词长度，避免超大数据导致上游 400/500/超时。
-    默认上限 120000 字符，可通过 ANALYZE_PROMPT_MAX_CHARS 调整。
+    默认上限 120000 字符。
     """
-    max_chars = _get_int_env('ANALYZE_PROMPT_MAX_CHARS', 120000)
+    max_chars = PROMPT_MAX_CHARS
     if max_chars <= 0 or len(prompt) <= max_chars:
         return prompt
     omitted = len(prompt) - max_chars
@@ -77,19 +86,7 @@ def _get_compact_filter_sets():
     - NOISE: 默认弱化的字段（时间戳/追踪ID等）
     - KEEP: 默认强保留字段（评价/分数/学科等）
     """
-    default_noise = [
-        'timestamp', 'time', 'local_time', 'created_at', 'updated_at', 'submit_time',
-        'request_id', 'trace_id', 'session_id', 'device_id', 'ip', 'user_agent'
-    ]
-    default_keep = [
-        'title', 'teacher', 'comment', 'review', 'ratings', 'score', 'grade',
-        'lesson_index', 'class', 'subject', 'name'
-    ]
-    noise_raw = (os.getenv('ANALYZE_NOISE_KEYS') or ','.join(default_noise)).strip()
-    keep_raw = (os.getenv('ANALYZE_KEEP_KEYS') or ','.join(default_keep)).strip()
-    noise_set = {k.strip().lower() for k in noise_raw.split(',') if k.strip()}
-    keep_set = {k.strip().lower() for k in keep_raw.split(',') if k.strip()}
-    return noise_set, keep_set
+    return NOISE_KEYS, KEEP_KEYS
 
 
 def _should_skip_field(field_name, compact_mode, noise_set, keep_set):
@@ -113,19 +110,10 @@ def _build_high_repeat_field_set(all_data, compact_mode, keep_set):
     """
     if not compact_mode:
         return set()
-    enabled = (os.getenv('ANALYZE_AUTO_REPEAT_FILTER', '1').strip().lower() not in ['0', 'false', 'no'])
-    if not enabled:
+    if not REPEAT_FILTER_ENABLED:
         return set()
-    min_samples_raw = (os.getenv('ANALYZE_REPEAT_MIN_SAMPLES', '20') or '20').strip()
-    max_unique_ratio_raw = (os.getenv('ANALYZE_REPEAT_MAX_UNIQUE_RATIO', '0.05') or '0.05').strip()
-    try:
-        min_samples = int(min_samples_raw)
-    except ValueError:
-        min_samples = 20
-    try:
-        max_unique_ratio = float(max_unique_ratio_raw)
-    except ValueError:
-        max_unique_ratio = 0.05
+    min_samples = REPEAT_MIN_SAMPLES
+    max_unique_ratio = REPEAT_MAX_UNIQUE_RATIO
 
     field_values = {}
     for row in all_data:
@@ -184,7 +172,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": min(_get_int_env('DEEPSEEK_MAX_TOKENS', 8192), 8192)   # DeepSeek 当前有效范围为 [1, 8192]
+            "max_tokens": min(DEEPSEEK_MAX_TOKENS, 8192)   # DeepSeek 当前有效范围为 [1, 8192]
         }
         
         try:
@@ -223,7 +211,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": _get_int_env('DOUBAO_MAX_TOKENS', 32768)
+            "max_tokens": DOUBAO_MAX_TOKENS
         }
         
         try:
@@ -251,7 +239,7 @@ def call_ai_model(prompt, ai_config):
             },
             "parameters": {
                 "temperature": 0.7,
-                "max_tokens": _get_int_env('QWEN_MAX_TOKENS', 32768)
+                "max_tokens": QWEN_MAX_TOKENS
             }
         }
         
@@ -321,7 +309,7 @@ def call_ai_model(prompt, ai_config):
                 {"role": "system", "content": "你面向的用户一般是教师和学生"},
                 {"role": "user", "content": prompt}
             ],
-            'max_tokens': _get_int_env('CHAT_SERVER_MAX_TOKENS', 32768)
+            'max_tokens': CHAT_SERVER_MAX_TOKENS
         }
         try:
             resp = _requests.post(url, headers=headers, json=payload, timeout=(10, 240))
@@ -453,20 +441,12 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                 data_section += "\n"
         
         # 默认开启紧凑化，减少冗余 token（可通过环境变量关闭）
-        compact_mode = (os.getenv('ANALYZE_COMPACT_MODE', '1').strip().lower() not in ['0', 'false', 'no'])
+        compact_mode = COMPACT_MODE_ENABLED
         noise_set, keep_set = _get_compact_filter_sets()
-        max_field_len_raw = (os.getenv('ANALYZE_FIELD_MAX_LEN', '180') or '180').strip()
-        try:
-            max_field_len = int(max_field_len_raw)
-        except ValueError:
-            max_field_len = 180
+        max_field_len = COMPACT_FIELD_MAX_LEN
         high_repeat_fields = _build_high_repeat_field_set(all_data, compact_mode, keep_set)
         if high_repeat_fields:
-            show_n_raw = (os.getenv('ANALYZE_REPEAT_SHOW_TOPN', '8') or '8').strip()
-            try:
-                show_n = max(1, int(show_n_raw))
-            except ValueError:
-                show_n = 8
+            show_n = max(1, REPEAT_SHOW_TOPN)
             preview = sorted(list(high_repeat_fields))[:show_n]
             data_section += "自动降噪字段（高重复低信息）：" + ", ".join(preview)
             if len(high_repeat_fields) > show_n:

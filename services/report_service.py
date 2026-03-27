@@ -22,6 +22,13 @@ analysis_results = {}
 completed_reports = set()
 progress_lock = threading.Lock()
 
+# 分批分析默认固定参数（不依赖 .env）
+MULTI_BATCH_ENABLED = True
+MULTI_BATCH_TRIGGER_CHARS = 28000
+MULTI_BATCH_CHUNK_SIZE = 18000
+MULTI_BATCH_OVERLAP = 300
+MULTI_BATCH_MAX_BATCHES = 8
+
 
 def _to_user_friendly_ai_error(err_msg):
     """将模型/网关错误转换为可读提示，避免直接暴露 Internal Server Error。"""
@@ -418,6 +425,41 @@ def _user_can_access_task_for_report(db, task, user_id, User, OrganizationMember
     return False
 
 
+def _chunk_text_by_size(text, chunk_size, overlap=0):
+    """按字符数切分文本，尽量在换行边界截断。"""
+    if not text:
+        return []
+    chunks = []
+    n = len(text)
+    start = 0
+    while start < n:
+        end = min(start + chunk_size, n)
+        if end < n:
+            cut = text.rfind('\n', start, end)
+            if cut > start + int(chunk_size * 0.5):
+                end = cut
+        piece = text[start:end].strip()
+        if piece:
+            chunks.append(piece)
+        if end >= n:
+            break
+        start = end - max(0, overlap)
+        if start < 0:
+            start = 0
+    return chunks
+
+
+def _rebalance_chunks(chunks, max_batches):
+    """当分片过多时合并相邻分片，控制批次数。"""
+    if not chunks or len(chunks) <= max_batches:
+        return chunks
+    merged = []
+    group_size = (len(chunks) + max_batches - 1) // max_batches
+    for i in range(0, len(chunks), group_size):
+        merged.append("\n\n".join(chunks[i:i + group_size]))
+    return merged
+
+
 def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_prompt, 
                                          SessionLocal, Task, Submission, AIConfig,
                                          read_file_content_func, call_ai_model_func, 
@@ -487,7 +529,7 @@ def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_p
                 'message': '正在生成提示词...'
             }
         
-        prompt = custom_prompt
+        prompt = custom_prompt or ""
         
         with progress_lock:
             analysis_progress[task_id] = {
@@ -506,7 +548,58 @@ def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_p
             return call_ai_model_func(prompt, config)
         
         try:
-            analysis_report = call_ai_with_timeout(prompt, ai_config)
+            chunk_enabled = MULTI_BATCH_ENABLED
+            chunk_trigger_chars = MULTI_BATCH_TRIGGER_CHARS
+            chunk_size = MULTI_BATCH_CHUNK_SIZE
+            chunk_overlap = MULTI_BATCH_OVERLAP
+            max_batches = MULTI_BATCH_MAX_BATCHES
+
+            should_batch = chunk_enabled and len(prompt) >= chunk_trigger_chars
+            if should_batch:
+                raw_chunks = _chunk_text_by_size(prompt, chunk_size=max(2000, chunk_size), overlap=max(0, chunk_overlap))
+                chunks = _rebalance_chunks(raw_chunks, max_batches=max(2, max_batches))
+                total_batches = len(chunks)
+                logging.info(f"任务 {task_id}：启用多批分析，原始分片 {len(raw_chunks)}，实际批次 {total_batches}")
+
+                batch_summaries = []
+                for idx, part in enumerate(chunks, 1):
+                    with progress_lock:
+                        analysis_progress[task_id] = {
+                            'status': 'in_progress',
+                            'progress': min(95, int((idx - 1) * 100 / max(total_batches + 1, 1))),
+                            'message': f'分批分析中（第 {idx}/{total_batches} 批）...',
+                            'batch_index': idx,
+                            'batch_total': total_batches
+                        }
+                    batch_prompt = (
+                        "你将收到一段较长数据分析任务的分片内容，请只输出本分片的关键结论（Markdown）。"
+                        "要求：\n"
+                        "1) 输出本分片中的数据特征、异常、趋势、建议；\n"
+                        "2) 不要编造本分片中不存在的信息；\n"
+                        "3) 简洁但保留关键数字与证据。\n\n"
+                        f"【分片 {idx}/{total_batches} 开始】\n{part}\n【分片结束】"
+                    )
+                    batch_result = call_ai_with_timeout(batch_prompt, ai_config)
+                    batch_summaries.append(f"## 分片{idx}结论\n{(batch_result or '').strip()}")
+
+                with progress_lock:
+                    analysis_progress[task_id] = {
+                        'status': 'in_progress',
+                        'progress': 96,
+                        'message': '正在汇总分批结果...'
+                    }
+                merge_prompt = (
+                    "请将以下多个分片结论整合为一份完整中文分析报告（Markdown）。\n"
+                    "要求：\n"
+                    "1) 合并重复观点，保留关键数据依据；\n"
+                    "2) 给出整体结论和可执行建议；\n"
+                    "3) 若分片之间有冲突，请明确说明。\n\n"
+                    + "\n\n".join(batch_summaries)
+                )
+                analysis_report = call_ai_with_timeout(merge_prompt, ai_config)
+            else:
+                analysis_report = call_ai_with_timeout(prompt, ai_config)
+
             logging.info(f"成功获取 {ai_config.selected_model} API 响应，报告长度: {len(analysis_report)} 字符")
         except TimeoutError as timeout_error:
             error_msg = str(timeout_error)

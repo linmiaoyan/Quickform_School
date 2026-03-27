@@ -3282,11 +3282,7 @@ def smart_analyze(task_id):
             # MySQL TEXT 列约 64KB，超长提示词会触发 1406 Data too long。
             prompt_trimmed = False
             custom_prompt_to_save = custom_prompt or ''
-            max_prompt_raw = (os.getenv('TASK_CUSTOM_PROMPT_MAX_BYTES') or '60000').strip() or '60000'
-            try:
-                max_prompt_bytes = int(max_prompt_raw)
-            except ValueError:
-                max_prompt_bytes = 60000
+            max_prompt_bytes = 60000
             prompt_bytes = custom_prompt_to_save.encode('utf-8', errors='ignore')
             if len(prompt_bytes) > max_prompt_bytes:
                 custom_prompt_to_save = prompt_bytes[:max_prompt_bytes].decode('utf-8', errors='ignore')
