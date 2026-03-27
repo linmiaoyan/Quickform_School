@@ -44,6 +44,111 @@ def _clip_prompt(prompt):
     return clipped
 
 
+def _normalize_spaces(text):
+    """压缩多余空白，降低 token 占用。"""
+    if text is None:
+        return ''
+    s = str(text).replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
+    return ' '.join(s.split())
+
+
+def _compact_field_value(value, max_text_len=180):
+    """
+    字段值紧凑化：
+    - dict/list: 紧凑 JSON（去空格）
+    - str: 压缩空白并截断
+    - 其他: 转字符串并压缩空白
+    """
+    if isinstance(value, (dict, list)):
+        try:
+            txt = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+        except Exception:
+            txt = _normalize_spaces(str(value))
+    else:
+        txt = _normalize_spaces(str(value))
+    if len(txt) > max_text_len:
+        return txt[:max_text_len] + f"...(截断{len(txt)-max_text_len}字)"
+    return txt
+
+
+def _get_compact_filter_sets():
+    """
+    返回噪声字段集合与强保留字段集合。
+    - NOISE: 默认弱化的字段（时间戳/追踪ID等）
+    - KEEP: 默认强保留字段（评价/分数/学科等）
+    """
+    default_noise = [
+        'timestamp', 'time', 'local_time', 'created_at', 'updated_at', 'submit_time',
+        'request_id', 'trace_id', 'session_id', 'device_id', 'ip', 'user_agent'
+    ]
+    default_keep = [
+        'title', 'teacher', 'comment', 'review', 'ratings', 'score', 'grade',
+        'lesson_index', 'class', 'subject', 'name'
+    ]
+    noise_raw = (os.getenv('ANALYZE_NOISE_KEYS') or ','.join(default_noise)).strip()
+    keep_raw = (os.getenv('ANALYZE_KEEP_KEYS') or ','.join(default_keep)).strip()
+    noise_set = {k.strip().lower() for k in noise_raw.split(',') if k.strip()}
+    keep_set = {k.strip().lower() for k in keep_raw.split(',') if k.strip()}
+    return noise_set, keep_set
+
+
+def _should_skip_field(field_name, compact_mode, noise_set, keep_set):
+    """紧凑模式下，按字段名判断是否可跳过。"""
+    if not compact_mode:
+        return False
+    key = (field_name or '').strip().lower()
+    if not key:
+        return False
+    if key in keep_set:
+        return False
+    return key in noise_set
+
+
+def _build_high_repeat_field_set(all_data, compact_mode, keep_set):
+    """
+    识别高重复低信息字段（默认开启）：
+    - 在样本中出现次数 >= 20
+    - 去重率 <= 5%
+    - 且不在 keep_set
+    """
+    if not compact_mode:
+        return set()
+    enabled = (os.getenv('ANALYZE_AUTO_REPEAT_FILTER', '1').strip().lower() not in ['0', 'false', 'no'])
+    if not enabled:
+        return set()
+    min_samples_raw = (os.getenv('ANALYZE_REPEAT_MIN_SAMPLES', '20') or '20').strip()
+    max_unique_ratio_raw = (os.getenv('ANALYZE_REPEAT_MAX_UNIQUE_RATIO', '0.05') or '0.05').strip()
+    try:
+        min_samples = int(min_samples_raw)
+    except ValueError:
+        min_samples = 20
+    try:
+        max_unique_ratio = float(max_unique_ratio_raw)
+    except ValueError:
+        max_unique_ratio = 0.05
+
+    field_values = {}
+    for row in all_data:
+        if not isinstance(row, dict):
+            continue
+        for k, v in row.items():
+            key = (k or '').strip().lower()
+            if not key or key in keep_set:
+                continue
+            field_values.setdefault(key, []).append(_compact_field_value(v, max_text_len=80))
+
+    repeated = set()
+    for key, vals in field_values.items():
+        n = len(vals)
+        if n < min_samples:
+            continue
+        uniq = len(set(vals))
+        ratio = uniq / max(n, 1)
+        if ratio <= max_unique_ratio:
+            repeated.add(key)
+    return repeated
+
+
 def _parse_deepseek_error(response):
     """从 DeepSeek API 错误响应中提取可读信息，便于排查 400 等错误"""
     try:
@@ -347,6 +452,26 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                 
                 data_section += "\n"
         
+        # 默认开启紧凑化，减少冗余 token（可通过环境变量关闭）
+        compact_mode = (os.getenv('ANALYZE_COMPACT_MODE', '1').strip().lower() not in ['0', 'false', 'no'])
+        noise_set, keep_set = _get_compact_filter_sets()
+        max_field_len_raw = (os.getenv('ANALYZE_FIELD_MAX_LEN', '180') or '180').strip()
+        try:
+            max_field_len = int(max_field_len_raw)
+        except ValueError:
+            max_field_len = 180
+        high_repeat_fields = _build_high_repeat_field_set(all_data, compact_mode, keep_set)
+        if high_repeat_fields:
+            show_n_raw = (os.getenv('ANALYZE_REPEAT_SHOW_TOPN', '8') or '8').strip()
+            try:
+                show_n = max(1, int(show_n_raw))
+            except ValueError:
+                show_n = 8
+            preview = sorted(list(high_repeat_fields))[:show_n]
+            data_section += "自动降噪字段（高重复低信息）：" + ", ".join(preview)
+            if len(high_repeat_fields) > show_n:
+                data_section += f" 等 {len(high_repeat_fields)} 项"
+            data_section += "\n\n"
         # 智能采样：默认至少显示 100 条，超过 100 条后开始均匀抽样（仍显示约 100 条）
         SAMPLE_DISPLAY_MIN = 100  # 不超过此数量时全部显示；超过则抽样显示约 100 条
         if total_count <= 3:
@@ -354,15 +479,25 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
             data_section += "完整数据：\n"
             for i, data in enumerate(all_data, 1):
                 data_section += f"\n提交 #{i}:\n"
+                skipped_cnt = 0
                 for key, value in data.items():
-                    if isinstance(value, (dict, list)):
-                        try:
-                            value_str = json.dumps(value, ensure_ascii=False)
-                        except Exception:
-                            value_str = str(value)
+                    key_norm = (key or '').strip().lower()
+                    if _should_skip_field(key, compact_mode, noise_set, keep_set) or key_norm in high_repeat_fields:
+                        skipped_cnt += 1
+                        continue
+                    if compact_mode:
+                        value_str = _compact_field_value(value, max_field_len)
                     else:
-                        value_str = str(value)
+                        if isinstance(value, (dict, list)):
+                            try:
+                                value_str = json.dumps(value, ensure_ascii=False)
+                            except Exception:
+                                value_str = str(value)
+                        else:
+                            value_str = str(value)
                     data_section += f"  - {key}: {value_str}\n"
+                if skipped_cnt > 0:
+                    data_section += f"  - （已省略噪声字段 {skipped_cnt} 项）\n"
         else:
             if total_count <= SAMPLE_DISPLAY_MIN:
                 sample_indices = list(range(total_count))
@@ -385,18 +520,31 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                 try:
                     data = all_data[i]
                     data_section += f"\n样例 #{idx} (第 {i+1} 条记录):\n"
+                    skipped_cnt = 0
                     for key, value in data.items():
-                        if isinstance(value, (dict, list)):
-                            try:
-                                value_str = json.dumps(value, ensure_ascii=False)
-                            except Exception:
-                                value_str = str(value)
+                        key_norm = (key or '').strip().lower()
+                        if _should_skip_field(key, compact_mode, noise_set, keep_set) or key_norm in high_repeat_fields:
+                            skipped_cnt += 1
+                            continue
+                        if compact_mode:
+                            value_str = _compact_field_value(value, max_field_len)
                         else:
-                            value_str = str(value)
+                            if isinstance(value, (dict, list)):
+                                try:
+                                    value_str = json.dumps(value, ensure_ascii=False)
+                                except Exception:
+                                    value_str = str(value)
+                            else:
+                                value_str = str(value)
                         data_section += f"  - {key}: {value_str}\n"
+                    if skipped_cnt > 0:
+                        data_section += f"  - （已省略噪声字段 {skipped_cnt} 项）\n"
                 except:
                     if i < len(submission):
-                        data_section += f"\n样例 #{idx}: {submission[i].data}\n"
+                        fallback = submission[i].data
+                        if compact_mode:
+                            fallback = _compact_field_value(fallback, max_field_len * 2)
+                        data_section += f"\n样例 #{idx}: {fallback}\n"
     else:
         data_section += "暂无提交数据\n"
     

@@ -3279,8 +3279,29 @@ def smart_analyze(task_id):
                     logger.warning(f"润色提示词失败，将使用原提示词: {e}")
             
             # 保存完整提示词（用于兼容旧代码）
-            task.custom_prompt = custom_prompt
-            db.commit()
+            # MySQL TEXT 列约 64KB，超长提示词会触发 1406 Data too long。
+            prompt_trimmed = False
+            custom_prompt_to_save = custom_prompt or ''
+            max_prompt_raw = (os.getenv('TASK_CUSTOM_PROMPT_MAX_BYTES') or '60000').strip() or '60000'
+            try:
+                max_prompt_bytes = int(max_prompt_raw)
+            except ValueError:
+                max_prompt_bytes = 60000
+            prompt_bytes = custom_prompt_to_save.encode('utf-8', errors='ignore')
+            if len(prompt_bytes) > max_prompt_bytes:
+                custom_prompt_to_save = prompt_bytes[:max_prompt_bytes].decode('utf-8', errors='ignore')
+                prompt_trimmed = True
+            task.custom_prompt = custom_prompt_to_save
+            try:
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"保存 custom_prompt 失败，改为不落库继续生成: {e}")
+                task.custom_prompt = None
+                db.commit()
+                prompt_trimmed = True
+            if prompt_trimmed:
+                flash('数据量较大：提示词已自动裁剪后保存，不影响本次报告生成。', 'warning')
             
             try:
                 # 后台线程执行，避免阻塞主请求线程
