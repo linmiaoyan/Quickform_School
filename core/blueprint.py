@@ -1193,55 +1193,13 @@ def create_task():
         if request.method == 'POST':
             title = request.form.get('title')
             description = request.form.get('description')
-            organization_id = request.form.get('organization_id')
             
             task = Task(title=title, description=description, user_id=current_user.id)
-            task.share_url = (request.form.get('share_url') or '').strip() or None
-            task.tutorial_link = (request.form.get('tutorial_link') or '').strip() or None
-            
-            # 设置组织和共享类型（支持：私有、组织、公开；公开仅认证教师或管理员可用）
-            share_scope = request.form.get('share_scope', 'private')
-            if share_scope == 'public':
-                if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                    task.sharing_type = 'public'
-                    task.organization_id = None
-                else:
-                    flash('只有通过教师认证的用户才能公开项目到共享区', 'warning')
-                    task.sharing_type = 'private'
-                    task.organization_id = None
-            elif share_scope == 'organization' and organization_id and organization_id.strip() and organization_id != 'none':
-                try:
-                    org_id = int(organization_id)
-                    is_member = db.query(OrganizationMember).filter_by(
-                        organization_id=org_id,
-                        user_id=current_user.id
-                    ).first() is not None
-                    org = db.get(Organization, org_id)
-                    if org and (is_member or org.creator_id == current_user.id):
-                        task.organization_id = org_id
-                        task.sharing_type = 'organization'
-                    else:
-                        task.sharing_type = 'private'
-                except (ValueError, TypeError):
-                    task.sharing_type = 'private'
-            else:
-                if organization_id and organization_id.strip() and organization_id != 'none':
-                    try:
-                        org_id = int(organization_id)
-                        is_member = db.query(OrganizationMember).filter_by(
-                            organization_id=org_id,
-                            user_id=current_user.id
-                        ).first() is not None
-                        org = db.get(Organization, org_id)
-                        if org and (is_member or org.creator_id == current_user.id):
-                            task.organization_id = org_id
-                            task.sharing_type = 'organization'
-                        else:
-                            task.sharing_type = 'private'
-                    except (ValueError, TypeError):
-                        task.sharing_type = 'private'
-                else:
-                    task.sharing_type = 'private'
+            # 外链、教程与分享范围在「编辑任务」中设置，创建时固定为私有且无外链
+            task.share_url = None
+            task.tutorial_link = None
+            task.sharing_type = 'private'
+            task.organization_id = None
             
             # 优先检查Base64上传（用于公网环境）
             file_content_base64 = request.form.get('file_content_base64')
@@ -1342,16 +1300,10 @@ def create_task():
             task_limit = getattr(current_user, 'task_limit', None)
             is_certified = bool(getattr(current_user, 'is_certified', False))
         
-        # 获取用户的组织列表
-        user_orgs_created = db.query(Organization).filter_by(creator_id=current_user.id).all()
-        user_orgs_joined = db.query(OrganizationMember).filter_by(user_id=current_user.id).all()
-        user_organizations = user_orgs_created + [m.organization for m in user_orgs_joined if m.organization.id not in [o.id for o in user_orgs_created]]
-
         return render_template('create_task.html', 
                              task_limit=task_limit, 
                              is_certified=is_certified, 
-                             task_count=task_count,
-                             user_organizations=user_organizations)
+                             task_count=task_count)
     finally:
         db.close()
 
@@ -1948,16 +1900,39 @@ def edit_task(task_id):
                 task.html_files = None
                 task.html_review_note = None
             
-            # 可见性/分享类型：公开 或 私有(含组织)；公开仅认证教师或管理员可用
-            visibility = request.form.get('visibility')
-            if visibility == 'public':
-                if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                    task.sharing_type = 'public'
+            # 分享范围：仅任务所有者或管理员可在编辑页修改（与创建页拆分的字段一致）
+            if current_user.is_admin() or task.user_id == current_user.id:
+                share_scope = (request.form.get('share_scope') or 'private').strip()
+                organization_id = request.form.get('organization_id')
+                if share_scope == 'public':
+                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                        task.sharing_type = 'public'
+                        task.organization_id = None
+                        task.public_approved = 0
+                    else:
+                        flash('只有通过教师认证的用户才能公开项目到共享区', 'warning')
+                        task.sharing_type = 'organization' if task.organization_id else 'private'
+                        task.public_approved = 0
+                elif share_scope == 'organization' and organization_id and str(organization_id).strip() and str(organization_id).strip() != 'none':
+                    try:
+                        org_id = int(organization_id)
+                        is_member = db.query(OrganizationMember).filter_by(
+                            organization_id=org_id,
+                            user_id=current_user.id
+                        ).first() is not None
+                        org = db.get(Organization, org_id)
+                        if org and (is_member or org.creator_id == current_user.id):
+                            task.organization_id = org_id
+                            task.sharing_type = 'organization'
+                            task.public_approved = 0
+                        else:
+                            flash('无权将该任务关联到所选组织', 'warning')
+                    except (ValueError, TypeError):
+                        pass
                 else:
-                    flash('只有通过教师认证的用户才能公开项目到共享区', 'warning')
-                    task.sharing_type = 'organization' if task.organization_id else 'private'
-            elif visibility == 'private':
-                task.sharing_type = 'organization' if task.organization_id else 'private'
+                    task.organization_id = None
+                    task.sharing_type = 'private'
+                    task.public_approved = 0
             
             # 一键生成任务：每保存一次 HTML 扣减一次剩余修改次数
             if html_was_saved and getattr(task, 'ai_generated', False) and getattr(task, 'html_ai_edit_remaining', None) is not None:
@@ -1994,8 +1969,19 @@ def edit_task(task_id):
         
         task_ai_generated = getattr(task, 'ai_generated', False)
         task_html_ai_edit_remaining = getattr(task, 'html_ai_edit_remaining', None)
+        user_organizations = []
+        if current_user.is_admin() or task.user_id == current_user.id:
+            user_orgs_created = db.query(Organization).filter_by(creator_id=current_user.id).all()
+            user_orgs_joined = db.query(OrganizationMember).filter_by(user_id=current_user.id).all()
+            seen = {o.id for o in user_orgs_created}
+            user_organizations = list(user_orgs_created)
+            for m in user_orgs_joined:
+                if m.organization and m.organization.id not in seen:
+                    seen.add(m.organization.id)
+                    user_organizations.append(m.organization)
         return render_template('edit_task.html', task=task, saved_filename=saved_filename, html_files=html_files,
-                               task_ai_generated=task_ai_generated, task_html_ai_edit_remaining=task_html_ai_edit_remaining)
+                               task_ai_generated=task_ai_generated, task_html_ai_edit_remaining=task_html_ai_edit_remaining,
+                               user_organizations=user_organizations)
     finally:
         db.close()
 

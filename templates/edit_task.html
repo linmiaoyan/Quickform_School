@@ -37,6 +37,60 @@
                         <label for="description" class="form-label">任务描述</label>
                         <textarea class="form-control" id="description" name="description" rows="4" placeholder="{{ translate('create_task.description_placeholder') }}">{{ task.description }}</textarea>
                     </div>
+                    {% if current_user.is_admin() or task.user_id == current_user.id %}
+                    {% set scope_public = task.sharing_type == 'public' %}
+                    {% set scope_org = task.sharing_type == 'organization' and task.organization_id %}
+                    <div class="mb-4 border-top pt-3">
+                        <label class="form-label"><i class="bi bi-share"></i> 分享范围</label>
+                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="share_scope" id="edit_share_private" value="private" {% if not scope_public and not scope_org %}checked{% endif %}>
+                                <label class="form-check-label" for="edit_share_private">私有（仅自己）</label>
+                            </div>
+                            {% if user_organizations and user_organizations|length > 0 %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="share_scope" id="edit_share_organization" value="organization" {% if scope_org %}checked{% endif %}>
+                                <label class="form-check-label" for="edit_share_organization">组织</label>
+                            </div>
+                            <select class="form-select form-select-sm" id="edit_organization_id" name="organization_id" style="width: auto; max-width: 14rem; display: inline-block;" {% if not scope_org %}disabled{% endif %}>
+                                <option value="none">请选择组织</option>
+                                {% for org in user_organizations %}
+                                <option value="{{ org.id }}" {% if task.organization_id == org.id %}selected{% endif %}>{{ org.name }}</option>
+                                {% endfor %}
+                            </select>
+                            {% endif %}
+                            {% if current_user.is_admin() or current_user.is_certified %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="share_scope" id="edit_share_public" value="public" {% if scope_public %}checked{% endif %}>
+                                <label class="form-check-label" for="edit_share_public">公开（出现在项目交流，所有人可浏览）</label>
+                            </div>
+                            {% else %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="share_scope" id="edit_share_public" value="public" disabled>
+                                <label class="form-check-label text-muted" for="edit_share_public">公开（需通过教师认证后可用）</label>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="form-text">保存修改后生效。公开项目需管理员审核通过后才会在项目交流展示。</div>
+                    </div>
+                    {% if user_organizations and user_organizations|length > 0 %}
+                    <script>
+                    (function() {
+                        document.querySelectorAll('#edit-task-form input[name="share_scope"]').forEach(function(r) {
+                            r.addEventListener('change', function() {
+                                var sel = document.getElementById('edit_organization_id');
+                                if (!sel) return;
+                                if (this.value === 'organization') {
+                                    sel.removeAttribute('disabled');
+                                } else {
+                                    sel.setAttribute('disabled', 'disabled');
+                                }
+                            });
+                        });
+                    })();
+                    </script>
+                    {% endif %}
+                    {% endif %}
                     <div class="mb-4">
                         <label for="share_url" class="form-label">URL 地址</label>
                         <input type="url" class="form-control" id="share_url" name="share_url" value="{{ task.share_url or '' }}" placeholder="扣子编程、豆包编程等提供的分享链接（可选）">
