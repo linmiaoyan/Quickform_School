@@ -1,5 +1,6 @@
 """AI服务 - 处理AI模型调用和分析相关功能"""
 import json
+import re
 import requests
 import threading
 import logging
@@ -31,6 +32,14 @@ KEEP_KEYS = {
     'title', 'teacher', 'comment', 'review', 'ratings', 'score', 'grade',
     'lesson_index', 'class', 'subject', 'name'
 }
+
+
+def _collapse_extra_newlines(text):
+    """将连续多个换行压成单个换行，减少提示词中的多余空行。"""
+    if not text:
+        return text
+    t = text.replace('\r\n', '\n').replace('\r', '\n')
+    return re.sub(r'\n{2,}', '\n', t)
 
 
 def _clip_prompt(prompt):
@@ -176,7 +185,7 @@ def call_ai_model(prompt, ai_config):
         }
         
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=120)
+            response = requests.post(url, headers=headers, json=data, timeout=240)
             if not response.ok:
                 _detail = _parse_deepseek_error(response)
                 msg = f"DeepSeek API调用失败: {response.status_code} — {_detail}"
@@ -215,7 +224,7 @@ def call_ai_model(prompt, ai_config):
         }
         
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=180)
+            response = requests.post(url, headers=headers, json=data, timeout=240)
             response.raise_for_status()
             result = response.json()
             return result["choices"][0]["message"]["content"]
@@ -245,7 +254,7 @@ def call_ai_model(prompt, ai_config):
         
         try:
             logger.info(f"调用阿里云百炼API，模型: qwen-plus")
-            response = requests.post(url, headers=headers, json=data, timeout=180)
+            response = requests.post(url, headers=headers, json=data, timeout=240)
             
             if response.status_code != 200:
                 raise Exception(f"阿里云百炼API调用失败，状态码: {response.status_code}，响应: {response.text[:200]}")
@@ -458,12 +467,10 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
             # 数据量少，全部显示
             data_section += "完整数据：\n"
             for i, data in enumerate(all_data, 1):
-                data_section += f"\n提交 #{i}:\n"
-                skipped_cnt = 0
+                data_section += f"\n#{i}\n"
                 for key, value in data.items():
                     key_norm = (key or '').strip().lower()
                     if _should_skip_field(key, compact_mode, noise_set, keep_set) or key_norm in high_repeat_fields:
-                        skipped_cnt += 1
                         continue
                     if compact_mode:
                         value_str = _compact_field_value(value, max_field_len)
@@ -476,8 +483,6 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                         else:
                             value_str = str(value)
                     data_section += f"  - {key}: {value_str}\n"
-                if skipped_cnt > 0:
-                    data_section += f"  - （已省略噪声字段 {skipped_cnt} 项）\n"
         else:
             if total_count <= SAMPLE_DISPLAY_MIN:
                 sample_indices = list(range(total_count))
@@ -496,15 +501,13 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                 sample_indices.extend(range(max(0, total_count - 35), total_count))
                 sample_indices = sorted(list(set(sample_indices)))[:sample_size]
                 data_section += f"数据样例（共显示 {len(sample_indices)} 条，占总数的 {len(sample_indices)/total_count*100:.1f}%）：\n"
-            for idx, i in enumerate(sample_indices, 1):
+            for i in sample_indices:
                 try:
                     data = all_data[i]
-                    data_section += f"\n样例 #{idx} (第 {i+1} 条记录):\n"
-                    skipped_cnt = 0
+                    data_section += f"\n#{i + 1}\n"
                     for key, value in data.items():
                         key_norm = (key or '').strip().lower()
                         if _should_skip_field(key, compact_mode, noise_set, keep_set) or key_norm in high_repeat_fields:
-                            skipped_cnt += 1
                             continue
                         if compact_mode:
                             value_str = _compact_field_value(value, max_field_len)
@@ -517,14 +520,12 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
                             else:
                                 value_str = str(value)
                         data_section += f"  - {key}: {value_str}\n"
-                    if skipped_cnt > 0:
-                        data_section += f"  - （已省略噪声字段 {skipped_cnt} 项）\n"
                 except:
                     if i < len(submission):
                         fallback = submission[i].data
                         if compact_mode:
                             fallback = _compact_field_value(fallback, max_field_len * 2)
-                        data_section += f"\n样例 #{idx}: {fallback}\n"
+                        data_section += f"\n#{i + 1}\n{fallback}\n"
     else:
         data_section += "暂无提交数据\n"
     
@@ -557,7 +558,7 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
 请以中文撰写报告，使用Markdown格式，包括适当的标题、列表和表格来增强可读性。
 """
     
-    return prompt
+    return _collapse_extra_newlines(prompt)
 
 
 def analyze_html_file(task_id, user_id, file_path, SessionLocal, Task, AIConfig, read_file_content_func, call_ai_model_func):

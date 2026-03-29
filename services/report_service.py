@@ -34,12 +34,36 @@ def _to_user_friendly_ai_error(err_msg):
     """将模型/网关错误转换为可读提示，避免直接暴露 Internal Server Error。"""
     msg = (err_msg or '').strip()
     low = msg.lower()
-    if any(k in low for k in ['context length', 'maximum context', 'token', 'max_tokens', 'too long']):
-        return "本次分析数据量过大，超过模型可处理上限。请缩小日期范围、减少样本后重试。"
+    # 超时优先：装饰器与部分网关会返回含「超时」的中文，或英文 timeout / timed out。
+    # 勿使用宽泛子串「too long」——否则会与「request took too long」等误判为「数据量过大」。
+    if any(k in low for k in ['504', 'gateway timeout', 'timed out', 'timeout']) or '超时' in msg:
+        return "分析请求超时（单次调用最长约 4 分钟），请稍后重试；也可缩小数据范围提升成功率。"
     if any(k in low for k in ['413', 'payload too large', 'request entity too large']):
         return "请求数据过大（413）。请缩小数据范围后重试。"
-    if any(k in low for k in ['504', 'gateway timeout', 'timed out', 'timeout']):
-        return "分析请求超时，请稍后重试；也可缩小数据范围提升成功率。"
+    # 仅匹配「上下文/输入过长」类表述。勿单独匹配「token」——否则会与 invalid token、API key 等鉴权错误混淆。
+    context_limit_markers = (
+        'context length',
+        'maximum context',
+        'max context',
+        'context window',
+        'exceeded the context',
+        'exceed context',
+        'token limit',
+        'maximum token',
+        'too many tokens',
+        'tokens exceed',
+        'total tokens',
+        'input length',
+        'input is too long',
+        'prompt is too long',
+        'message is too long',
+        'max_tokens',
+        'length limited',
+        'reduce your prompt',
+        'shorten the prompt',
+    )
+    if any(m in low for m in context_limit_markers):
+        return "本次分析数据量过大，超过模型可处理上限。请缩小日期范围、减少样本后重试。"
     if any(k in low for k in ['500', 'internal server error']):
         return "服务暂时异常（500），请稍后重试；若数据量较大建议先缩小范围。"
     return f"模型调用失败：{msg}" if msg else "模型调用失败，请稍后重试。"
@@ -535,12 +559,12 @@ def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_p
             analysis_progress[task_id] = {
                 'status': 'in_progress',
                 'progress': 1,
-                'message': '大模型分析中，这可能需要几分钟时间...'
+                'message': '大模型分析中，单次调用最长约 4 分钟，请稍候...'
             }
         logging.info(f"任务 {task_id}：调用AI模型进行分析")
         
-        # 调整各模型超时，避免后端刚返回而前端已判定超时的情况
-        timeout_seconds = 180 if ai_config.selected_model == 'chat_server' else (120 if ai_config.selected_model in ['deepseek', 'qwen'] else 90)
+        # 单次模型调用超时（与 ai_service 中 requests 超时对齐）；多批分析时每批独立计时
+        timeout_seconds = 240
         
         @timeout(seconds=timeout_seconds, error_message=f"调用{ai_config.selected_model}模型超时（{timeout_seconds}秒）")
         def call_ai_with_timeout(prompt, config):
