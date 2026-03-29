@@ -39,6 +39,8 @@ from email.utils import formataddr
 # 导入分离的模块
 from .models import Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply, Organization, OrganizationMember, TaskShare, TaskLike
 from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
+from .public_errors import MSG_GENERIC, MSG_SERVICE_BUSY, MSG_JSON_BODY, MSG_SAVE_FAILED, MSG_PAGE_LOAD, MSG_API_INTERNAL
+from .login_throttle import login_blocked, record_login_failure, clear_login_throttle
 from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file, CERTIFICATION_ALLOWED_EXTENSIONS
 from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file, generate_html_page_from_prompt, revise_html_with_ai
 from services.report_service import (
@@ -656,8 +658,8 @@ def task_like(task_id):
         return jsonify({'success': True, 'liked': liked, 'count': task.like_count or 0})
     except Exception as e:
         db.rollback()
-        logger.exception(f"点赞操作失败: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        logger.exception("点赞操作失败: %s", e)
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
 
@@ -743,11 +745,11 @@ def register():
             return render_template('register.html')
     except Exception as e:
         logger.exception("注册页面异常")
-        flash(f'页面加载错误: {str(e)}', 'danger')
+        flash(MSG_PAGE_LOAD, 'danger')
         try:
             return render_template('register.html')
-        except:
-            return f"注册页面加载失败: {str(e)}", 500
+        except Exception:
+            return MSG_PAGE_LOAD, 500
 
 
 @quickform_bp.route('/verify_email', methods=['GET', 'POST'])
@@ -797,7 +799,7 @@ def api_send_verify_code():
         return jsonify({'success': True, 'message': '验证码已发送到您的邮箱，有效期10分钟'})
     except Exception as e:
         logger.exception("发送验证码异常")
-        return jsonify({'success': False, 'message': str(e) if isinstance(e, RuntimeError) else '发送失败，请稍后重试'}), 500
+        return jsonify({'success': False, 'message': MSG_SERVICE_BUSY}), 500
 
 
 @quickform_bp.route('/login', methods=['GET', 'POST'])
@@ -807,6 +809,16 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         remember = request.form.get('remember') == 'on'
+
+        # 防撞库 / 暴力破解：按 IP（及 IP+登录名）限流，与 Session 内计数互补
+        blocked, retry_after = login_blocked(request, username)
+        if blocked:
+            minutes = max(1, (retry_after + 59) // 60)
+            flash(
+                f'登录尝试过于频繁，请约 {minutes} 分钟后再试；若忘记密码请使用「忘记密码」。',
+                'danger',
+            )
+            return render_template('login.html')
         
         db = SessionLocal()
         try:
@@ -818,16 +830,18 @@ def login():
             ).first()
             
             if user and bcrypt.check_password_hash(user.password, password):
-                # 登录成功，清除失败次数
+                # 登录成功，清除失败次数与 IP 限流计数
                 from flask import session
                 session.pop('login_fail_count', None)
+                clear_login_throttle(request, username)
                 login_user(user, remember=remember)
                 # 将会话设为持久，使 session cookie 在 PERMANENT_SESSION_LIFETIME 内有效，重启服务后仍保持登录
                 session.permanent = True
                 next_page = request.args.get('next')
                 return redirect(next_page) if next_page else redirect(url_for('quickform.dashboard'))
             else:
-                # 登录失败，检查失败次数
+                record_login_failure(request, username)
+                # 登录失败，检查失败次数（浏览器会话内提示，与 IP 限流并存）
                 from flask import session
                 fail_count = session.get('login_fail_count', 0) + 1
                 session['login_fail_count'] = fail_count
@@ -1136,7 +1150,7 @@ def oneclick_create_task():
         except Exception as e:
             db.rollback()
             logger.exception("一键生成 HTML 失败")
-            flash(f'生成 HTML 失败：{str(e)}。请检查 API 配置或稍后重试。', 'danger')
+            flash('生成 HTML 失败。请检查个人中心 AI 配置与网络后重试。', 'danger')
             return redirect(url_for('quickform.oneclick_create_task'))
         # 保存 HTML 到任务（单文件，新文件存 static/uploads 由静态服务提供）
         static_uploads = _static_uploads_dir()
@@ -1161,7 +1175,7 @@ def oneclick_create_task():
     except Exception as e:
         db.rollback()
         logger.exception("一键创建任务失败")
-        flash(f'创建失败：{str(e)}', 'danger')
+        flash(MSG_GENERIC, 'danger')
         return redirect(url_for('quickform.oneclick_create_task'))
     finally:
         db.close()
@@ -1621,7 +1635,7 @@ def edit_task(task_id):
                     new_html = revise_html_with_ai(current_html, instructions, call_ai_model, ai_config)
                 except Exception as e:
                     logger.exception('AI 继续修改 HTML 失败')
-                    flash(f'AI 修改失败：{str(e)}', 'danger')
+                    flash('AI 修改失败，请稍后重试或检查 AI 配置。', 'danger')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
                 static_uploads = _static_uploads_dir()
                 unique_filename = str(uuid.uuid4()) + '_revised.html'
@@ -2089,8 +2103,8 @@ def delete_task(task_id):
         return redirect(url_for('quickform.dashboard'))
     except Exception as e:
         db.rollback()
-        logger.error(f"删除任务失败: {str(e)}", exc_info=True)
-        flash(f'删除任务失败: {str(e)}', 'danger')
+        logger.exception("删除任务失败: %s", e)
+        flash('删除任务失败，请稍后重试或联系管理员。', 'danger')
         return redirect(url_for('quickform.dashboard'))
     finally:
         db.close()
@@ -2113,7 +2127,7 @@ def task_toggle_status(task_id):
     except Exception as e:
         db.rollback()
         logger.exception("切换任务状态失败: %s", e)
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
 
@@ -2151,13 +2165,8 @@ def api_send_email_code():
 
         return jsonify({'success': True, 'message': '验证码已发送到邮箱，有效期10分钟'})
     except Exception as e:
-        # 这里捕获 send_email_code 抛出的 RuntimeError 等，给前端返回友好的提示信息
         logger.exception("发送邮箱验证码异常")
-        safe_message = str(e) if isinstance(e, RuntimeError) else '服务器内部错误，请稍后重试或联系管理员。'
-        return jsonify({
-            'success': False,
-            'message': safe_message
-        }), 500
+        return jsonify({'success': False, 'message': MSG_SERVICE_BUSY}), 500
 
 SUBMIT_RATE_LIMIT_WINDOW = 30   # seconds（教室/公开课场景下适当放宽窗口）
 SUBMIT_RATE_LIMIT_THRESHOLD = 200  # 窗口内同一 IP 提交超过此次数则限流（提高以适配课堂集中提交）
@@ -2209,7 +2218,12 @@ def _cli_doc_view():
         return make_response(html_page, 200, [('Content-Type', 'text/html; charset=utf-8')])
     except Exception as e:
         logger.exception('CLI doc render failed')
-        return f'<html><body><p>渲染教程失败：{html.escape(str(e))}</p></body></html>', 500
+        return (
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>说明</title></head>'
+            '<body><p>文档暂时无法显示，请稍后重试或联系管理员。</p></body></html>',
+            500,
+            [('Content-Type', 'text/html; charset=utf-8')],
+        )
 
 
 @quickform_bp.route('/cli', methods=['GET'])
@@ -2288,7 +2302,7 @@ def cli_add_task():
     except Exception as e:
         db.rollback()
         logger.exception('CLI add task failed')
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
 
@@ -2370,7 +2384,7 @@ def cli_upload_html():
         }), 200
     except Exception as e:
         logger.exception('CLI upload failed')
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
 
 
 @quickform_bp.route('/api/<string:task_id>', methods=['GET', 'POST', 'OPTIONS'])
@@ -2472,8 +2486,8 @@ def submit_form(task_id):
             else:
                 form_data = request.form.to_dict()
         except Exception as e:
-            logger.error(f"解析请求数据失败: {str(e)}")
-            response = jsonify({'error': 'invalid_body', 'message': 'Invalid JSON or form data.', 'detail': str(e)})
+            logger.exception("解析请求数据失败: %s", e)
+            response = jsonify({'error': 'invalid_body', 'message': MSG_JSON_BODY})
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2500,8 +2514,8 @@ def submit_form(task_id):
             db.commit()
         except Exception as e:
             db.rollback()
-            logger.error(f"保存提交数据失败: {str(e)}")
-            response = jsonify({'error': 'save_failed', 'message': 'Failed to save submission.', 'detail': str(e)})
+            logger.exception("保存提交数据失败: %s", e)
+            response = jsonify({'error': 'save_failed', 'message': MSG_SAVE_FAILED})
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2513,8 +2527,8 @@ def submit_form(task_id):
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response, 200
     except Exception as e:
-        logger.error(f"API异常: {str(e)}", exc_info=True)
-        response = jsonify({'error': 'internal_error', 'message': 'Internal server error.', 'detail': str(e)})
+        logger.exception("submit_form API 异常: %s", e)
+        response = jsonify({'error': 'internal_error', 'message': MSG_API_INTERNAL})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2639,8 +2653,8 @@ def submit_form_all(task_id):
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response, 200
     except Exception as e:
-        logger.error(f"API异常: {str(e)}", exc_info=True)
-        response = jsonify({'error': 'internal_error', 'message': 'Internal server error.', 'detail': str(e)})
+        logger.exception("submit_form_all API 异常: %s", e)
+        response = jsonify({'error': 'internal_error', 'message': MSG_API_INTERNAL})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2670,7 +2684,8 @@ def list_tasks():
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response, 200
     except Exception as e:
-        response = jsonify({'error': 'internal_error', 'message': 'Internal server error.', 'detail': str(e)})
+        logger.exception("list_tasks API 异常: %s", e)
+        response = jsonify({'error': 'internal_error', 'message': MSG_API_INTERNAL})
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -2681,10 +2696,12 @@ def list_tasks():
 
 @quickform_bp.route('/api/stats/overview', methods=['GET', 'OPTIONS'])
 def public_stats_overview():
-    """运营概览统计（JSON）：用户数、学校数（去重）、任务数、提交数。
+    """运营概览统计（JSON）：返回全站聚合指标（用户数、学校数去重、任务数、提交总数）。
 
-    安全说明：仅靠「路径不常见」不能防扫描；若需限制访问，请在环境变量中设置 STATS_API_TOKEN，
-    请求时携带：查询参数 ?token=...、或请求头 X-Stats-Token、或 Authorization: Bearer ...。
+    用途：供运营看板、监控脚本、自建大屏等拉取「整体体量」数据；**不是**单任务明细。
+    安全说明：若未配置 STATS_API_TOKEN，则任何知道该 URL 的人均可读取上述汇总数字（不含名单明细）。
+    若需限制访问，请在环境变量中设置 STATS_API_TOKEN，请求时携带：查询参数 ?token=...、
+    或请求头 X-Stats-Token、或 Authorization: Bearer ...。
     """
     token = (os.getenv('STATS_API_TOKEN') or '').strip()
     if token:
@@ -2836,7 +2853,8 @@ def export_data(task_id):
             except TypeError:
                 return send_file(output, attachment_filename=filename, as_attachment=True, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
-        flash(f'导出数据时出错: {str(e)}', 'danger')
+        logger.exception("导出数据失败: %s", e)
+        flash('导出失败，请稍后重试。若文件较大可改选 CSV 或缩小日期范围。', 'danger')
         return redirect(url_for('quickform.task_detail', task_id=task_id))
     finally:
         db.close()
@@ -3125,8 +3143,8 @@ def test_ai_api():
         try:
             response_text = call_ai_model(test_prompt, ai_config)
         except Exception as e:
-            logger.error(f"AI配置测试失败: {str(e)}")
-            return jsonify({'success': False, 'message': str(e)}), 500
+            logger.exception("AI配置测试失败: %s", e)
+            return jsonify({'success': False, 'message': '测试调用失败，请检查密钥、模型选择与网络后重试。'}), 500
 
         preview = (response_text or '').strip()
         if len(preview) > 200:
@@ -3297,7 +3315,15 @@ def smart_analyze(task_id):
                 # 跳转到本页并标记运行中，前端据此开始轮询
                 return redirect(url_for('quickform.smart_analyze', task_id=task.id, running=1))
             except Exception as e:
-                return render_template('smart_analyze.html', task=task, error=f'生成报告失败: {str(e)}', ai_config=ai_config, now=datetime.now(), model_label=model_label)
+                logger.exception("启动报告生成线程失败: %s", e)
+                return render_template(
+                    'smart_analyze.html',
+                    task=task,
+                    error='无法启动报告生成，请稍后重试。若持续失败请联系管理员。',
+                    ai_config=ai_config,
+                    now=datetime.now(),
+                    model_label=model_label,
+                )
         
         # GET 或 POST 完成后，准备页面所需数据
         # 刷新task对象以获取最新的html_analysis和custom_prompt
@@ -3470,8 +3496,8 @@ def download_report(task_id):
         return response
         
     except Exception as e:
-        logger.error(f"下载报告失败: {str(e)}", exc_info=True)
-        flash(f'下载报告时出错: {str(e)}', 'danger')
+        logger.exception("下载报告失败: %s", e)
+        flash('下载报告失败，请稍后重试。', 'danger')
         return redirect(url_for('quickform.dashboard'))
     finally:
         db.close()
@@ -3655,7 +3681,8 @@ def report_status(task_id):
             db.close()
         return jsonify({'status': 'not_started'}), 200
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.exception("report_status 异常: %s", e)
+        return jsonify({'status': 'error', 'message': MSG_API_INTERNAL}), 500
 
 @quickform_bp.route('/admin')
 @admin_required
@@ -4242,8 +4269,8 @@ def admin_reset_password():
         })
     except Exception as e:
         db.rollback()
-        logger.error(f"重置密码失败: {str(e)}")
-        return jsonify({'success': False, 'message': f'重置失败: {str(e)}'}), 500
+        logger.exception("重置密码失败: %s", e)
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
 
@@ -4277,8 +4304,8 @@ def admin_delete_user(user_id):
             logger.info(f"管理员 {current_user.username} 删除了用户 {username} (ID: {user_id_val})")
         except Exception as e:
             db.rollback()
-            logger.error(f"删除用户失败: {str(e)}", exc_info=True)
-            flash(f'删除用户失败: {str(e)}', 'danger')
+            logger.exception("删除用户失败: %s", e)
+            flash('删除用户失败，请查看日志或稍后重试。', 'danger')
             
     finally:
         db.close()
@@ -4332,8 +4359,8 @@ def admin_export_users():
             return send_file(output, attachment_filename=filename, as_attachment=True,
                            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
-        logger.error(f"导出用户数据失败: {str(e)}", exc_info=True)
-        flash(f'导出数据时出错: {str(e)}', 'danger')
+        logger.exception("导出用户数据失败: %s", e)
+        flash('导出用户数据失败，请稍后重试。', 'danger')
         return redirect(url_for('quickform.admin_panel', tab='users'))
     finally:
         db.close()
@@ -4389,7 +4416,7 @@ def admin_api_daily_registrations():
         return jsonify({'success': True, 'data': data, 'start': start_s or start_d.isoformat(), 'end': end_s or end_d.isoformat()})
     except Exception as e:
         logger.exception('daily_registrations: %s', e)
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
 
@@ -4713,8 +4740,8 @@ def admin_users_statistics():
             update_date=datetime.now().strftime('%Y年%m月%d日')
         )
     except Exception as e:
-        logger.error(f"获取统计数据失败: {str(e)}", exc_info=True)
-        flash(f'获取统计数据失败: {str(e)}', 'danger')
+        logger.exception("获取统计数据失败: %s", e)
+        flash('获取统计数据失败，请稍后重试。', 'danger')
         return redirect(url_for('quickform.admin_panel'))
     finally:
         db.close()
@@ -4749,7 +4776,7 @@ def admin_set_school_province(user_id):
     except Exception as e:
         db.rollback()
         logger.exception("设置用户学校省份失败: %s", e)
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
 
@@ -4850,8 +4877,8 @@ def admin_review_html_batch():
             flash('所选任务均已通过审核，无需重复操作', 'info')
     except Exception as e:
         db.rollback()
-        logger.error(f"批量HTML审核失败: {str(e)}")
-        flash(f'批量审核失败：{str(e)}', 'danger')
+        logger.exception("批量HTML审核失败: %s", e)
+        flash('批量审核失败，请稍后重试。', 'danger')
     finally:
         db.close()
     
@@ -4980,8 +5007,8 @@ def admin_handle_certification(request_id):
             flash('无效的操作类型', 'danger')
     except Exception as e:
         db.rollback()
-        logger.error(f"认证审核处理失败: {str(e)}")
-        flash(f'处理失败：{str(e)}', 'danger')
+        logger.exception("认证审核处理失败: %s", e)
+        flash('处理失败，请稍后重试。', 'danger')
     finally:
         db.close()
 
@@ -5041,8 +5068,8 @@ def admin_cert_batch_approve():
             flash('没有可处理的认证申请。', 'info')
     except Exception as e:
         db.rollback()
-        logger.error(f"批量通过教师认证申请失败: {str(e)}")
-        flash(f'批量处理失败：{str(e)}', 'danger')
+        logger.exception("批量通过教师认证申请失败: %s", e)
+        flash('批量处理失败，请稍后重试。', 'danger')
     finally:
         db.close()
 
@@ -5152,11 +5179,10 @@ def remove_submission(task_id):
         return make_response({'success': True, 'message': '删除成功'})
     except Exception as e:
         db.rollback()
-        logger.error(
-            f"[remove_submission] error task={task_id} submission={submission_id} err={str(e)}",
-            exc_info=True
+        logger.exception(
+            "[remove_submission] error task=%s submission=%s", task_id, submission_id
         )
-        return make_response({'success': False, 'message': f'删除失败: {str(e)}'}, 500)
+        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
     finally:
         db.close()
 
@@ -5211,11 +5237,8 @@ def clear_all_submissions(task_id):
         return make_response({'success': True, 'message': f'成功删除 {count} 条数据'})
     except Exception as e:
         db.rollback()
-        logger.error(
-            f"[clear_all_submissions] error task={task_id} err={str(e)}",
-            exc_info=True
-        )
-        return make_response({'success': False, 'message': f'删除失败: {str(e)}'}, 500)
+        logger.exception("[clear_all_submissions] error task=%s", task_id)
+        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
     finally:
         db.close()
 
@@ -5276,7 +5299,7 @@ def clear_submissions_by_date_range(task_id):
     except Exception as e:
         db.rollback()
         logger.exception('clear_submissions_by_date_range error')
-        return make_response({'success': False, 'message': f'删除失败: {str(e)}'}, 500)
+        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
     finally:
         db.close()
 
