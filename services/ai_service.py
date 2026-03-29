@@ -51,6 +51,18 @@ def _collapse_extra_newlines(text):
     return re.sub(r'\n{2,}', '\n', t)
 
 
+def _normalize_submission_payload(parsed):
+    """
+    将单条提交的 JSON 解析结果规范为 dict，便于统一按 .items() 遍历。
+    部分接口/测试会直接提交数字、字符串或数组等标量/非对象 JSON。
+    """
+    if isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed, list):
+        return {'_root_list': parsed}
+    return {'_root_value': parsed}
+
+
 def _chat_server_fit_user_and_max_tokens(system_text, user_text):
     """
     硅基流动等接口要求：估计输入 token + max_tokens <= max_seq_len。
@@ -462,7 +474,7 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
         
         for sub in submission:
             try:
-                data = json.loads(sub.data)
+                data = _normalize_submission_payload(json.loads(sub.data))
                 all_data.append(data)
                 
                 # 统计字段类型和值
