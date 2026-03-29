@@ -17,7 +17,16 @@ PROMPT_MAX_CHARS = 120000
 DEEPSEEK_MAX_TOKENS = 8192
 DOUBAO_MAX_TOKENS = 32768
 QWEN_MAX_TOKENS = 32768
-CHAT_SERVER_MAX_TOKENS = 32768
+# 硅基流动等平台校验：prompt token + max_tokens 不得超过 max_seq_len（如 32K），
+# 不能将 max_tokens 设为上下文全长；输出与输入共享同一上限。
+CHAT_SERVER_MAX_TOKENS = 8192
+CHAT_SERVER_MAX_SEQ_LEN = 32768
+CHAT_SERVER_SEQ_MARGIN = 256
+CHAT_SERVER_MIN_MAX_TOKENS = 256
+# 为截断用户正文预留的「输出侧」字数账（与 CHAT_SERVER_MAX_TOKENS 同量级即可）
+CHAT_SERVER_TRUNC_RESERVE_OUTPUT = 8192
+# 注入分析提示词的 HTML 预分析全文上限（与提交条数无关，避免单段过长占满上下文）
+HTML_ANALYSIS_IN_PROMPT_MAX_CHARS = 12000
 COMPACT_MODE_ENABLED = True
 COMPACT_FIELD_MAX_LEN = 180
 REPEAT_FILTER_ENABLED = True
@@ -40,6 +49,53 @@ def _collapse_extra_newlines(text):
         return text
     t = text.replace('\r\n', '\n').replace('\r', '\n')
     return re.sub(r'\n{2,}', '\n', t)
+
+
+def _chat_server_fit_user_and_max_tokens(system_text, user_text):
+    """
+    硅基流动等接口要求：估计输入 token + max_tokens <= max_seq_len。
+    在 max_tokens 取上限前，先截断过长 user，并返回动态 max_tokens，避免 HTTP 400（如 code 20015）。
+    """
+    sys_t = system_text or ''
+    usr_t = user_text or ''
+    max_seq = CHAT_SERVER_MAX_SEQ_LEN
+    margin = CHAT_SERVER_SEQ_MARGIN
+    min_out = CHAT_SERVER_MIN_MAX_TOKENS
+    overhead = 192
+
+    def est_in(s, u):
+        return max(64, (len(s) + len(u) + 1) // 2 + overhead)
+
+    reserve_out = min(CHAT_SERVER_MAX_TOKENS, CHAT_SERVER_TRUNC_RESERVE_OUTPUT)
+    max_est_in = max_seq - margin - reserve_out
+    max_user_chars = max(512, 2 * max(0, max_est_in - overhead) - len(sys_t) - 1)
+    notice = '\n【系统提示】为适配模型上下文上限，已截断部分输入。'
+
+    if len(usr_t) > max_user_chars:
+        cut = max(0, max_user_chars - len(notice))
+        usr_t = usr_t[:cut] + notice
+        logger.info(
+            '硅基流动：已按上下文上限截断用户提示，约 %d 字符（max_seq_len=%d）',
+            len(usr_t),
+            max_seq,
+        )
+
+    for _ in range(48):
+        est = est_in(sys_t, usr_t)
+        if est + min_out + margin <= max_seq:
+            break
+        if len(usr_t) <= 120:
+            usr_t = notice.strip() or '…'
+            break
+        usr_t = usr_t[: max(120, len(usr_t) * 3 // 4)]
+    if not usr_t.strip():
+        usr_t = notice.strip() or '…'
+
+    est = est_in(sys_t, usr_t)
+    room = max_seq - margin - est
+    # 平台按「输入 + max_tokens」校验，room 为剩余额度；不足时降到 1，避免再次 400
+    max_tokens = max(1, min(CHAT_SERVER_MAX_TOKENS, room))
+    return usr_t, max_tokens
 
 
 def _clip_prompt(prompt):
@@ -307,6 +363,8 @@ def call_ai_model(prompt, ai_config):
                 api_key = ''
         if not api_key:
             raise Exception('硅基流动未配置，请设置 CHAT_SERVER_API_TOKEN 或在配置页填写 Token')
+        system_msg = '你面向的用户一般是教师和学生'
+        user_msg, sf_max_tokens = _chat_server_fit_user_and_max_tokens(system_msg, prompt)
         url = 'https://api.siliconflow.cn/v1/chat/completions'
         headers = {
             'Content-Type': 'application/json',
@@ -315,19 +373,34 @@ def call_ai_model(prompt, ai_config):
         payload = {
             'model': 'deepseek-ai/DeepSeek-V2.5',
             'messages': [
-                {"role": "system", "content": "你面向的用户一般是教师和学生"},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_msg}
             ],
-            'max_tokens': CHAT_SERVER_MAX_TOKENS
+            'max_tokens': sf_max_tokens
         }
         try:
             resp = _requests.post(url, headers=headers, json=payload, timeout=(10, 240))
             if resp.status_code != 200:
-                detail = (resp.text or "").strip()[:200]
+                raw = (resp.text or "").strip()
+                detail = raw[:400]
                 if resp.status_code == 401:
                     hint = "（恢复默认时使用的是系统/环境变量中的 Token，若无效请在个人中心选择其他模型或填写自己的硅基流动 Token）"
-                    raise Exception(f"当前使用：硅基流动。Token 无效或已过期 {hint} — {detail}")
-                raise Exception(f"HTTP {resp.status_code}: {detail}")
+                    raise Exception(f"当前使用：硅基流动。Token 无效或已过期 {hint} — {detail[:200]}")
+                if resp.status_code == 400 and raw:
+                    try:
+                        errj = json.loads(raw)
+                    except ValueError:
+                        errj = None
+                    if isinstance(errj, dict):
+                        em = str(errj.get('message') or '')
+                        ec = errj.get('code')
+                        el = em.lower()
+                        if ec == 20015 or 'max_seq_len' in el or 'max_total_tokens' in el:
+                            raise Exception(
+                                '硅基流动：提示词与单次输出长度之和超过模型上下文上限（约 32K tokens）。'
+                                '请缩小数据范围、缩短提示词或改用其它模型后重试。'
+                            )
+                raise Exception(f"HTTP {resp.status_code}: {detail[:200]}")
             data = resp.json()
             # OpenAI兼容结构
             if isinstance(data, dict) and 'choices' in data and data['choices']:
@@ -529,10 +602,13 @@ def generate_analysis_prompt(task, submission=None, file_content=None, SessionLo
     else:
         data_section += "暂无提交数据\n"
     
-    # 如果任务有HTML分析结果，添加到数据部分
+    # 如果任务有HTML分析结果，添加到数据部分（与提交条数无关，过长则截断）
     if hasattr(task, 'html_analysis') and task.html_analysis:
+        ha = (task.html_analysis or '').strip()
+        if len(ha) > HTML_ANALYSIS_IN_PROMPT_MAX_CHARS:
+            ha = ha[:HTML_ANALYSIS_IN_PROMPT_MAX_CHARS] + '\n…（HTML 分析内容已截断，完整内容在任务 HTML 分析结果中）'
         data_section += "\n\n【HTML文件分析结果】\n"
-        data_section += task.html_analysis
+        data_section += ha
     
     # 根据是否有用户模板来决定如何组合最终的提示词
     if user_template and user_template.strip():
