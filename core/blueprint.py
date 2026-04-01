@@ -37,10 +37,11 @@ from email.mime.text import MIMEText
 from email.utils import formataddr
 
 # 导入分离的模块
-from .models import Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply, Organization, OrganizationMember, TaskShare, TaskLike
+from .models import Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply, Organization, OrganizationMember, TaskShare, TaskLike, ApiAccessLog
 from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
 from .public_errors import MSG_GENERIC, MSG_SERVICE_BUSY, MSG_JSON_BODY, MSG_SAVE_FAILED, MSG_PAGE_LOAD, MSG_API_INTERNAL
 from .login_throttle import login_blocked, record_login_failure, clear_login_throttle
+from .project_usage import get_top_projects, evaluate_project_alerts
 from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file, CERTIFICATION_ALLOWED_EXTENSIONS
 from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file, generate_html_page_from_prompt, revise_html_with_ai
 from services.report_service import (
@@ -2648,6 +2649,18 @@ def submit_form_all(task_id):
             'total_submissions': total_count,
             'submissions': data_list
         })
+        try:
+            payload_bytes = len(response.get_data())
+            db.add(ApiAccessLog(
+                task_id=task.id,
+                endpoint='api_task_all',
+                response_bytes=payload_bytes,
+                client_ip=(client_ip or '')[:100],
+            ))
+            db.commit()
+        except Exception as log_err:
+            db.rollback()
+            logger.warning("写入 /all 访问日志失败: %s", log_err)
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -4416,6 +4429,102 @@ def admin_api_daily_registrations():
         return jsonify({'success': True, 'data': data, 'start': start_s or start_d.isoformat(), 'end': end_s or end_d.isoformat()})
     except Exception as e:
         logger.exception('daily_registrations: %s', e)
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/admin/projects/top_usage/export')
+@admin_required
+def admin_export_top_project_usage():
+    """导出项目高消耗 TopX（提交数/占用空间/ /all 调用）"""
+    sort_by = (request.args.get('sort_by') or 'submissions').strip().lower()
+    limit = request.args.get('limit', 20, type=int)
+    file_format = (request.args.get('format') or 'xlsx').strip().lower()
+
+    db = SessionLocal()
+    try:
+        rows = get_top_projects(db, limit=limit, sort_by=sort_by)
+        if not rows:
+            return jsonify({'success': False, 'message': '暂无可导出的项目数据'}), 404
+
+        export_rows = []
+        for idx, r in enumerate(rows, start=1):
+            export_rows.append({
+                '排名': idx,
+                '项目ID': r['task_id'],
+                '项目标题': r['task_title'],
+                '负责人': r['owner_username'],
+                '总提交数': r['submit_count'],
+                '近24小时提交数': r['submissions_24h'],
+                '近1小时/all调用数': r['all_calls_1h'],
+                '数据体积(MB)': r['submission_mb'],
+                '文件体积(MB)': r['file_mb'],
+                '总占用(MB)': r['total_mb'],
+            })
+
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        df = pd.DataFrame(export_rows)
+        output = io.BytesIO()
+
+        if file_format == 'csv':
+            csv_text = df.to_csv(index=False)
+            output.write(csv_text.encode('utf-8-sig'))
+            output.seek(0)
+            filename = f"项目高消耗Top{len(export_rows)}_{sort_by}_{ts}.csv"
+            mime = 'text/csv; charset=utf-8'
+        else:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='top_usage')
+            output.seek(0)
+            filename = f"项目高消耗Top{len(export_rows)}_{sort_by}_{ts}.xlsx"
+            mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+        try:
+            return send_file(output, download_name=filename, as_attachment=True, mimetype=mime)
+        except TypeError:
+            return send_file(output, attachment_filename=filename, as_attachment=True, mimetype=mime)
+    except Exception as e:
+        logger.exception("导出项目高消耗Top失败: %s", e)
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/admin/api/projects/alerts/check', methods=['GET'])
+@admin_required
+def admin_check_project_alerts():
+    """检查特定项目预警"""
+    monitor_task_ids_raw = (request.args.get('task_ids') or os.getenv('PROJECT_ALERT_TASK_IDS', '')).strip()
+    monitor_task_ids = [x.strip() for x in monitor_task_ids_raw.split(',') if x.strip()]
+
+    config = {
+        'all_calls_1h': request.args.get('all_calls_1h', int(os.getenv('PROJECT_ALERT_ALL_CALLS_1H', '800')), type=int),
+        'all_calls_1h_p1': request.args.get('all_calls_1h_p1', int(os.getenv('PROJECT_ALERT_ALL_CALLS_1H_P1', '2000')), type=int),
+        'submissions_24h': request.args.get('submissions_24h', int(os.getenv('PROJECT_ALERT_SUBMISSIONS_24H', '200')), type=int),
+        'total_bytes': request.args.get('total_mb', int(os.getenv('PROJECT_ALERT_TOTAL_MB', '2048')), type=int) * 1024 * 1024,
+    }
+
+    db = SessionLocal()
+    try:
+        rows = get_top_projects(db, limit=500, sort_by='all_calls')
+        if monitor_task_ids:
+            rows = [r for r in rows if r.get('task_id') in monitor_task_ids]
+        alerts = evaluate_project_alerts(rows, config)
+        return jsonify({
+            'success': True,
+            'monitored_task_count': len(rows),
+            'alert_count': len(alerts),
+            'thresholds': {
+                'all_calls_1h': config['all_calls_1h'],
+                'all_calls_1h_p1': config['all_calls_1h_p1'],
+                'submissions_24h': config['submissions_24h'],
+                'total_mb': int(config['total_bytes'] / 1024 / 1024),
+            },
+            'alerts': alerts,
+        })
+    except Exception as e:
+        logger.exception("检查项目预警失败: %s", e)
         return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()

@@ -128,6 +128,16 @@ class Submission(Base):
     submitted_at = Column(DateTime, default=datetime.now)
 
 
+class ApiAccessLog(Base):
+    __tablename__ = 'api_access_log'
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey('task.id', ondelete='CASCADE'), nullable=True)
+    endpoint = Column(String(100), nullable=False)
+    response_bytes = Column(Integer, default=0)
+    client_ip = Column(String(100))
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class AIConfig(Base):
     __tablename__ = 'ai_config'
     id = Column(Integer, primary_key=True)
@@ -505,6 +515,14 @@ def migrate_database(engine):
                     logger.info("成功创建task_like表")
                 except Exception as e:
                     logger.warning(f"创建task_like表失败: {str(e)}")
+
+            # 创建 API 访问日志表（用于 /all 流量预警）
+            if 'api_access_log' not in inspector.get_table_names():
+                try:
+                    ApiAccessLog.__table__.create(bind=engine)
+                    logger.info("成功创建api_access_log表")
+                except Exception as e:
+                    logger.warning(f"创建api_access_log表失败: {str(e)}")
             
             # task 新增协作相关字段
             if task_cols and 'organization_id' not in task_cols:

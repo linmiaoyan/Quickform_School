@@ -1177,6 +1177,37 @@
                     </div>
                     <div class="card-body">
                         <p class="text-muted small mb-3">统计各类接口的 GET 请求次数（自服务启动以来累计，重启后清零）。</p>
+                        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                            <a class="btn btn-sm" style="background-color:#10b981;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='submissions', limit=20, format='xlsx') }}">
+                                导出提交数 Top20
+                            </a>
+                            <a class="btn btn-sm" style="background-color:#3b82f6;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='storage', limit=20, format='xlsx') }}">
+                                导出空间占用 Top20
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="checkProjectAlertsBtn">
+                                检查指定项目预警
+                            </button>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6 col-md-3">
+                                <label class="form-label mb-1 small text-muted">/all 1小时阈值</label>
+                                <input type="number" min="1" class="form-control form-control-sm" id="alertAllCalls1h" placeholder="800">
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label mb-1 small text-muted">/all P1阈值</label>
+                                <input type="number" min="1" class="form-control form-control-sm" id="alertAllCalls1hP1" placeholder="2000">
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label mb-1 small text-muted">24小时提交阈值</label>
+                                <input type="number" min="1" class="form-control form-control-sm" id="alertSubmissions24h" placeholder="200">
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label mb-1 small text-muted">总占用阈值(MB)</label>
+                                <input type="number" min="1" class="form-control form-control-sm" id="alertTotalMb" placeholder="2048">
+                            </div>
+                        </div>
+                        <p class="text-muted small mb-2">可在弹窗里输入 task_id（逗号分隔），例如：abc123xyzz,def456lmno</p>
+                        <div id="projectAlertResult" class="small text-muted mb-3"></div>
                         <div class="table-responsive">
                             <table class="table table-striped table-hover">
                                 <thead>
@@ -1702,6 +1733,53 @@
         })
         .catch(() => alert('设置失败：网络错误'));
     }
+
+    (function initProjectAlertCheck() {
+        const btn = document.getElementById('checkProjectAlertsBtn');
+        const box = document.getElementById('projectAlertResult');
+        const allCalls1hInput = document.getElementById('alertAllCalls1h');
+        const allCalls1hP1Input = document.getElementById('alertAllCalls1hP1');
+        const submissions24hInput = document.getElementById('alertSubmissions24h');
+        const totalMbInput = document.getElementById('alertTotalMb');
+        if (!btn || !box) return;
+
+        btn.addEventListener('click', function() {
+            const taskIds = window.prompt('请输入要监控的 task_id（逗号分隔，留空则按环境变量配置）', '');
+            if (taskIds === null) return;
+            const params = new URLSearchParams();
+            params.set('task_ids', taskIds.trim());
+            if (allCalls1hInput && allCalls1hInput.value.trim()) params.set('all_calls_1h', allCalls1hInput.value.trim());
+            if (allCalls1hP1Input && allCalls1hP1Input.value.trim()) params.set('all_calls_1h_p1', allCalls1hP1Input.value.trim());
+            if (submissions24hInput && submissions24hInput.value.trim()) params.set('submissions_24h', submissions24hInput.value.trim());
+            if (totalMbInput && totalMbInput.value.trim()) params.set('total_mb', totalMbInput.value.trim());
+            const url = '{{ url_for("quickform.admin_check_project_alerts") }}' + '?' + params.toString();
+            box.className = 'small text-muted mb-3';
+            box.textContent = '正在检查预警...';
+            fetch(url, { credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data || !data.success) {
+                        box.className = 'small text-danger mb-3';
+                        box.textContent = (data && data.message) ? data.message : '检查失败';
+                        return;
+                    }
+                    if (!data.alert_count) {
+                        box.className = 'small text-success mb-3';
+                        box.textContent = '检查完成：当前未触发预警。';
+                        return;
+                    }
+                    const summary = data.alerts.map(function(a) {
+                        return '[' + (a.level || 'P2') + '] ' + a.task_title + '(' + a.task_id + '): ' + (a.reasons || []).join('；');
+                    }).join('\n');
+                    box.className = 'small text-danger mb-3';
+                    box.textContent = '检查完成，触发 ' + data.alert_count + ' 条预警：\n' + summary;
+                })
+                .catch(() => {
+                    box.className = 'small text-danger mb-3';
+                    box.textContent = '检查失败：网络错误';
+                });
+        });
+    })();
 </script>
 {% endblock %}
 {% endblock %}
