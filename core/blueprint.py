@@ -2538,6 +2538,28 @@ def submit_form(task_id):
         db.close()
 
 
+# 限流日志写入 task.rate_limit_log：MySQL TEXT 仅约 64KB，拼接过长会报 Data too long。
+# 迁移后可为 MEDIUMTEXT，仍限制单行体积，只保留尾部（最新记录）。
+RATE_LIMIT_LOG_MAX_BYTES = 512 * 1024
+
+
+def _truncate_utf8_tail(s: str, max_bytes: int) -> str:
+    if not s or max_bytes <= 0:
+        return s or ''
+    b = s.encode('utf-8')
+    if len(b) <= max_bytes:
+        return s
+    b = b[-max_bytes:]
+    while b and (b[0] & 0xC0) == 0x80:
+        b = b[1:]
+    return b.decode('utf-8', errors='ignore')
+
+
+def _append_rate_limit_log(existing: str, log_entry: str) -> str:
+    combined = (existing + '\n' + log_entry) if existing else log_entry
+    return _truncate_utf8_tail(combined, RATE_LIMIT_LOG_MAX_BYTES)
+
+
 def _rate_limit_response(task_id, client_ip, ts, db):
     if db:
         task = db.query(Task).filter_by(task_id=task_id).first()
@@ -2545,10 +2567,7 @@ def _rate_limit_response(task_id, client_ip, ts, db):
             notice = f"IP {client_ip} 在 {SUBMIT_RATE_LIMIT_WINDOW}s 内多次提交，已暂时封禁 {SUBMIT_BLACKLIST_DURATION // 60} 分钟"
             log_entry = f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] {notice}"
             existing = task.rate_limit_log or ''
-            if existing:
-                task.rate_limit_log = existing + '\n' + log_entry
-            else:
-                task.rate_limit_log = log_entry
+            task.rate_limit_log = _append_rate_limit_log(existing, log_entry)
             try:
                 db.commit()
             except Exception as e:

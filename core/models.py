@@ -575,6 +575,16 @@ def migrate_database(engine):
                     logger.info("成功为task添加tutorial_link字段（教程/提示词链接）")
                 except Exception as e:
                     logger.warning(f"添加tutorial_link失败（可能已存在）: {str(e)}")
+
+            # task.rate_limit_log：限流日志持续拼接会超过 MySQL TEXT(64KB)，升级为 MEDIUMTEXT
+            if task_cols and 'rate_limit_log' in task_cols:
+                dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                if dialect == 'mysql':
+                    try:
+                        conn.execute(text("ALTER TABLE task MODIFY COLUMN rate_limit_log MEDIUMTEXT"))
+                        logger.info("成功将 task.rate_limit_log 升级为 MEDIUMTEXT")
+                    except Exception as e:
+                        logger.warning(f"升级 rate_limit_log 为 MEDIUMTEXT 失败（可能已升级）: {str(e)}")
             
             # ai_config 新增更多模型字段
             for col_name in ['moonshot_api_key', 'glm_api_key', 'ernie_api_key', 'ernie_secret_key', 'openrouter_api_key']:
