@@ -855,31 +855,6 @@
                         </div>
                         {% if cert_requests %}
                         {% include 'partials/cert_material_preview_styles.html' %}
-                        {% set cert_pending_preview = cert_requests | selectattr('status','equalto',0) | selectattr('file_path') | list %}
-                        {% if cert_pending_preview %}
-                        <div class="card mb-3 border-primary border-opacity-25">
-                            <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-                                <strong>本页待审核 · 材料速览</strong>
-                                <span class="text-muted small">教资等一目了然可下方勾选「批量通过」。点击预览在新标签打开原文件。</span>
-                            </div>
-                            <div class="card-body py-3">
-                                <div class="cert-gallery-strip">
-                                    {% for req in cert_pending_preview %}
-                                    <div class="cert-gallery-item" id="cert-gallery-{{ req.id }}">
-                                        {% with cert_req=req, size='lg' %}{% include 'partials/cert_material_preview.html' %}{% endwith %}
-                                        <div class="cert-meta">
-                                            <div class="fw-semibold text-truncate" title="{{ req.user.username if req.user else '' }}">{{ req.user.username if req.user else translate('admin.unknown_user') }}</div>
-                                            <div class="text-muted text-truncate small" title="{{ req.user.school if req.user else '' }}">{{ req.user.school if req.user else '-' }}</div>
-                                            <div class="small text-muted mt-1">{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
-                                            <a class="btn btn-sm btn-outline-primary mt-2 cert-material-link" href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank" rel="noopener">放大查看</a>
-                                            <a href="#cert-row-{{ req.id }}" class="small text-muted text-decoration-none d-block mt-1">在列表中定位</a>
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
                         {% set has_pending_cert = (cert_requests | selectattr('status','equalto',0) | list | length) > 0 %}
                         {% set cert_page_material_count = cert_requests | selectattr('status','equalto',0) | selectattr('file_path') | list | length %}
                         <form id="certBatchForm" method="POST" action="{{ url_for('quickform.admin_cert_batch_approve') }}">
