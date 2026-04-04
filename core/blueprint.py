@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 import logging
 from functools import wraps
 from collections import deque
-from typing import Deque
+from typing import Deque, Optional
 import time
 import smtplib
 from email.mime.text import MIMEText
@@ -2346,7 +2346,7 @@ def _cert_apply_reject(db, cert_request, reviewer_user_id, note=''):
     return True, 'ok'
 
 
-def _cli_login_throttle_reject_if_blocked(request, login_name: str | None):
+def _cli_login_throttle_reject_if_blocked(request, login_name: Optional[str]):
     """CLI 撞库/暴力尝试防护：与网页登录共用 login_throttle。在验证密码前调用。
     命中限流时返回 (response, 429)，否则 None。"""
     name = (login_name or '').strip() or None
@@ -2365,12 +2365,12 @@ def _cli_login_throttle_reject_if_blocked(request, login_name: str | None):
     )
 
 
-def _cli_record_credential_failure(request, login_name: str | None):
+def _cli_record_credential_failure(request, login_name: Optional[str]):
     """CLI 用户名/密码校验失败（含管理员凭据错误、普通用户密码错误）。"""
     record_login_failure(request, (login_name or '').strip() or None)
 
 
-def _cli_clear_credential_throttle(request, login_name: str | None):
+def _cli_clear_credential_throttle(request, login_name: Optional[str]):
     """CLI 凭据校验成功后清理限流计数（与网页登录成功一致）。"""
     clear_login_throttle(request, (login_name or '').strip() or None)
 
