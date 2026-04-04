@@ -3,6 +3,7 @@
 {% block title %}教师认证{{ translate('admin.audit') }} - QuickForm{% endblock %}
 
 {% block content %}
+{% include 'partials/cert_material_preview_styles.html' %}
 <div class="row">
     <div class="col-md-12">
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -13,6 +14,32 @@
         <div class="alert alert-primary mb-4">
             <strong>待{{ translate('admin.audit') }}教师认证：</strong> {{ pending_cert_count }}
         </div>
+
+        {% set pending_preview = cert_requests | selectattr('status', 'equalto', 0) | selectattr('file_path') | list %}
+        {% if pending_preview %}
+        <div class="card mb-4 border-primary border-opacity-25">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <strong>本页待审核 · 材料速览</strong>
+                <span class="text-muted small">图片为缩略图；PDF 为首页预览。点击整块区域在新标签打开原文件。</span>
+            </div>
+            <div class="card-body">
+                <div class="cert-gallery-strip">
+                    {% for req in pending_preview %}
+                    <div class="cert-gallery-item" id="cert-gallery-{{ req.id }}">
+                        {% with cert_req=req, size='lg' %}{% include 'partials/cert_material_preview.html' %}{% endwith %}
+                        <div class="cert-meta">
+                            <div class="fw-semibold text-truncate" title="{{ req.user.username if req.user else '' }}">{{ req.user.username if req.user else translate('admin.unknown_user') }}</div>
+                            <div class="text-muted text-truncate small" title="{{ req.user.school if req.user else '' }}">{{ req.user.school if req.user else '-' }}</div>
+                            <div class="small text-muted mt-1">{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                            <a class="btn btn-sm btn-outline-primary mt-2 cert-material-link" href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank" rel="noopener">放大查看</a>
+                            <a href="#cert-row-{{ req.id }}" class="small text-muted text-decoration-none d-block mt-1">在列表中定位</a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         {% set page_material_count = cert_requests | selectattr('status', 'equalto', 0) | selectattr('file_path') | list | length %}
         <div class="d-flex justify-content-end mb-3">
@@ -48,7 +75,7 @@
                         </thead>
                         <tbody>
                             {% for req in cert_requests %}
-                            <tr>
+                            <tr id="cert-row-{{ req.id }}">
                                 <td>{{ req.user.username if req.user else translate('admin.unknown_user') }}</td>
                                 <td>{{ req.user.school if req.user else '-' }}</td>
                                 <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
@@ -71,16 +98,12 @@
                                 <td>
                                     {% if req.file_path %}
                                     <div class="d-flex flex-wrap align-items-center gap-2">
-                                        {% set _ext = (req.file_path|lower).split('.')[-1] if '.' in (req.file_path|lower) else '' %}
-                                        {% if _ext in ['jpg', 'jpeg', 'png', 'gif', 'webp'] %}
-                                        <a href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank" class="d-inline-block text-decoration-none">
-                                            <img src="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" alt="证明{{ translate('admin.materials') }}" class="rounded border" style="max-width: 48px; max-height: 48px; object-fit: cover;">
-                                        </a>
-                                        {% endif %}
+                                        {% with cert_req=req, size='sm' %}{% include 'partials/cert_material_preview.html' %}{% endwith %}
                                         <a
                                             class="btn btn-sm btn-outline-primary {% if req.status == 0 %}cert-material-link{% endif %}"
                                             href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}"
                                             target="_blank"
+                                            rel="noopener"
                                         >查看{{ translate('admin.materials') }}</a>
                                     </div>
                                     {% else %}

@@ -71,6 +71,55 @@ def _is_placeholder_or_empty_email(email):
     return (email or '').strip().endswith('@noreply.local')
 
 
+_USER_EMAIL_FORMAT_RE = re.compile(r'^[^@]+@[^@]+\.[^@]+$')
+
+
+def _normalize_admin_set_email(email_raw):
+    """管理员设置用户邮箱：格式校验。返回 (email|None, 错误说明|None)。"""
+    email = (email_raw or '').strip()
+    if not email:
+        return None, '邮箱不能为空'
+    if not _USER_EMAIL_FORMAT_RE.match(email):
+        return None, '邮箱格式不正确'
+    return email, None
+
+
+def _admin_apply_user_email_change(db, target_user, acting_user, new_email_raw):
+    """
+    在已打开的 db session 中修改目标用户邮箱（不 commit）。
+    返回 (False, err_msg) 失败；(True, 'unchanged') 未改；(True, None) 已修改待 commit。
+    """
+    if not target_user or not acting_user:
+        return False, '用户不存在'
+    if target_user.id == acting_user.id:
+        return False, '不能修改自己的邮箱，请在个人资料中修改'
+    new_email, fmt_err = _normalize_admin_set_email(new_email_raw)
+    if fmt_err:
+        return False, fmt_err
+    old = (target_user.email or '').strip()
+    if old == new_email:
+        return True, 'unchanged'
+    if db.query(User).filter(User.email == new_email, User.id != target_user.id).first():
+        return False, '该邮箱已被其他账号使用'
+    target_user.email = new_email
+    target_user.email_verified = False
+    return True, None
+
+
+def _email_requirement_block_for_next_task(db, user, task_count):
+    """非管理员在已有至少 1 个任务时再创建新项目，须绑定真实邮箱并完成验证（第二个任务起）。"""
+    if user.is_admin() or task_count < 1:
+        return None
+    refreshed_user = db.get(User, user.id)
+    if not refreshed_user:
+        return 'bind_email'
+    if _is_placeholder_or_empty_email(refreshed_user.email):
+        return 'bind_email'
+    if not getattr(refreshed_user, 'email_verified', True):
+        return 'verify_email'
+    return None
+
+
 # 简单的邮箱验证码存储（开发环境用，生产建议换成 Redis）
 EMAIL_CODE_STORE = {}
 
@@ -1114,15 +1163,13 @@ def oneclick_create_task():
         if not current_user.is_admin() and not current_user.can_create_task(SessionLocal, Task):
             flash('您已达到任务数量上限，无法创建新任务。', 'warning')
             return redirect(url_for('quickform.dashboard'))
-        refreshed_user = db.get(User, current_user.id)
-        # 超过 3 个任务时才要求先绑定并验证邮箱
-        if task_count >= 3:
-            if _is_placeholder_or_empty_email(refreshed_user.email):
-                flash('创建更多数据任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
-                return redirect(url_for('quickform.profile', next=url_for('quickform.oneclick_create_task')))
-            if not getattr(refreshed_user, 'email_verified', True):
-                flash('创建更多数据任务前请先验证邮箱。', 'warning')
-                return redirect(url_for('quickform.verify_email', next=url_for('quickform.oneclick_create_task')))
+        block = _email_requirement_block_for_next_task(db, current_user, task_count)
+        if block == 'bind_email':
+            flash('创建第二个及后续任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
+            return redirect(url_for('quickform.profile', next=url_for('quickform.oneclick_create_task')))
+        if block == 'verify_email':
+            flash('创建第二个及后续任务前请先验证邮箱。', 'warning')
+            return redirect(url_for('quickform.verify_email', next=url_for('quickform.oneclick_create_task')))
         # 创建新任务以得到 task_id 与 API 地址
         task = Task(title=title, description='', user_id=current_user.id, sharing_type='private')
         db.add(task)
@@ -1194,16 +1241,13 @@ def create_task():
                 task_limit = current_user.task_limit if current_user.task_limit != -1 else "无限制"
                 flash(f'您已达到任务数量上限（{task_limit}个，当前{task_count}个）。如需创建更多任务，请在右上角个人中心申请教师认证', 'warning')
                 return redirect(url_for('quickform.dashboard'))
-            # 超过 3 个任务时需先绑定邮箱并验证
-            refreshed_user = db.get(User, current_user.id)
-            if task_count >= 3:
-                email_verified = getattr(refreshed_user, 'email_verified', True)
-                if _is_placeholder_or_empty_email(refreshed_user.email):
-                    flash('创建更多数据任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
-                    return redirect(url_for('quickform.profile', next=url_for('quickform.create_task')))
-                if not email_verified:
-                    flash('创建更多数据任务前请先验证邮箱。', 'warning')
-                    return redirect(url_for('quickform.verify_email', next=url_for('quickform.create_task')))
+            block = _email_requirement_block_for_next_task(db, current_user, task_count)
+            if block == 'bind_email':
+                flash('创建第二个及后续任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
+                return redirect(url_for('quickform.profile', next=url_for('quickform.create_task')))
+            if block == 'verify_email':
+                flash('创建第二个及后续任务前请先验证邮箱。', 'warning')
+                return redirect(url_for('quickform.verify_email', next=url_for('quickform.create_task')))
         
         if request.method == 'POST':
             title = request.form.get('title')
@@ -2264,6 +2308,90 @@ def _mcp_authenticate(username, password):
         db.close()
 
 
+def _cert_apply_approve(db, cert_request, reviewer_user_id, note=''):
+    """教师认证「通过」：与网页管理员审核逻辑一致（单条，未 commit）。"""
+    user = cert_request.user
+    if not user:
+        return False, 'no_applicant'
+    if cert_request.status == 1:
+        return True, 'already_approved'
+    note = (note or '').strip()
+    cert_request.status = 1
+    cert_request.reviewed_at = datetime.now()
+    cert_request.reviewed_by = reviewer_user_id
+    cert_request.review_note = note
+    user.is_certified = True
+    user.certified_at = datetime.now()
+    user.certification_note = note
+    if user.task_limit != -1:
+        user.task_limit = -1
+    pending_tasks = db.query(Task).filter(Task.user_id == user.id, Task.html_approved != 1).all()
+    for task in pending_tasks:
+        task.html_approved = 1
+        task.html_approved_by = reviewer_user_id
+        task.html_approved_at = datetime.now()
+        task.html_review_note = None
+    return True, 'ok'
+
+
+def _cert_apply_reject(db, cert_request, reviewer_user_id, note=''):
+    """教师认证「拒绝」：与网页管理员审核逻辑一致（单条，未 commit）。"""
+    if cert_request.status == -1:
+        return True, 'already_rejected'
+    note = (note or '').strip()
+    cert_request.status = -1
+    cert_request.reviewed_at = datetime.now()
+    cert_request.reviewed_by = reviewer_user_id
+    cert_request.review_note = note
+    return True, 'ok'
+
+
+def _cli_login_throttle_reject_if_blocked(request, login_name: str | None):
+    """CLI 撞库/暴力尝试防护：与网页登录共用 login_throttle。在验证密码前调用。
+    命中限流时返回 (response, 429)，否则 None。"""
+    name = (login_name or '').strip() or None
+    blocked, retry_after = login_blocked(request, name)
+    if not blocked:
+        return None
+    minutes = max(1, (retry_after + 59) // 60)
+    return (
+        jsonify({
+            'success': False,
+            'error': 'rate_limit',
+            'message': f'尝试过于频繁，请约 {minutes} 分钟后再试',
+            'retry_after': retry_after,
+        }),
+        429,
+    )
+
+
+def _cli_record_credential_failure(request, login_name: str | None):
+    """CLI 用户名/密码校验失败（含管理员凭据错误、普通用户密码错误）。"""
+    record_login_failure(request, (login_name or '').strip() or None)
+
+
+def _cli_clear_credential_throttle(request, login_name: str | None):
+    """CLI 凭据校验成功后清理限流计数（与网页登录成功一致）。"""
+    clear_login_throttle(request, (login_name or '').strip() or None)
+
+
+def _cli_require_admin(data):
+    """CLI 管理员校验：返回 (admin_user, None) 或 (None, (jsonify_err, status))。"""
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    if not username or not password:
+        return None, (jsonify({'success': False, 'message': '缺少 username 或 password'}), 400)
+    rej = _cli_login_throttle_reject_if_blocked(request, username)
+    if rej:
+        return None, rej
+    user = _mcp_authenticate(username, password)
+    if not user or not user.is_admin():
+        _cli_record_credential_failure(request, username)
+        return None, (jsonify({'success': False, 'message': '权限不足或管理员凭据错误'}), 403)
+    _cli_clear_credential_throttle(request, username)
+    return user, None
+
+
 @quickform_bp.route('/cli/add', methods=['POST'])
 @quickform_bp.route('/mcp/add', methods=['POST'])
 def cli_add_task():
@@ -2283,17 +2411,35 @@ def cli_add_task():
     if not task_name:
         return jsonify({'success': False, 'message': '缺少 task_name（任务名称）'}), 400
 
+    rej = _cli_login_throttle_reject_if_blocked(request, username)
+    if rej:
+        return rej
     user = _mcp_authenticate(username, password)
     if not user:
+        _cli_record_credential_failure(request, username)
         return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
+    _cli_clear_credential_throttle(request, username)
 
     db = SessionLocal()
     try:
+        task_count = db.query(Task).filter_by(user_id=user.id).count()
         if not user.can_create_task(SessionLocal, Task):
-            task_count = db.query(Task).filter_by(user_id=user.id).count()
             return jsonify({
                 'success': False,
                 'message': f'已达任务数量上限（当前 {task_count} 个），无法创建新任务'
+            }), 403
+        block = _email_requirement_block_for_next_task(db, user, task_count)
+        if block == 'bind_email':
+            return jsonify({
+                'success': False,
+                'code': 'email_not_bound',
+                'message': '创建第二个及后续任务前请先在网站「个人资料」中绑定真实邮箱。',
+            }), 403
+        if block == 'verify_email':
+            return jsonify({
+                'success': False,
+                'code': 'email_not_verified',
+                'message': '创建第二个及后续任务前请先完成邮箱验证（网站内「验证邮箱」页面）。',
             }), 403
         task = Task(title=task_name, description=task_intro or None, user_id=user.id)
         db.add(task)
@@ -2303,6 +2449,306 @@ def cli_add_task():
     except Exception as e:
         db.rollback()
         logger.exception('CLI add task failed')
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/cli/reset_user_password', methods=['POST'])
+@quickform_bp.route('/mcp/reset_user_password', methods=['POST'])
+def cli_reset_user_password():
+    """
+    管理员重置指定用户密码（CLI，无 Cookie）。
+    参数：username, password（管理员账号）, new_password（至少 6 字符）,
+         以及 target_username 或 target_user_id（二选一）。
+    """
+    data = _mcp_parse_body()
+    admin_name = (data.get('username') or '').strip()
+    admin_pass = data.get('password') or ''
+    new_password = (data.get('new_password') or '').strip()
+    target_username = (data.get('target_username') or data.get('target') or '').strip()
+    target_user_id = data.get('target_user_id')
+
+    if not admin_name or not admin_pass:
+        return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
+    if not new_password or len(new_password) < 6:
+        return jsonify({'success': False, 'message': 'new_password 长度至少为 6 个字符'}), 400
+    if not target_username and target_user_id is None:
+        return jsonify({'success': False, 'message': '请提供 target_username 或 target_user_id'}), 400
+
+    rej = _cli_login_throttle_reject_if_blocked(request, admin_name)
+    if rej:
+        return rej
+    admin_user = _mcp_authenticate(admin_name, admin_pass)
+    if not admin_user or not admin_user.is_admin():
+        _cli_record_credential_failure(request, admin_name)
+        return jsonify({'success': False, 'message': '权限不足或管理员凭据错误'}), 403
+    _cli_clear_credential_throttle(request, admin_name)
+
+    db = SessionLocal()
+    try:
+        if target_user_id is not None:
+            try:
+                tid = int(target_user_id)
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'target_user_id 无效'}), 400
+            target = db.get(User, tid)
+        else:
+            target = db.query(User).filter(User.username == target_username).first()
+        if not target:
+            return jsonify({'success': False, 'message': '目标用户不存在'}), 404
+        if target.id == admin_user.id:
+            return jsonify({'success': False, 'message': '不能通过此接口重置自己的密码'}), 400
+
+        target.password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+        db.commit()
+        return jsonify({
+            'success': True,
+            'message': '密码已重置',
+            'username': target.username,
+            'user_id': target.id,
+        }), 200
+    except Exception:
+        db.rollback()
+        logger.exception('CLI reset_user_password failed')
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/cli/set_user_email', methods=['POST'])
+@quickform_bp.route('/mcp/set_user_email', methods=['POST'])
+def cli_set_user_email():
+    """
+    管理员修改指定用户邮箱（CLI，无 Cookie）。修改后该用户 email_verified 会置为未验证。
+    参数：username, password（管理员）, new_email, target_username 或 target_user_id（二选一）。
+    """
+    data = _mcp_parse_body()
+    admin_name = (data.get('username') or '').strip()
+    admin_pass = data.get('password') or ''
+    new_email = (data.get('new_email') or '').strip()
+    target_username = (data.get('target_username') or data.get('target') or '').strip()
+    target_user_id = data.get('target_user_id')
+
+    if not admin_name or not admin_pass:
+        return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
+    if not new_email:
+        return jsonify({'success': False, 'message': '缺少 new_email'}), 400
+    if not target_username and target_user_id is None:
+        return jsonify({'success': False, 'message': '请提供 target_username 或 target_user_id'}), 400
+
+    rej = _cli_login_throttle_reject_if_blocked(request, admin_name)
+    if rej:
+        return rej
+    admin_user = _mcp_authenticate(admin_name, admin_pass)
+    if not admin_user or not admin_user.is_admin():
+        _cli_record_credential_failure(request, admin_name)
+        return jsonify({'success': False, 'message': '权限不足或管理员凭据错误'}), 403
+    _cli_clear_credential_throttle(request, admin_name)
+
+    db = SessionLocal()
+    try:
+        actor = db.get(User, admin_user.id)
+        if not actor:
+            return jsonify({'success': False, 'message': '管理员账号异常'}), 500
+        if target_user_id is not None:
+            try:
+                tid = int(target_user_id)
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'target_user_id 无效'}), 400
+            target = db.get(User, tid)
+        else:
+            target = db.query(User).filter(User.username == target_username).first()
+        if not target:
+            return jsonify({'success': False, 'message': '目标用户不存在'}), 404
+
+        ok, code = _admin_apply_user_email_change(db, target, actor, new_email)
+        if not ok:
+            return jsonify({'success': False, 'message': code}), 400
+        if code == 'unchanged':
+            return jsonify({
+                'success': True,
+                'message': '邮箱未变化',
+                'username': target.username,
+                'user_id': target.id,
+                'email': target.email,
+                'email_verified': getattr(target, 'email_verified', False),
+            }), 200
+        db.commit()
+        return jsonify({
+            'success': True,
+            'message': '邮箱已更新，该用户需重新验证邮箱',
+            'username': target.username,
+            'user_id': target.id,
+            'email': target.email,
+            'email_verified': False,
+        }), 200
+    except Exception:
+        db.rollback()
+        logger.exception('CLI set_user_email failed')
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/cli/cert_pending', methods=['POST'])
+@quickform_bp.route('/mcp/cert_pending', methods=['POST'])
+def cli_cert_pending():
+    """
+    管理员：列出待审核的教师认证申请（材料元数据）。
+    参数：username, password, limit（可选，默认 50，最大 200）。
+    下载原文件请用 POST /cli/cert_material（管理员账号 + request_id）。
+    """
+    data = _mcp_parse_body()
+    _admin, err = _cli_require_admin(data)
+    if err:
+        return err
+    limit = data.get('limit', 50)
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 200))
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(CertificationRequest)
+            .filter(CertificationRequest.status == 0)
+            .order_by(CertificationRequest.created_at.asc())
+            .limit(limit)
+            .all()
+        )
+        base = (request.url_root or '').rstrip('/')
+        material_path = url_for('quickform.cli_cert_material')
+        material_url = base + material_path
+        items = []
+        for r in rows:
+            u = r.user
+            fn = (r.file_name or '')
+            fp = (r.file_path or '')
+            ext = ''
+            if fn and '.' in fn:
+                ext = fn.rsplit('.', 1)[-1].lower()
+            elif fp and '.' in fp:
+                ext = os.path.basename(fp).rsplit('.', 1)[-1].lower()
+            items.append({
+                'request_id': r.id,
+                'user_id': r.user_id,
+                'username': u.username if u else None,
+                'school': (u.school if u else None) or '',
+                'phone': (u.phone if u else None) or '',
+                'email': (u.email if u else None) or '',
+                'file_name': r.file_name or '',
+                'file_ext': ext,
+                'has_file': bool(r.file_path and os.path.exists(r.file_path)),
+                'created_at': r.created_at.strftime('%Y-%m-%d %H:%M:%S') if r.created_at else '',
+            })
+        return jsonify({
+            'success': True,
+            'count': len(items),
+            'items': items,
+            'material_hint': '使用相同管理员凭据 POST /cli/cert_material，JSON 字段 request_id 下载对应材料文件。',
+            'material_url': material_url,
+        }), 200
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/cli/cert_material', methods=['POST'])
+@quickform_bp.route('/mcp/cert_material', methods=['POST'])
+def cli_cert_material():
+    """管理员：按 request_id 下载教师认证上传的原始文件（附件形式，便于 curl -o）。"""
+    data = _mcp_parse_body()
+    _admin, err = _cli_require_admin(data)
+    if err:
+        return err
+    rid = data.get('request_id')
+    try:
+        rid_int = int(rid)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '缺少或无效的 request_id'}), 400
+
+    db = SessionLocal()
+    try:
+        cert_request = db.get(CertificationRequest, rid_int)
+        if not cert_request or not cert_request.file_path or not os.path.exists(cert_request.file_path):
+            return jsonify({'success': False, 'message': '认证材料不存在或文件已删除'}), 404
+        filename = os.path.basename(cert_request.file_path)
+        try:
+            return send_file(
+                cert_request.file_path,
+                download_name=filename or 'certification.bin',
+                as_attachment=True,
+            )
+        except TypeError:
+            return send_file(
+                cert_request.file_path,
+                attachment_filename=filename or 'certification.bin',
+                as_attachment=True,
+            )
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/cli/cert_decide', methods=['POST'])
+@quickform_bp.route('/mcp/cert_decide', methods=['POST'])
+def cli_cert_decide():
+    """
+    管理员：通过或拒绝一条待审核的教师认证申请。
+    参数：username, password, request_id, action（approve 或 reject）, note（可选，备注）。
+    """
+    data = _mcp_parse_body()
+    admin, err = _cli_require_admin(data)
+    if err:
+        return err
+    rid = data.get('request_id')
+    action = (data.get('action') or '').strip().lower()
+    note = (data.get('note') or '').strip()
+    try:
+        rid_int = int(rid)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '缺少或无效的 request_id'}), 400
+    if action not in ('approve', 'reject'):
+        return jsonify({'success': False, 'message': 'action 须为 approve 或 reject'}), 400
+
+    db = SessionLocal()
+    try:
+        cert_request = db.get(CertificationRequest, rid_int)
+        if not cert_request:
+            return jsonify({'success': False, 'message': '认证申请不存在'}), 404
+        if cert_request.status != 0:
+            return jsonify({
+                'success': False,
+                'message': '该申请已处理，非待审核状态',
+                'status': cert_request.status,
+            }), 409
+
+        applicant = cert_request.user
+        if action == 'approve':
+            ok, _code = _cert_apply_approve(db, cert_request, admin.id, note)
+            if not ok:
+                return jsonify({'success': False, 'message': '无法通过（申请人数据异常）'}), 400
+            db.commit()
+            return jsonify({
+                'success': True,
+                'message': '已通过该教师认证申请',
+                'request_id': cert_request.id,
+                'username': applicant.username if applicant else None,
+                'user_id': applicant.id if applicant else None,
+            }), 200
+
+        _cert_apply_reject(db, cert_request, admin.id, note)
+        db.commit()
+        return jsonify({
+            'success': True,
+            'message': '已拒绝该认证申请',
+            'request_id': cert_request.id,
+            'username': applicant.username if applicant else None,
+        }), 200
+    except Exception:
+        db.rollback()
+        logger.exception('CLI cert_decide failed')
         return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
@@ -2323,9 +2769,14 @@ def cli_list_tasks():
     if not username or not password:
         return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
 
+    rej = _cli_login_throttle_reject_if_blocked(request, username)
+    if rej:
+        return rej
     user = _mcp_authenticate(username, password)
     if not user:
+        _cli_record_credential_failure(request, username)
         return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
+    _cli_clear_credential_throttle(request, username)
 
     db = SessionLocal()
     try:
@@ -2353,10 +2804,15 @@ def cli_upload_html():
         _upload_auth_record_failure(client_key)
         return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
 
+    rej = _cli_login_throttle_reject_if_blocked(request, username)
+    if rej:
+        return rej
     user = _mcp_authenticate(username, password)
     if not user:
+        _cli_record_credential_failure(request, username)
         _upload_auth_record_failure(client_key)
         return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
+    _cli_clear_credential_throttle(request, username)
     _upload_auth_clear_failures(client_key)
 
     file = request.files.get('file')
@@ -4306,6 +4762,49 @@ def admin_reset_password():
     finally:
         db.close()
 
+
+@quickform_bp.route('/admin/users/<int:user_id>/set_email', methods=['POST'])
+@admin_required
+def admin_set_user_email(user_id):
+    """管理员修改用户登录/通知邮箱；修改后该用户需重新验证邮箱。"""
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        new_email = (payload.get('new_email') or '').strip()
+    else:
+        new_email = (request.form.get('new_email') or '').strip()
+
+    db = SessionLocal()
+    try:
+        target = db.get(User, user_id)
+        if not target:
+            return jsonify({'success': False, 'message': '用户不存在'}), 404
+        actor = db.get(User, current_user.id)
+        ok, code = _admin_apply_user_email_change(db, target, actor, new_email)
+        if not ok:
+            return jsonify({'success': False, 'message': code}), 400
+        if code == 'unchanged':
+            return jsonify({
+                'success': True,
+                'message': '邮箱未变化',
+                'email': target.email,
+                'email_verified': getattr(target, 'email_verified', False),
+            }), 200
+        db.commit()
+        return jsonify({
+            'success': True,
+            'message': '邮箱已更新，该用户需重新验证邮箱',
+            'username': target.username,
+            'email': target.email,
+            'email_verified': False,
+        }), 200
+    except Exception as e:
+        db.rollback()
+        logger.exception("管理员修改用户邮箱失败: %s", e)
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/admin/delete_user/<int:user_id>', methods=['POST'])
 @admin_required
 def admin_delete_user(user_id):
@@ -5099,24 +5598,10 @@ def admin_handle_certification(request_id):
                 flash('该认证申请已通过审核', 'info')
                 return redirect(url_for('quickform.admin_panel', tab='cert-review'))
 
-            cert_request.status = 1
-            cert_request.reviewed_at = datetime.now()
-            cert_request.reviewed_by = current_user.id
-            cert_request.review_note = note
-
-            user.is_certified = True
-            user.certified_at = datetime.now()
-            user.certification_note = note
-            if user.task_limit != -1:
-                user.task_limit = -1
-
-            # 自动通过该用户所有待审核的HTML任务
-            pending_tasks = db.query(Task).filter(Task.user_id == user.id, Task.html_approved != 1).all()
-            for task in pending_tasks:
-                task.html_approved = 1
-                task.html_approved_by = current_user.id
-                task.html_approved_at = datetime.now()
-                task.html_review_note = None
+            ok, code = _cert_apply_approve(db, cert_request, current_user.id, note)
+            if not ok:
+                flash('无法处理该认证申请（申请人数据异常）。', 'danger')
+                return redirect(url_for('quickform.admin_panel', tab='cert-review'))
 
             db.commit()
             flash(f'已通过 {user.username} 的认证申请，任务上限已调整为无限制。', 'success')
@@ -5125,10 +5610,7 @@ def admin_handle_certification(request_id):
                 flash('该认证申请已被拒绝', 'info')
                 return redirect(url_for('quickform.admin_panel', tab='cert-review'))
 
-            cert_request.status = -1
-            cert_request.reviewed_at = datetime.now()
-            cert_request.reviewed_by = current_user.id
-            cert_request.review_note = note
+            _cert_apply_reject(db, cert_request, current_user.id, note)
             db.commit()
             flash('已拒绝该认证申请。', 'warning')
         else:
