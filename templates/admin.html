@@ -1255,25 +1255,46 @@
 
             <!-- /all 加额审核 -->
             <div class="tab-pane fade {{ 'show active' if current_tab == 'quota-review' else '' }}" id="quota-review" role="tabpanel">
-                <div class="card mb-4">
-                    <div class="card-header">
+                <div class="card mb-4 quota-review-pending">
+                    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
                         <h5 class="mb-0" style="color: white;">待审核</h5>
+                        <span class="small" style="color: rgba(255,255,255,0.85);">勾选后可批量批复（所选记录使用相同加额/备注）</span>
+                    </div>
+                    <form id="quotaBatchApproveForm" method="post" action="{{ url_for('quickform.admin_task_quota_batch_approve') }}" class="d-none" aria-hidden="true"></form>
+                    <form id="quotaBatchRejectForm" method="post" action="{{ url_for('quickform.admin_task_quota_batch_reject') }}" class="d-none" aria-hidden="true"></form>
+                    <div class="p-2 border-bottom bg-light d-flex flex-wrap align-items-center gap-2 small">
+                        <div class="form-check mb-0 flex-shrink-0">
+                            <input type="checkbox" class="form-check-input" id="quotaPendingSelectAll" title="全选本页待审核">
+                            <label class="form-check-label text-muted" for="quotaPendingSelectAll">全选</label>
+                        </div>
+                        <span class="text-muted">批量</span>
+                        <input type="number" name="granted_extra_reads" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:5rem;" min="0" placeholder="+次" title="每条通过记录增加的次数">
+                        <input type="number" name="granted_extra_mb" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:5rem;" min="0" placeholder="+MB" title="每条通过记录增加的 MB">
+                        <input type="text" name="review_note" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:8rem;max-width:28vw;" placeholder="通过备注(可选)">
+                        <button type="submit" form="quotaBatchApproveForm" class="btn btn-sm btn-success">批量通过并加额</button>
+                        <span class="text-muted px-1">|</span>
+                        <input type="text" name="review_note" form="quotaBatchRejectForm" class="form-control form-control-sm" style="width:8rem;max-width:28vw;" placeholder="拒绝原因(可选)">
+                        <button type="submit" form="quotaBatchRejectForm" class="btn btn-sm btn-outline-secondary">批量拒绝</button>
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
                             <table class="table table-hover mb-0 small">
                                 <thead class="table-light">
                                     <tr>
+                                        <th style="width:2.25rem;" class="text-center"></th>
                                         <th>任务</th>
                                         <th>申请人</th>
                                         <th>时间</th>
                                         <th>备注</th>
-                                        <th style="min-width: 280px;">批复</th>
+                                        <th style="min-width: 240px;">批复</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="quotaReviewPendingBody">
                                     {% for r in quota_requests_pending %}
                                     <tr>
+                                        <td class="text-center align-middle">
+                                            <input type="checkbox" class="form-check-input quota-req-check" value="{{ r.id }}" aria-label="选中申请 {{ r.id }}">
+                                        </td>
                                         <td>
                                             {% if r.task %}<a href="{{ url_for('quickform.task_detail', task_id=r.task.id) }}" target="_blank" rel="noopener">{{ r.task.title }}</a>
                                             <div class="text-muted" style="font-size:0.75rem;">{{ r.task.task_id }}</div>{% else %}—{% endif %}
@@ -1281,31 +1302,24 @@
                                         <td>{% if r.applicant %}{{ r.applicant.username }}{% else %}—{% endif %}</td>
                                         <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>
                                         <td style="max-width:200px;word-break:break-word;">{{ r.applicant_note or '—' }}</td>
-                                        <td>
-                                            <form method="post" action="{{ url_for('quickform.admin_task_quota_approve', req_id=r.id) }}" class="row g-1 align-items-end mb-1">
-                                                <div class="col-4">
-                                                    <label class="form-label mb-0 text-muted" style="font-size:0.7rem;">+次数</label>
-                                                    <input type="number" name="granted_extra_reads" class="form-control form-control-sm" min="0" placeholder="例如 2000">
-                                                </div>
-                                                <div class="col-4">
-                                                    <label class="form-label mb-0 text-muted" style="font-size:0.7rem;">+MB</label>
-                                                    <input type="number" name="granted_extra_mb" class="form-control form-control-sm" min="0" placeholder="例如 100">
-                                                </div>
-                                                <div class="col-12">
-                                                    <input type="text" name="review_note" class="form-control form-control-sm mb-1" placeholder="管理员备注（可选）">
-                                                </div>
-                                                <div class="col-12 d-flex gap-1 flex-wrap">
-                                                    <button type="submit" class="btn btn-sm btn-success">通过并加额</button>
-                                                </div>
-                                            </form>
-                                            <form method="post" action="{{ url_for('quickform.admin_task_quota_reject', req_id=r.id) }}" onsubmit="return confirm('确定拒绝该申请？');" class="mt-1">
-                                                <input type="text" name="review_note" class="form-control form-control-sm mb-1" placeholder="拒绝原因（可选）">
-                                                <button type="submit" class="btn btn-sm btn-outline-secondary">拒绝</button>
-                                            </form>
+                                        <td class="py-2 align-middle">
+                                            <div class="d-flex flex-wrap align-items-center gap-1">
+                                                <form method="post" action="{{ url_for('quickform.admin_task_quota_approve', req_id=r.id) }}" class="d-flex flex-wrap align-items-center gap-1 mb-0">
+                                                    <input type="number" name="granted_extra_reads" class="form-control form-control-sm qf-quota-inp" min="0" placeholder="+次" title="+次数" aria-label="+次数">
+                                                    <input type="number" name="granted_extra_mb" class="form-control form-control-sm qf-quota-inp" min="0" placeholder="+MB" title="+MB" aria-label="+MB">
+                                                    <input type="text" name="review_note" class="form-control form-control-sm qf-quota-note" placeholder="备注" title="管理员备注（可选）">
+                                                    <button type="submit" class="btn btn-sm btn-success flex-shrink-0">通过</button>
+                                                </form>
+                                                <span class="text-muted user-select-none flex-shrink-0">|</span>
+                                                <form method="post" action="{{ url_for('quickform.admin_task_quota_reject', req_id=r.id) }}" class="d-flex flex-wrap align-items-center gap-1 mb-0" onsubmit="return confirm('确定拒绝该申请？');">
+                                                    <input type="text" name="review_note" class="form-control form-control-sm qf-quota-reject-note" placeholder="拒因" title="拒绝原因（可选）">
+                                                    <button type="submit" class="btn btn-sm btn-outline-secondary flex-shrink-0">拒绝</button>
+                                                </form>
+                                            </div>
                                         </td>
                                     </tr>
                                     {% else %}
-                                    <tr><td colspan="5" class="text-center text-muted py-4">暂无待审核申请</td></tr>
+                                    <tr><td colspan="6" class="text-center text-muted py-4">暂无待审核申请</td></tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
@@ -1405,6 +1419,20 @@
 }
 #cert-review tr.cert-review-row-selectable:hover {
     background-color: rgba(37, 99, 235, 0.06);
+}
+
+/* /all 加额审核：批复列紧凑输入 */
+.quota-review-pending .qf-quota-inp {
+    width: 4.25rem;
+    max-width: 22vw;
+}
+.quota-review-pending .qf-quota-note {
+    width: 6rem;
+    max-width: 26vw;
+}
+.quota-review-pending .qf-quota-reject-note {
+    width: 5rem;
+    max-width: 22vw;
 }
 
 /* 移动端表格优化 */
@@ -1583,8 +1611,67 @@
             }
             updateButton();
         }));
-
         updateButton();
+    })();
+
+    // /all 加额审核：全选与批量批复（勾选 request_ids 注入隐藏域）
+    (function () {
+        var body = document.getElementById('quotaReviewPendingBody');
+        var selectAll = document.getElementById('quotaPendingSelectAll');
+        var formApprove = document.getElementById('quotaBatchApproveForm');
+        var formReject = document.getElementById('quotaBatchRejectForm');
+        if (!body || !selectAll || !formApprove || !formReject) return;
+
+        function getChecks() {
+            return Array.prototype.slice.call(body.querySelectorAll('input.quota-req-check'));
+        }
+
+        function appendSelected(form) {
+            Array.prototype.slice.call(form.querySelectorAll('input[name="request_ids"]')).forEach(function (n) {
+                if (n.parentNode) n.parentNode.removeChild(n);
+            });
+            var checks = getChecks().filter(function (cb) { return cb.checked; });
+            if (!checks.length) {
+                alert('请先勾选待审核申请');
+                return false;
+            }
+            checks.forEach(function (cb) {
+                var h = document.createElement('input');
+                h.type = 'hidden';
+                h.name = 'request_ids';
+                h.value = cb.value;
+                form.appendChild(h);
+            });
+            return true;
+        }
+
+        selectAll.addEventListener('change', function () {
+            var v = this.checked;
+            getChecks().forEach(function (cb) { cb.checked = v; });
+        });
+
+        getChecks().forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                if (!this.checked) {
+                    selectAll.checked = false;
+                } else {
+                    var list = getChecks();
+                    var all = list.length > 0 && list.every(function (x) { return x.checked; });
+                    selectAll.checked = all;
+                }
+            });
+        });
+
+        formApprove.addEventListener('submit', function (e) {
+            if (!appendSelected(formApprove)) e.preventDefault();
+        });
+        formReject.addEventListener('submit', function (e) {
+            if (!appendSelected(formReject)) {
+                e.preventDefault();
+                return;
+            }
+            if (!confirm('确定批量拒绝所选申请？')) e.preventDefault();
+        });
     })();
 
     // 认证审核：点击行（非按钮/链接/复选框）切换勾选，扩大可操作区域

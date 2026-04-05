@@ -4787,6 +4787,96 @@ def admin_task_quota_reject(req_id):
     return redirect(url_for('quickform.admin_panel', tab='quota-review'))
 
 
+@quickform_bp.route('/admin/task_quota_batch_approve', methods=['POST'])
+@admin_required
+def admin_task_quota_batch_approve():
+    """批量通过加额申请（所选记录使用相同的 +次数 / +MB / 备注）"""
+    ids = request.form.getlist('request_ids')
+    extra_reads_raw = (request.form.get('granted_extra_reads') or '0').strip()
+    extra_mb_raw = (request.form.get('granted_extra_mb') or '0').strip()
+    try:
+        er = max(0, int(extra_reads_raw or 0))
+        emb = max(0, int(extra_mb_raw or 0))
+    except ValueError:
+        flash('加额请输入非负整数', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+    if er == 0 and emb == 0:
+        flash('请至少填写一项加额（/all 次数或 MB）', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+    if not ids:
+        flash('请先勾选要通过的申请', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+    rn = (request.form.get('review_note') or '').strip() or None
+    db = SessionLocal()
+    ok = 0
+    try:
+        for sid in ids:
+            try:
+                rid = int(sid)
+            except (ValueError, TypeError):
+                continue
+            req = db.get(TaskQuotaRequest, rid)
+            if not req or req.status != 0:
+                continue
+            task = db.get(Task, req.task_id)
+            if not task:
+                continue
+            task.quota_extra_all_reads = (task.quota_extra_all_reads or 0) + er
+            task.quota_extra_all_bytes = int(task.quota_extra_all_bytes or 0) + emb * 1024 * 1024
+            req.status = 1
+            req.reviewed_at = datetime.now()
+            req.reviewed_by = current_user.id
+            req.granted_extra_reads = er
+            req.granted_extra_mb = emb
+            req.review_note = rn
+            ok += 1
+        db.commit()
+        flash(f'已批量通过 {ok} 条申请（各 +{er} 次 /all、+{emb} MB）', 'success')
+    except Exception as e:
+        db.rollback()
+        logger.exception('admin_task_quota_batch_approve: %s', e)
+        flash('批量处理失败', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+
+
+@quickform_bp.route('/admin/task_quota_batch_reject', methods=['POST'])
+@admin_required
+def admin_task_quota_batch_reject():
+    """批量拒绝加额申请"""
+    ids = request.form.getlist('request_ids')
+    if not ids:
+        flash('请先勾选要拒绝的申请', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+    rn = (request.form.get('review_note') or '').strip() or None
+    db = SessionLocal()
+    ok = 0
+    try:
+        for sid in ids:
+            try:
+                rid = int(sid)
+            except (ValueError, TypeError):
+                continue
+            req = db.get(TaskQuotaRequest, rid)
+            if not req or req.status != 0:
+                continue
+            req.status = -1
+            req.reviewed_at = datetime.now()
+            req.reviewed_by = current_user.id
+            req.review_note = rn
+            ok += 1
+        db.commit()
+        flash(f'已批量拒绝 {ok} 条申请', 'info')
+    except Exception as e:
+        db.rollback()
+        logger.exception('admin_task_quota_batch_reject: %s', e)
+        flash('批量拒绝失败', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+
+
 @quickform_bp.route('/admin/public_approve/<int:task_id>', methods=['POST'])
 @admin_required
 def admin_public_approve(task_id):
