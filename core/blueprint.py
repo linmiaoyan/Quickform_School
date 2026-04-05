@@ -17,7 +17,7 @@ from urllib.parse import unquote_plus, quote as url_quote
 import zipfile
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app
 from sqlalchemy import create_engine, or_, text, func
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, joinedload
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
 from datetime import datetime, timedelta
@@ -37,7 +37,11 @@ from email.mime.text import MIMEText
 from email.utils import formataddr
 
 # 导入分离的模块
-from .models import Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply, Organization, OrganizationMember, TaskShare, TaskLike, ApiAccessLog
+from .models import (
+    Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply,
+    Organization, OrganizationMember, TaskShare, TaskLike, ApiAccessLog, TaskQuotaRequest,
+    SiteQuotaDefault,
+)
 from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
 from .public_errors import MSG_GENERIC, MSG_SERVICE_BUSY, MSG_JSON_BODY, MSG_SAVE_FAILED, MSG_PAGE_LOAD, MSG_API_INTERNAL
 from .login_throttle import login_blocked, record_login_failure, clear_login_throttle
@@ -1497,6 +1501,28 @@ def task_detail(task_id):
                 if share_record and share_record.can_edit:
                     can_edit_task = True
 
+        quota_ui = None
+        can_request_quota_relief = False
+        if can_analyze_export and current_user.is_authenticated:
+            gct = int(getattr(task, "api_task_get_count", None) or 0)
+            act = int(getattr(task, "api_task_all_count", None) or 0)
+            abt = int(getattr(task, "api_task_all_bytes_total", None) or 0)
+            base_r, base_b = _get_site_all_quota_defaults(db)
+            max_r = base_r + int(getattr(task, "quota_extra_all_reads", None) or 0)
+            max_b = base_b + int(getattr(task, "quota_extra_all_bytes", None) or 0)
+            pend = db.query(TaskQuotaRequest).filter_by(task_id=task.id, status=0).first()
+            quota_ui = {
+                "get_count": gct,
+                "all_count": act,
+                "all_bytes": abt,
+                "max_reads": max_r,
+                "max_bytes": max_b,
+                "total_get": gct + act,
+                "pending": pend,
+            }
+            if current_user.is_admin() or task.user_id == current_user.id or can_edit_task:
+                can_request_quota_relief = True
+
         return render_template(
             'task_detail.html',
             task=task,
@@ -1511,10 +1537,52 @@ def task_detail(task_id):
             can_edit_task=can_edit_task,
             can_edit_org_settings=can_edit_org_settings,
             user_liked=user_liked,
-            is_public_visitor=is_public_visitor
+            is_public_visitor=is_public_visitor,
+            quota_ui=quota_ui,
+            can_request_quota_relief=can_request_quota_relief,
         )
     finally:
         db.close()
+
+
+@quickform_bp.route('/task/<int:task_id>/quota_request', methods=['POST'])
+@login_required
+def task_quota_request_submit(task_id):
+    """任务所有者/可编辑协作者/管理员：申请提高 /all 接口额度"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            flash('任务不存在', 'danger')
+            return redirect(url_for('quickform.dashboard'))
+        allowed = current_user.is_admin() or task.user_id == current_user.id
+        if not allowed and task.organization_id:
+            om = db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first()
+            if om and task.organization and getattr(task.organization, "members_can_edit_tasks", False):
+                allowed = True
+        if not allowed:
+            shr = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+            if shr and shr.can_edit:
+                allowed = True
+        if not allowed:
+            flash('无权为该任务提交加额申请', 'danger')
+            return redirect(url_for('quickform.task_detail', task_id=task_id))
+        if db.query(TaskQuotaRequest).filter_by(task_id=task.id, status=0).first():
+            flash('该任务已有待审核的加额申请，请等待管理员处理', 'info')
+            return redirect(url_for('quickform.task_detail', task_id=task_id))
+        note = (request.form.get('applicant_note') or '').strip() or None
+        db.add(TaskQuotaRequest(task_id=task.id, user_id=current_user.id, applicant_note=note, status=0))
+        db.commit()
+        flash('已提交加额申请，管理员审核通过后将增加相应次数与流量额度', 'success')
+    except Exception as e:
+        db.rollback()
+        logger.exception("提交 task quota 申请失败: %s", e)
+        flash('提交失败，请稍后重试', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.task_detail', task_id=task_id))
 
 
 @quickform_bp.route('/task/<int:task_id>/data')
@@ -2219,6 +2287,25 @@ SUBMIT_BLACKLIST_DURATION = 300  # seconds
 
 rate_limit_cache = {}
 
+# 单任务 /all 默认限额兜底（库表 site_quota_default 无记录或异常时使用；正常以管理后台「全局限额默认值」为准）
+_TASK_ALL_READ_FALLBACK = 2000
+_TASK_ALL_BYTES_FALLBACK = 100 * 1024 * 1024
+
+
+def _get_site_all_quota_defaults(db):
+    """读取全站默认：每任务 /all 基础次数与字节上限。有效限额 = 此处返回值 + task.quota_extra_*。"""
+    try:
+        row = db.get(SiteQuotaDefault, 1)
+        if row is not None:
+            r = int(row.default_all_read_limit or 0)
+            b = int(row.default_all_bytes_limit or 0)
+            if r >= 1 and b >= 1024 * 1024:
+                return r, b
+    except Exception as ex:
+        logger.warning("读取全站 /all 默认限额失败: %s", ex)
+    return _TASK_ALL_READ_FALLBACK, _TASK_ALL_BYTES_FALLBACK
+
+
 # ---------- 接口 GET 次数统计（管理员流量预估）----------
 _api_get_counts = {}  # 接口类别 -> GET 次数，如 api_task_get / api_task_all / api_tasks
 _api_counts_lock = threading.Lock()
@@ -2916,6 +3003,15 @@ def submit_form(task_id):
                 'total_submissions': total_count,
                 'submissions': data_list
             })
+            try:
+                db.execute(
+                    text("UPDATE task SET api_task_get_count = COALESCE(api_task_get_count, 0) + 1 WHERE id = :id"),
+                    {"id": task.id},
+                )
+                db.commit()
+            except Exception as cnt_err:
+                db.rollback()
+                logger.warning("api_task_get_count 更新失败: %s", cnt_err)
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -3116,7 +3212,6 @@ def submit_form_all(task_id):
                 })
         
         total_count = len(data_list)
-        _record_api_get('api_task_all')
         response = jsonify({
             'note': f'Total {total_count} submission(s).',
             'task_id': task.task_id,
@@ -3124,18 +3219,79 @@ def submit_form_all(task_id):
             'total_submissions': total_count,
             'submissions': data_list
         })
+        payload_bytes = len(response.get_data())
+        base_r, base_b = _get_site_all_quota_defaults(db)
         try:
-            payload_bytes = len(response.get_data())
-            db.add(ApiAccessLog(
-                task_id=task.id,
-                endpoint='api_task_all',
-                response_bytes=payload_bytes,
-                client_ip=(client_ip or '')[:100],
-            ))
+            upd = db.execute(
+                text("""
+                    UPDATE task SET
+                        api_task_all_count = COALESCE(api_task_all_count, 0) + 1,
+                        api_task_all_bytes_total = COALESCE(api_task_all_bytes_total, 0) + :pb
+                    WHERE id = :tid
+                      AND COALESCE(api_task_all_count, 0) < (:base_r + COALESCE(quota_extra_all_reads, 0))
+                      AND COALESCE(api_task_all_bytes_total, 0) + :pb <= (:base_b + COALESCE(quota_extra_all_bytes, 0))
+                """),
+                {
+                    "tid": task.id,
+                    "pb": payload_bytes,
+                    "base_r": base_r,
+                    "base_b": base_b,
+                },
+            )
+            rc = getattr(upd, "rowcount", None)
+            if rc == 0:
+                db.rollback()
+                row = db.execute(
+                    text(
+                        "SELECT COALESCE(api_task_all_count,0), COALESCE(api_task_all_bytes_total,0), "
+                        "COALESCE(quota_extra_all_reads,0), COALESCE(quota_extra_all_bytes,0) "
+                        "FROM task WHERE id = :id"
+                    ),
+                    {"id": task.id},
+                ).fetchone()
+                if row:
+                    max_r = base_r + int(row[2] or 0)
+                    max_b = base_b + int(row[3] or 0)
+                    reasons = []
+                    if int(row[0] or 0) >= max_r:
+                        reasons.append("读取次数已达上限")
+                    if int(row[1] or 0) + payload_bytes > max_b:
+                        reasons.append("流量额度不足")
+                    detail = "、".join(reasons) if reasons else "配额已满"
+                else:
+                    detail = "配额已满"
+                    max_r = base_r
+                    max_b = base_b
+                err = jsonify({
+                    "error": "quota_exceeded",
+                    "message": f"/all 接口：{detail}。请在任务详情页申请加额或联系管理员。",
+                    "limits": {
+                        "all_reads_max": max_r,
+                        "all_bytes_max_mb": max_b // (1024 * 1024),
+                    },
+                })
+                err.headers["Access-Control-Allow-Origin"] = "*"
+                err.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+                err.headers["Access-Control-Allow-Headers"] = "Content-Type"
+                return err, 429
+            _record_api_get("api_task_all")
+            db.add(
+                ApiAccessLog(
+                    task_id=task.id,
+                    endpoint="api_task_all",
+                    response_bytes=payload_bytes,
+                    client_ip=(client_ip or "")[:100],
+                )
+            )
             db.commit()
         except Exception as log_err:
             db.rollback()
-            logger.warning("写入 /all 访问日志失败: %s", log_err)
+            logger.warning("/all 配额或日志写入失败: %s", log_err)
+            err = jsonify({"error": "internal_error", "message": MSG_API_INTERNAL})
+            err.headers["Access-Control-Allow-Origin"] = "*"
+            err.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+            err.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            return err, 500
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -4219,6 +4375,9 @@ def admin_panel():
         org_pending_with_creator = []
         open_source_tasks_with_author = []
         tutorials_json_content = '[]'
+        quota_requests_pending = []
+        quota_requests_recent = []
+        site_quota_default_row = None
 
         # ---------- 仅当前 tab 才执行对应查询 ----------
         if current_tab == 'users':
@@ -4357,6 +4516,30 @@ def admin_panel():
             except Exception as e:
                 logger.warning(f"读取 tutorials.json 失败: {e}")
 
+        elif current_tab == 'quota-review':
+            quota_requests_pending = (
+                db.query(TaskQuotaRequest)
+                .options(joinedload(TaskQuotaRequest.task), joinedload(TaskQuotaRequest.applicant))
+                .filter(TaskQuotaRequest.status == 0)
+                .order_by(TaskQuotaRequest.created_at.desc())
+                .all()
+            )
+            quota_requests_recent = (
+                db.query(TaskQuotaRequest)
+                .options(
+                    joinedload(TaskQuotaRequest.task),
+                    joinedload(TaskQuotaRequest.applicant),
+                    joinedload(TaskQuotaRequest.reviewer),
+                )
+                .filter(TaskQuotaRequest.status != 0)
+                .order_by(TaskQuotaRequest.id.desc())
+                .limit(40)
+                .all()
+            )
+
+        elif current_tab == 'quota-settings':
+            site_quota_default_row = db.get(SiteQuotaDefault, 1)
+
         # 流量预估：仅当前 tab 为 traffic 时使用
         api_traffic = []
         if current_tab == 'traffic':
@@ -4477,10 +4660,131 @@ def admin_panel():
             org_pending_with_creator=org_pending_with_creator,
             open_source_tasks_with_author=open_source_tasks_with_author,
             tutorials_json_content=tutorials_json_content,
-            api_traffic=api_traffic
+            api_traffic=api_traffic,
+            quota_requests_pending=quota_requests_pending,
+            quota_requests_recent=quota_requests_recent,
+            site_quota_default_row=site_quota_default_row,
         )
     finally:
         db.close()
+
+
+@quickform_bp.route('/admin/site_quota_defaults', methods=['POST'])
+@admin_required
+def admin_save_site_quota_defaults():
+    """保存全站 /all 默认次数与流量（每任务基础值，不含单任务加额）"""
+    raw_r = (request.form.get('default_all_read_limit') or '').strip()
+    raw_mb = (request.form.get('default_all_bytes_mb') or '').strip()
+    try:
+        r = int(raw_r)
+        mb = int(raw_mb)
+    except ValueError:
+        flash('请填写有效的整数', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
+    if r < 1 or r > 50_000_000:
+        flash('「每任务 /all 次数」须在 1～50000000 之间', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
+    if mb < 1 or mb > 1_048_576:
+        flash('「每任务流量」以 MB 为单位，须在 1～1048576（约 1TB）之间', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
+    db = SessionLocal()
+    try:
+        row = db.get(SiteQuotaDefault, 1)
+        if not row:
+            row = SiteQuotaDefault(
+                id=1,
+                default_all_read_limit=r,
+                default_all_bytes_limit=mb * 1024 * 1024,
+            )
+            db.add(row)
+        else:
+            row.default_all_read_limit = r
+            row.default_all_bytes_limit = mb * 1024 * 1024
+            row.updated_at = datetime.now()
+        db.commit()
+        flash('已保存全站默认限额，对新产生的 /all 校验与任务详情展示立即生效。', 'success')
+    except Exception as e:
+        db.rollback()
+        logger.exception('admin_save_site_quota_defaults: %s', e)
+        flash('保存失败', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
+
+
+@quickform_bp.route('/admin/task_quota_approve/<int:req_id>', methods=['POST'])
+@admin_required
+def admin_task_quota_approve(req_id):
+    """管理员通过任务的 /all 加额申请"""
+    extra_reads_raw = (request.form.get('granted_extra_reads') or '0').strip()
+    extra_mb_raw = (request.form.get('granted_extra_mb') or '0').strip()
+    try:
+        er = max(0, int(extra_reads_raw or 0))
+        emb = max(0, int(extra_mb_raw or 0))
+    except ValueError:
+        flash('加额请输入非负整数', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+    if er == 0 and emb == 0:
+        flash('请至少填写一项加额（/all 次数或 MB）', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+    db = SessionLocal()
+    try:
+        req = db.get(TaskQuotaRequest, req_id)
+        if not req or req.status != 0:
+            flash('申请不存在或已处理', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+        task = db.get(Task, req.task_id)
+        if not task:
+            flash('任务不存在', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+        task.quota_extra_all_reads = (task.quota_extra_all_reads or 0) + er
+        task.quota_extra_all_bytes = int(task.quota_extra_all_bytes or 0) + emb * 1024 * 1024
+        req.status = 1
+        req.reviewed_at = datetime.now()
+        req.reviewed_by = current_user.id
+        req.granted_extra_reads = er
+        req.granted_extra_mb = emb
+        rn = (request.form.get('review_note') or '').strip()
+        req.review_note = rn or None
+        br, bb = _get_site_all_quota_defaults(db)
+        db.commit()
+        flash(
+            f'已通过加额：+{er} 次 /all、+{emb} MB（在全局默认 {br} 次 / {bb // (1024 * 1024)} MB 之上累加）',
+            'success',
+        )
+    except Exception as e:
+        db.rollback()
+        logger.exception('admin_task_quota_approve: %s', e)
+        flash('处理失败', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+
+
+@quickform_bp.route('/admin/task_quota_reject/<int:req_id>', methods=['POST'])
+@admin_required
+def admin_task_quota_reject(req_id):
+    """管理员拒绝任务的 /all 加额申请"""
+    db = SessionLocal()
+    try:
+        req = db.get(TaskQuotaRequest, req_id)
+        if not req or req.status != 0:
+            flash('申请不存在或已处理', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+        req.status = -1
+        req.reviewed_at = datetime.now()
+        req.reviewed_by = current_user.id
+        rn = (request.form.get('review_note') or '').strip()
+        req.review_note = rn or None
+        db.commit()
+        flash('已拒绝该加额申请', 'info')
+    except Exception as e:
+        db.rollback()
+        logger.exception('admin_task_quota_reject: %s', e)
+        flash('处理失败', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='quota-review'))
 
 
 @quickform_bp.route('/admin/public_approve/<int:task_id>', methods=['POST'])

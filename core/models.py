@@ -1,5 +1,5 @@
 """数据库模型定义和迁移"""
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, inspect, text, UniqueConstraint
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, ForeignKey, Boolean, inspect, text, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from flask_login import UserMixin
@@ -113,10 +113,17 @@ class Task(Base):
     ai_generated = Column(Boolean, default=False)  # 是否为一键生成任务
     html_ai_edit_remaining = Column(Integer, nullable=True)  # 剩余可修改次数（3→2→1→0），非一键生成为 None
     is_active = Column(Boolean, default=True)  # 任务状态：True=正常接收/读取数据，False=停用（接口拒绝）
+    # 单任务 API 用量（GET /api/<task_id> 与 GET /api/<task_id>/all）；限额由常量 + quota_extra_* 组成
+    api_task_get_count = Column(Integer, default=0)  # 轻量 GET（最新 3 条）成功次数
+    api_task_all_count = Column(Integer, default=0)  # /all 成功次数（计入读取次数上限）
+    api_task_all_bytes_total = Column(BigInteger, default=0)  # /all 已下发响应体累计字节
+    quota_extra_all_reads = Column(Integer, default=0)  # 管理员批复的额外「/all 读取次数」
+    quota_extra_all_bytes = Column(BigInteger, default=0)  # 管理员批复的额外流量额度（字节）
     approver = relationship('User', foreign_keys=[html_approved_by], backref='approved_tasks')
     organization = relationship('Organization', back_populates='tasks')
     shares = relationship('TaskShare', back_populates='task', cascade='all, delete-orphan')
     likes = relationship('TaskLike', back_populates='task', cascade='all, delete-orphan')
+    quota_requests = relationship('TaskQuotaRequest', back_populates='task', cascade='all, delete-orphan')
 
 
 class Submission(Base):
@@ -256,6 +263,35 @@ class TaskLike(Base):
     
     task = relationship('Task', back_populates='likes')
     user = relationship('User', foreign_keys=[user_id])
+
+
+class TaskQuotaRequest(Base):
+    """任务 /all 限额「解除/加额」申请（管理员批复额外次数与流量）"""
+    __tablename__ = 'task_quota_request'
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey('task.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
+    status = Column(Integer, default=0)  # 0=待审核 1=已通过 -1=已拒绝
+    applicant_note = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
+    reviewed_at = Column(DateTime)
+    reviewed_by = Column(Integer, ForeignKey('user.id'))
+    review_note = Column(Text)
+    granted_extra_reads = Column(Integer)  # 批复：增加的 /all 次数额度
+    granted_extra_mb = Column(Integer)  # 批复：增加的流量额度（MB）
+
+    task = relationship('Task', back_populates='quota_requests')
+    applicant = relationship('User', foreign_keys=[user_id])
+    reviewer = relationship('User', foreign_keys=[reviewed_by])
+
+
+class SiteQuotaDefault(Base):
+    """全站默认：每个任务 /all 接口的基础次数与流量上限（单表单行 id=1，管理员后台可改）"""
+    __tablename__ = 'site_quota_default'
+    id = Column(Integer, primary_key=True)
+    default_all_read_limit = Column(Integer, nullable=False, default=2000)
+    default_all_bytes_limit = Column(BigInteger, nullable=False, default=100 * 1024 * 1024)
+    updated_at = Column(DateTime, default=datetime.now)
 
 
 def migrate_database(engine):
@@ -623,5 +659,112 @@ def migrate_database(engine):
                     logger.info("成功为organization添加teams_public_approved字段")
                 except Exception as e:
                     logger.warning(f"添加teams_public_approved失败（可能已存在）: {str(e)}")
+
+            # task：单任务 API 用量与 /all 加额（限额 = 系统默认 + quota_extra_*）
+            dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+            backfill_task_api_from_log = False
+            if task_cols and 'api_task_get_count' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN api_task_get_count INTEGER DEFAULT 0"))
+                    logger.info("成功为task添加api_task_get_count")
+                except Exception as e:
+                    logger.warning(f"添加api_task_get_count失败（可能已存在）: {str(e)}")
+            if task_cols and 'api_task_all_count' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN api_task_all_count INTEGER DEFAULT 0"))
+                    logger.info("成功为task添加api_task_all_count")
+                    backfill_task_api_from_log = True
+                except Exception as e:
+                    logger.warning(f"添加api_task_all_count失败（可能已存在）: {str(e)}")
+            if task_cols and 'api_task_all_bytes_total' not in task_cols:
+                try:
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE task ADD COLUMN api_task_all_bytes_total BIGINT DEFAULT 0"))
+                    else:
+                        conn.execute(text("ALTER TABLE task ADD COLUMN api_task_all_bytes_total INTEGER DEFAULT 0"))
+                    logger.info("成功为task添加api_task_all_bytes_total")
+                except Exception as e:
+                    logger.warning(f"添加api_task_all_bytes_total失败（可能已存在）: {str(e)}")
+            if task_cols and 'quota_extra_all_reads' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_all_reads INTEGER DEFAULT 0"))
+                    logger.info("成功为task添加quota_extra_all_reads")
+                except Exception as e:
+                    logger.warning(f"添加quota_extra_all_reads失败（可能已存在）: {str(e)}")
+            if task_cols and 'quota_extra_all_bytes' not in task_cols:
+                try:
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_all_bytes BIGINT DEFAULT 0"))
+                    else:
+                        conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_all_bytes INTEGER DEFAULT 0"))
+                    logger.info("成功为task添加quota_extra_all_bytes")
+                except Exception as e:
+                    logger.warning(f"添加quota_extra_all_bytes失败（可能已存在）: {str(e)}")
+
+            if backfill_task_api_from_log and 'api_access_log' in inspector.get_table_names():
+                try:
+                    if dialect == 'mysql':
+                        conn.execute(text("""
+                            UPDATE task AS t SET
+                                t.api_task_all_count = COALESCE((
+                                    SELECT COUNT(*) FROM api_access_log AS l
+                                    WHERE l.task_id = t.id AND l.endpoint = 'api_task_all'
+                                ), 0),
+                                t.api_task_all_bytes_total = COALESCE((
+                                    SELECT SUM(l.response_bytes) FROM api_access_log AS l
+                                    WHERE l.task_id = t.id AND l.endpoint = 'api_task_all'
+                                ), 0)
+                        """))
+                    else:
+                        conn.execute(text("""
+                            UPDATE task SET
+                                api_task_all_count = COALESCE((
+                                    SELECT COUNT(*) FROM api_access_log
+                                    WHERE api_access_log.task_id = task.id
+                                      AND api_access_log.endpoint = 'api_task_all'
+                                ), 0),
+                                api_task_all_bytes_total = COALESCE((
+                                    SELECT SUM(api_access_log.response_bytes) FROM api_access_log
+                                    WHERE api_access_log.task_id = task.id
+                                      AND api_access_log.endpoint = 'api_task_all'
+                                ), 0)
+                        """))
+                    logger.info("已从 api_access_log 回填 task 的 /all 用量计数")
+                except Exception as e:
+                    logger.warning(f"回填 task /all 用量失败（可忽略）: {str(e)}")
+
+            if 'task_quota_request' not in inspector.get_table_names():
+                try:
+                    TaskQuotaRequest.__table__.create(bind=engine)
+                    logger.info("成功创建task_quota_request表")
+                except Exception as e:
+                    logger.warning(f"创建task_quota_request表失败: {str(e)}")
+
+            if 'site_quota_default' not in inspector.get_table_names():
+                try:
+                    SiteQuotaDefault.__table__.create(bind=engine)
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    seed_bytes = 100 * 1024 * 1024
+                    if dialect == 'mysql':
+                        conn.execute(
+                            text(
+                                "INSERT INTO site_quota_default "
+                                "(id, default_all_read_limit, default_all_bytes_limit, updated_at) "
+                                "VALUES (1, 2000, :b, NOW())"
+                            ),
+                            {"b": seed_bytes},
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                "INSERT INTO site_quota_default "
+                                "(id, default_all_read_limit, default_all_bytes_limit, updated_at) "
+                                "VALUES (1, 2000, :b, CURRENT_TIMESTAMP)"
+                            ),
+                            {"b": seed_bytes},
+                        )
+                    logger.info("成功创建 site_quota_default 表并写入默认限额")
+                except Exception as e:
+                    logger.warning(f"创建 site_quota_default 失败: {str(e)}")
     except Exception as e:
         logger.error(f"数据库迁移失败: {str(e)}")

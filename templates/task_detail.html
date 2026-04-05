@@ -173,6 +173,44 @@
                 {% endif %}
             </div>
         </div>
+
+        {% if quota_ui %}
+        {% set pct_r = (quota_ui.all_count * 100.0 / quota_ui.max_reads) if quota_ui.max_reads else 0 %}
+        {% set pct_b = (quota_ui.all_bytes * 100.0 / quota_ui.max_bytes) if quota_ui.max_bytes else 0 %}
+        {% set w_r = pct_r if pct_r < 100 else 100 %}
+        {% set w_b = pct_b if pct_b < 100 else 100 %}
+        <style>
+        .qf-q-row { font-size: 0.8125rem; color: #64748b; }
+        .qf-q-bar { height: 5px; background: #eef2f7; border-radius: 3px; overflow: hidden; margin-top: 2px; margin-bottom: 6px; }
+        .qf-q-fill { height: 100%; border-radius: 3px; transition: width .2s ease; }
+        .qf-q-fill.qf-ok { background: rgba(148, 163, 184, 0.28); }
+        .qf-q-fill.qf-warn { background: rgba(251, 191, 36, 0.5); }
+        .qf-q-fill.qf-over { background: rgba(248, 113, 113, 0.85); }
+        </style>
+        <div class="card border mb-3" style="background: #f9fafb; border-color: #e5e7eb !important;">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
+                    <span class="qf-q-row mb-0"><strong style="color:#475569;font-weight:600;">数据接口用量</strong>（GET 合计 <strong>{{ quota_ui.total_get }}</strong>：轻量 {{ quota_ui.get_count }} + /all {{ quota_ui.all_count }}）</span>
+                    {% if can_request_quota_relief %}
+                    <div class="d-flex flex-wrap align-items-center gap-1">
+                        {% if quota_ui.pending %}
+                        <span class="badge bg-warning text-dark">加额申请审核中</span>
+                        {% else %}
+                        <form method="post" action="{{ url_for('quickform.task_quota_request_submit', task_id=task.id) }}" class="d-flex flex-wrap align-items-center gap-1 mb-0">
+                            <input type="text" name="applicant_note" class="form-control form-control-sm" placeholder="备注（可选）" style="width: 140px; max-width: 40vw;">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">申请加额</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="qf-q-row">/all 读取 <strong>{{ quota_ui.all_count }}</strong> / {{ quota_ui.max_reads }} 次</div>
+                <div class="qf-q-bar" title="/all 读取进度"><div class="qf-q-fill {% if pct_r >= 100 %}qf-over{% elif pct_r >= 85 %}qf-warn{% else %}qf-ok{% endif %}" style="width: {{ w_r }}%;"></div></div>
+                <div class="qf-q-row">/all 流量 <strong>{{ (quota_ui.all_bytes / 1024 / 1024) | round(2) }}</strong> / {{ (quota_ui.max_bytes / 1024 / 1024) | round(0) | int }} MB</div>
+                <div class="qf-q-bar" title="/all 流量进度"><div class="qf-q-fill {% if pct_b >= 100 %}qf-over{% elif pct_b >= 85 %}qf-warn{% else %}qf-ok{% endif %}" style="width: {{ w_b }}%;"></div></div>
+            </div>
+        </div>
+        {% endif %}
         
         <!-- 共享管理卡片（仅任务所有者且已登录时显示） -->
         {% if current_user.is_authenticated and task.user_id == current_user.id %}
