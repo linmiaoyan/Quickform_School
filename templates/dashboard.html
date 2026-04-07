@@ -58,20 +58,13 @@
         <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
             <h2 class="mb-0" style="color: #111827; font-weight: 700;">{{ translate('dashboard.my_tasks') if translate('dashboard.my_tasks') != 'dashboard.my_tasks' else '我的数据任务' }}</h2>
             <div class="d-flex gap-2 align-items-center flex-wrap">
-                {% set total_tasks_count = (own_tasks|length) + (org_tasks|length) + (shared_tasks|length) %}
                 {% set requested_view = request.args.get('view') %}
-                {% set view_mode = requested_view if requested_view in ['smart', 'hybrid', 'card', 'list'] else 'smart' %}
-                {% set auto_view_mode = 'list' if total_tasks_count >= 12 else ('card' if total_tasks_count <= 4 else 'hybrid') %}
-                {% set effective_view_mode = auto_view_mode if view_mode == 'smart' else view_mode %}
+                {% set view_mode = requested_view if requested_view in ['hybrid', 'card', 'list'] else 'card' %}
                 <div class="btn-group me-2" role="group" aria-label="视图切换">
-                    <a href="{{ url_for('quickform.dashboard', view='smart') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'smart' else 'btn-outline-primary' }}">智能</a>
                     <a href="{{ url_for('quickform.dashboard', view='hybrid') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'hybrid' else 'btn-outline-primary' }}">混合型</a>
                     <a href="{{ url_for('quickform.dashboard', view='card') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'card' else 'btn-outline-primary' }}">卡片型</a>
                     <a href="{{ url_for('quickform.dashboard', view='list') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'list' else 'btn-outline-primary' }}">列表型</a>
                 </div>
-                {% if view_mode == 'smart' %}
-                <span class="badge text-bg-light border">智能当前：{{ '列表型' if effective_view_mode == 'list' else ('卡片型' if effective_view_mode == 'card' else '混合型') }}</span>
-                {% endif %}
                 <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary" style="font-weight: 500;">
                     <i class="bi bi-plus-circle" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.create_new_task') if translate('dashboard.create_new_task') != 'dashboard.create_new_task' else '创建新任务' }}
                 </a>
@@ -91,7 +84,7 @@
         {% for section_title, section_icon, section_tasks in sections %}
         {% if section_tasks %}
         <h5 class="mb-3" style="color: #374151; font-weight: 600;"><i class="bi {{ section_icon }}"></i> {{ section_title }}</h5>
-        {% if effective_view_mode == 'list' %}
+        {% if view_mode == 'list' %}
         <div class="table-responsive mb-4">
             <table class="table table-hover align-middle bg-white">
                 <thead class="table-light">
@@ -132,7 +125,7 @@
                 </tbody>
             </table>
         </div>
-        {% elif effective_view_mode == 'hybrid' %}
+        {% elif view_mode == 'hybrid' %}
         {% set featured_tasks = section_tasks[:3] %}
         {% set remaining_tasks = section_tasks[3:] %}
         <div class="row g-3 mb-3">
@@ -342,21 +335,16 @@
     }
     // 任务状态切换（正常/停用）：仅所有者可见，点击后翻转动效并变灰
     (function() {
-        var currentViewMode = {{ (request.args.get('view') or 'smart')|tojson }};
-        var totalTasksCount = {{ ((own_tasks|length) + (org_tasks|length) + (shared_tasks|length))|int }};
-        var currentEffectiveViewMode = currentViewMode;
-        if (currentViewMode === 'smart') {
-            currentEffectiveViewMode = totalTasksCount >= 12 ? 'list' : (totalTasksCount <= 4 ? 'card' : 'hybrid');
-        }
+        var currentViewMode = {{ (request.args.get('view') or 'card')|tojson }};
         var hasExplicitViewParam = {{ (request.args.get('view') is not none)|tojson }};
         var preferredKey = 'quickform_dashboard_preferred_view';
         // 用户手动选择卡片/列表/混合时，记住偏好；下次未显式带参数时自动应用。
-        if (['card', 'list', 'hybrid'].indexOf(currentViewMode) >= 0) {
+        if (hasExplicitViewParam && ['card', 'list', 'hybrid'].indexOf(currentViewMode) >= 0) {
             try { localStorage.setItem(preferredKey, currentViewMode); } catch (e) {}
-        } else if (!hasExplicitViewParam) {
+        } else {
             try {
                 var preferredView = localStorage.getItem(preferredKey);
-                if (preferredView && ['card', 'list', 'hybrid'].indexOf(preferredView) >= 0 && preferredView !== currentEffectiveViewMode) {
+                if (preferredView && ['card', 'list', 'hybrid'].indexOf(preferredView) >= 0 && preferredView !== currentViewMode) {
                     var redirectUrl = new URL(window.location.href);
                     redirectUrl.searchParams.set('view', preferredView);
                     window.location.replace(redirectUrl.toString());
