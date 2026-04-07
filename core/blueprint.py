@@ -554,11 +554,12 @@ def _get_dynamic_task_data_ttl(task_db_id, now_ts=None):
         return TASK_DATA_CACHE_TTL_MAX if len(q) >= TASK_DATA_CACHE_HOT_THRESHOLD else TASK_DATA_CACHE_TTL_MIN
 
 
-def _get_cached_community_random(db):
+def _get_cached_community_random(db, force_refresh=False):
     now_ts = time.time()
-    with _community_random_cache_lock:
-        if _community_random_cache['items'] is not None and _community_random_cache['expire_at'] > now_ts:
-            return _community_random_cache['items']
+    if not force_refresh:
+        with _community_random_cache_lock:
+            if _community_random_cache['items'] is not None and _community_random_cache['expire_at'] > now_ts:
+                return _community_random_cache['items']
 
     base_public = db.query(Task).filter(Task.sharing_type == "public", Task.public_approved == 1)
     public_ids = [row[0] for row in base_public.with_entities(Task.id).all()]
@@ -803,7 +804,8 @@ def community():
         page_posts = max(1, request.args.get("post_page", 1, type=int))
 
         base_public = db.query(Task).filter(Task.sharing_type == "public", Task.public_approved == 1)
-        community_random = _get_cached_community_random(db)
+        force_random_refresh = (request.args.get('refresh') or '').strip() == '1'
+        community_random = _get_cached_community_random(db, force_refresh=force_random_refresh)
 
         public_tasks_latest = []
         public_tasks_liked = []

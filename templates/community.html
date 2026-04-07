@@ -397,11 +397,11 @@
                     </div>
                     <div class="community-random-actions d-flex flex-wrap gap-2">
                         {% if show_hot %}
-                        <a href="{{ url_for('quickform.community', hot='1', post_page=pagination_posts.page, per_post=pagination_posts.per_page) }}" class="btn btn-outline-primary btn-sm">
+                        <a href="{{ url_for('quickform.community', hot='1', post_page=pagination_posts.page, per_post=pagination_posts.per_page, refresh='1') }}" class="btn btn-outline-primary btn-sm">
                             <i class="bi bi-arrow-repeat"></i> 随机抽取
                         </a>
                         {% else %}
-                        <a href="{{ url_for('quickform.community', post_page=pagination_posts.page, per_post=pagination_posts.per_page) }}" class="btn btn-outline-primary btn-sm">
+                        <a href="{{ url_for('quickform.community', post_page=pagination_posts.page, per_post=pagination_posts.per_page, refresh='1') }}" class="btn btn-outline-primary btn-sm">
                             <i class="bi bi-arrow-repeat"></i> 随机抽取
                         </a>
                         {% endif %}
