@@ -57,7 +57,21 @@
     <div class="col-md-12">
         <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
             <h2 class="mb-0" style="color: #111827; font-weight: 700;">{{ translate('dashboard.my_tasks') if translate('dashboard.my_tasks') != 'dashboard.my_tasks' else '我的数据任务' }}</h2>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+                {% set total_tasks_count = (own_tasks|length) + (org_tasks|length) + (shared_tasks|length) %}
+                {% set requested_view = request.args.get('view') %}
+                {% set view_mode = requested_view if requested_view in ['smart', 'hybrid', 'card', 'list'] else 'smart' %}
+                {% set auto_view_mode = 'list' if total_tasks_count >= 12 else ('card' if total_tasks_count <= 4 else 'hybrid') %}
+                {% set effective_view_mode = auto_view_mode if view_mode == 'smart' else view_mode %}
+                <div class="btn-group me-2" role="group" aria-label="视图切换">
+                    <a href="{{ url_for('quickform.dashboard', view='smart') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'smart' else 'btn-outline-primary' }}">智能</a>
+                    <a href="{{ url_for('quickform.dashboard', view='hybrid') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'hybrid' else 'btn-outline-primary' }}">混合型</a>
+                    <a href="{{ url_for('quickform.dashboard', view='card') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'card' else 'btn-outline-primary' }}">卡片型</a>
+                    <a href="{{ url_for('quickform.dashboard', view='list') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'list' else 'btn-outline-primary' }}">列表型</a>
+                </div>
+                {% if view_mode == 'smart' %}
+                <span class="badge text-bg-light border">智能当前：{{ '列表型' if effective_view_mode == 'list' else ('卡片型' if effective_view_mode == 'card' else '混合型') }}</span>
+                {% endif %}
                 <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary" style="font-weight: 500;">
                     <i class="bi bi-plus-circle" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.create_new_task') if translate('dashboard.create_new_task') != 'dashboard.create_new_task' else '创建新任务' }}
                 </a>
@@ -77,6 +91,102 @@
         {% for section_title, section_icon, section_tasks in sections %}
         {% if section_tasks %}
         <h5 class="mb-3" style="color: #374151; font-weight: 600;"><i class="bi {{ section_icon }}"></i> {{ section_title }}</h5>
+        {% if effective_view_mode == 'list' %}
+        <div class="table-responsive mb-4">
+            <table class="table table-hover align-middle bg-white">
+                <thead class="table-light">
+                    <tr>
+                        <th>标题</th>
+                        <th>来源</th>
+                        <th>提交数</th>
+                        <th>创建时间</th>
+                        <th style="min-width: 220px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for task in section_tasks %}
+                    <tr>
+                        <td>{{ task.title }}</td>
+                        <td>
+                            {% if task.organization_id and task.organization %}
+                            <span class="badge" style="background-color: #8b5cf6;">{{ task.organization.name }}</span>
+                            {% else %}
+                            <span class="badge" style="background-color: #93c5fd; color: #1e40af;">{{ task.author.username }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ task.submission|length }}</td>
+                        <td>{{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-2">
+                                <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">详情</a>
+                                <a href="{{ url_for('quickform.export_data', task_id=task.id) }}" class="btn btn-sm btn-outline-success">导出</a>
+                                {% if task_access.get(task.id) == 'owner' %}
+                                <form action="{{ url_for('quickform.delete_task', task_id=task.id) }}" method="POST" class="d-inline" onsubmit="return confirm('{{ translate('dashboard.delete_confirm_message')|replace('{title}', task.title)|replace(\"'\", \"&#39;\") }}')">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">{{ translate('common.delete') }}</button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif effective_view_mode == 'hybrid' %}
+        {% set featured_tasks = section_tasks[:3] %}
+        {% set remaining_tasks = section_tasks[3:] %}
+        <div class="row g-3 mb-3">
+            {% for task in featured_tasks %}
+            <div class="col-md-4 col-sm-6">
+            {% if task_access.get(task.id) == 'owner' %}
+                <div class="task-card-wrapper {{ 'flipped' if not (task.is_active|default(True)) else '' }}" data-task-id="{{ task.id }}" data-is-active="{{ 'true' if (task.is_active|default(True)) else 'false' }}">
+            {% endif %}
+                <div class="card h-100">
+                    <div class="card-header" style="padding-bottom: 0.75rem;">
+                        {% if task_access.get(task.id) == 'owner' %}
+                        <span class="task-status-pill" role="button" tabindex="0" data-task-id="{{ task.id }}" data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}" title="{{ translate('dashboard.task_status_toggle_hint') }}" aria-label="{{ translate('dashboard.task_status_aria') }}">{{ translate('dashboard.task_status_disabled') if not (task.is_active|default(True)) else translate('dashboard.task_status_normal') }}</span>
+                        {% endif %}
+                        <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text mb-2">{{ task.description or translate('dashboard.no_description') }}</p>
+                        <small class="text-muted">{{ translate('dashboard.submission_count') }}: {{ task.submission|length }}</small>
+                    </div>
+                    <div class="card-footer" style="background-color: #f9fafb; border-top: 1px solid #e5e7eb; padding: 0.75rem;">
+                        <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">详情</a>
+                    </div>
+                </div>
+            {% if task_access.get(task.id) == 'owner' %}
+                </div>
+            {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% if remaining_tasks %}
+        <div class="table-responsive mb-4">
+            <table class="table table-sm table-hover align-middle bg-white">
+                <thead class="table-light">
+                    <tr>
+                        <th>标题</th>
+                        <th>来源</th>
+                        <th>提交数</th>
+                        <th style="min-width: 160px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for task in remaining_tasks %}
+                    <tr>
+                        <td>{{ task.title }}</td>
+                        <td>{% if task.organization_id and task.organization %}{{ task.organization.name }}{% else %}{{ task.author.username }}{% endif %}</td>
+                        <td>{{ task.submission|length }}</td>
+                        <td><a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">详情</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+        {% else %}
         <div class="row g-3 mb-4">
             {% for task in section_tasks %}
             <div class="col-md-4 col-sm-6">
@@ -194,6 +304,7 @@
             {% endfor %}
         </div>
         {% endif %}
+        {% endif %}
         {% endfor %}
         
         {% if not own_tasks and not org_tasks and not shared_tasks %}
@@ -231,6 +342,25 @@
     }
     // 任务状态切换（正常/停用）：仅所有者可见，点击后翻转动效并变灰
     (function() {
+        var currentViewMode = {{ view_mode|tojson }};
+        var currentEffectiveViewMode = {{ effective_view_mode|tojson }};
+        var hasExplicitViewParam = {{ (request.args.get('view') is not none)|tojson }};
+        var preferredKey = 'quickform_dashboard_preferred_view';
+        // 用户手动选择卡片/列表/混合时，记住偏好；下次未显式带参数时自动应用。
+        if (['card', 'list', 'hybrid'].indexOf(currentViewMode) >= 0) {
+            try { localStorage.setItem(preferredKey, currentViewMode); } catch (e) {}
+        } else if (!hasExplicitViewParam) {
+            try {
+                var preferredView = localStorage.getItem(preferredKey);
+                if (preferredView && ['card', 'list', 'hybrid'].indexOf(preferredView) >= 0 && preferredView !== currentEffectiveViewMode) {
+                    var redirectUrl = new URL(window.location.href);
+                    redirectUrl.searchParams.set('view', preferredView);
+                    window.location.replace(redirectUrl.toString());
+                    return;
+                }
+            } catch (e) {}
+        }
+
         var normalText = {{ translate('dashboard.task_status_normal')|tojson }};
         var disabledText = {{ translate('dashboard.task_status_disabled')|tojson }};
         function bindPills() {

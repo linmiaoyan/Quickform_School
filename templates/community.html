@@ -237,16 +237,17 @@
 }
 .community-random-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1.25rem;
-    max-width: 1100px;
-    margin-left: auto;
-    margin-right: auto;
+}
+@media (max-width: 1200px) {
+    .community-random-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 @media (max-width: 768px) {
     .community-random-grid {
         grid-template-columns: 1fr;
-        max-width: none;
     }
 }
 .community-spot-card {
@@ -385,7 +386,7 @@
 
 <div class="container">
     <div class="row">
-        <div class="col-12 col-lg-8 mx-auto">
+        <div class="col-12 mx-auto">
             <h1 class="mb-4">{{ translate('nav.community') if translate('nav.community') != 'nav.community' else '项目交流' }}</h1>
 
             <!-- 随机发现：每次进入随机 4 个公开项目 + 页面内预览 -->
