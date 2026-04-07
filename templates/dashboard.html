@@ -342,8 +342,12 @@
     }
     // 任务状态切换（正常/停用）：仅所有者可见，点击后翻转动效并变灰
     (function() {
-        var currentViewMode = {{ view_mode|tojson }};
-        var currentEffectiveViewMode = {{ effective_view_mode|tojson }};
+        var currentViewMode = {{ (request.args.get('view') or 'smart')|tojson }};
+        var totalTasksCount = {{ ((own_tasks|length) + (org_tasks|length) + (shared_tasks|length))|int }};
+        var currentEffectiveViewMode = currentViewMode;
+        if (currentViewMode === 'smart') {
+            currentEffectiveViewMode = totalTasksCount >= 12 ? 'list' : (totalTasksCount <= 4 ? 'card' : 'hybrid');
+        }
         var hasExplicitViewParam = {{ (request.args.get('view') is not none)|tojson }};
         var preferredKey = 'quickform_dashboard_preferred_view';
         // 用户手动选择卡片/列表/混合时，记住偏好；下次未显式带参数时自动应用。
