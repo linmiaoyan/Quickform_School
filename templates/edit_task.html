@@ -90,6 +90,37 @@
                     })();
                     </script>
                     {% endif %}
+                    <script>
+                    (function () {
+                        var form = document.getElementById('edit-task-form');
+                        if (!form) return;
+                        var radios = form.querySelectorAll('input[name="share_scope"]:not([disabled])');
+                        if (!radios.length) return;
+                        var lastScope = null;
+                        function syncLast() {
+                            var c = form.querySelector('input[name="share_scope"]:checked');
+                            lastScope = c ? c.value : 'private';
+                        }
+                        syncLast();
+                        radios.forEach(function (r) {
+                            r.addEventListener('change', function () {
+                                var newVal = this.value;
+                                if (newVal === 'public' && lastScope !== 'public') {
+                                    var msg = '「公开」表示将项目展示在本平台的「项目交流」区，供其他已登录教师浏览与交流；不是在搜索引擎或互联网上被任意陌生人检索到。\n\n不选「公开」时，您仍可通过任务链接、API、二维码等方式正常使用与收集数据，与是否公开无关。\n\n确定要选择「公开」吗？';
+                                    if (!confirm(msg)) {
+                                        var prev = form.querySelector('input[name="share_scope"][value="' + lastScope + '"]');
+                                        if (prev && !prev.disabled) {
+                                            prev.checked = true;
+                                            prev.dispatchEvent(new Event('change', { bubbles: true }));
+                                        }
+                                        return;
+                                    }
+                                }
+                                lastScope = newVal;
+                            });
+                        });
+                    })();
+                    </script>
                     {% endif %}
                     <div class="mb-4">
                         <label for="share_url" class="form-label">URL 地址</label>

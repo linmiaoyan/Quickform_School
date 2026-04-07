@@ -1268,8 +1268,13 @@
                             <label class="form-check-label text-muted" for="quotaPendingSelectAll">全选</label>
                         </div>
                         <span class="text-muted">批量</span>
-                        <input type="number" name="granted_extra_reads" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:5rem;" min="0" placeholder="+次" title="每条通过记录增加的次数">
-                        <input type="number" name="granted_extra_mb" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:5rem;" min="0" placeholder="+MB" title="每条通过记录增加的 MB">
+                        <input type="number" id="quotaBatchReads" name="granted_extra_reads" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:5rem;" min="0" placeholder="+次" title="每条通过记录增加的次数">
+                        <input type="number" id="quotaBatchMb" name="granted_extra_mb" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:5rem;" min="0" placeholder="+MB" title="每条通过记录增加的 MB">
+                        <span class="text-muted small">快捷</span>
+                        <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 quota-batch-preset" data-reads="2000" data-mb="100" title="填入 +2000 次、+100 MB">+2k/+100</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 quota-batch-preset" data-reads="5000" data-mb="200" title="填入 +5000 次、+200 MB">+5k/+200</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 quota-batch-preset" data-reads="10000" data-mb="500" title="填入 +10000 次、+500 MB">+1万/+500</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 quota-batch-preset" data-reads="20000" data-mb="1024" title="填入 +20000 次、+1024 MB">+2万/+1G</button>
                         <input type="text" name="review_note" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:8rem;max-width:28vw;" placeholder="通过备注(可选)">
                         <button type="submit" form="quotaBatchApproveForm" class="btn btn-sm btn-success">批量通过并加额</button>
                         <span class="text-muted px-1">|</span>
@@ -1671,6 +1676,16 @@
                 return;
             }
             if (!confirm('确定批量拒绝所选申请？')) e.preventDefault();
+        });
+
+        document.querySelectorAll('.quota-batch-preset').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var rIn = document.getElementById('quotaBatchReads');
+                var mIn = document.getElementById('quotaBatchMb');
+                if (!rIn || !mIn) return;
+                rIn.value = this.getAttribute('data-reads') || '';
+                mIn.value = this.getAttribute('data-mb') || '';
+            });
         });
     })();
 

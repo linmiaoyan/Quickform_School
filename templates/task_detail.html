@@ -198,7 +198,8 @@
                         <span class="badge bg-warning text-dark">加额申请审核中</span>
                         {% else %}
                         <form method="post" action="{{ url_for('quickform.task_quota_request_submit', task_id=task.id) }}" class="d-flex flex-wrap align-items-center gap-1 mb-0">
-                            <input type="text" name="applicant_note" class="form-control form-control-sm" placeholder="具体额度与理由" title="请简要说明希望增加的次数、流量及用途，便于管理员审核" style="width: 180px; max-width: 55vw;">
+                            <label class="visually-hidden" for="quotaReliefNote-{{ task.id }}">具体额度与理由（必填）</label>
+                            <input type="text" name="applicant_note" id="quotaReliefNote-{{ task.id }}" class="form-control form-control-sm" placeholder="具体额度与理由（必填）" title="请填写希望增加的次数、流量及用途，便于管理员审核" required minlength="2" autocomplete="off" style="width: 200px; max-width: 55vw;">
                             <button type="submit" class="btn btn-sm btn-outline-secondary">申请加额</button>
                         </form>
                         {% endif %}

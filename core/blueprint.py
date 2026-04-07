@@ -1572,7 +1572,10 @@ def task_quota_request_submit(task_id):
         if db.query(TaskQuotaRequest).filter_by(task_id=task.id, status=0).first():
             flash('该任务已有待审核的加额申请，请等待管理员处理', 'info')
             return redirect(url_for('quickform.task_detail', task_id=task_id))
-        note = (request.form.get('applicant_note') or '').strip() or None
+        note = (request.form.get('applicant_note') or '').strip()
+        if len(note) < 2:
+            flash('请填写申请理由：说明希望增加的次数、流量及用途（至少 2 个字）', 'warning')
+            return redirect(url_for('quickform.task_detail', task_id=task_id))
         db.add(TaskQuotaRequest(task_id=task.id, user_id=current_user.id, applicant_note=note, status=0))
         db.commit()
         flash('已提交加额申请，管理员审核通过后将增加相应次数与流量额度', 'success')
