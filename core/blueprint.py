@@ -1593,7 +1593,12 @@ def task_detail(task_id):
     """任务详情（公开任务支持未登录访问，但不显示分析/导出）"""
     db = SessionLocal()
     try:
-        task = db.get(Task, task_id)
+        task = (
+            db.query(Task)
+            .options(joinedload(Task.author))
+            .filter(Task.id == task_id)
+            .first()
+        )
         if not task:
             flash('任务不存在', 'danger')
             return redirect(url_for('quickform.index'))
@@ -1741,9 +1746,16 @@ def task_detail(task_id):
             if current_user.is_admin() or task.user_id == current_user.id or can_edit_task:
                 can_request_quota_relief = True
 
+        task_author_name = ''
+        try:
+            task_author_name = task.author.username if task and task.author else ''
+        except Exception:
+            task_author_name = ''
+
         return render_template(
             'task_detail.html',
             task=task,
+            task_author_name=task_author_name,
             submissions=submissions,
             total_submissions=total_submissions,
             pagination=pagination,
