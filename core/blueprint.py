@@ -891,7 +891,12 @@ def task_like(task_id):
     """公开任务点赞/取消点赞（仅登录用户，仅对公开任务）"""
     db = SessionLocal()
     try:
-        task = db.get(Task, task_id)
+        task = (
+            db.query(Task)
+            .options(joinedload(Task.author))
+            .filter(Task.id == task_id)
+            .first()
+        )
         if not task or task.sharing_type != 'public':
             return jsonify({'success': False, 'message': '仅支持对公开项目点赞'}), 400
         existing = db.query(TaskLike).filter_by(task_id=task_id, user_id=current_user.id).first()
