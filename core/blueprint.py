@@ -17,6 +17,7 @@ from urllib.parse import unquote_plus, quote as url_quote
 import zipfile
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app
 from sqlalchemy import create_engine, or_, text, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, joinedload
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
@@ -817,31 +818,49 @@ def register():
             db = SessionLocal()
             try:
                 from sqlalchemy import or_
-                conditions = [User.username == username, User.phone == phone]
+                # 仅对非空手机号/邮箱做唯一性检查，避免 phone 为空时 OR 条件匹配大量用户导致误判或漏判
+                conditions = [User.username == username]
+                if phone:
+                    conditions.append(User.phone == phone)
                 if email:
                     conditions.append(User.email == email)
                 existing_user = db.query(User).filter(or_(*conditions)).first()
-                
+
                 if existing_user:
                     if existing_user.username == username:
-                        flash('用户名已存在', 'danger')
+                        flash('用户名已存在，请更换用户名或直接使用该账号登录', 'danger')
                     elif email and existing_user.email == email:
                         flash('邮箱已存在', 'danger')
                     else:
                         flash('手机号已被注册', 'danger')
                     return redirect(url_for('quickform.register'))
-                
+
                 hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
                 # 邮箱未填时使用唯一占位符，避免多个空字符串违反 unique 约束
                 email_value = email if email else f"{username}@noreply.local"
-                user = User(username=username, email=email_value, password=hashed_password, 
-                           school=school, phone=phone or '')
-                
+                if db.query(User).filter_by(email=email_value).first():
+                    flash('该用户名对应的占位邮箱已被占用，请更换用户名', 'danger')
+                    return redirect(url_for('quickform.register'))
+
+                user = User(
+                    username=username,
+                    email=email_value,
+                    password=hashed_password,
+                    school=school,
+                    phone=phone or '',
+                )
+
                 ai_config = AIConfig(user=user, selected_model='chat_server')
-                
+
                 db.add(user)
-                db.commit()
-                
+                try:
+                    db.commit()
+                except IntegrityError:
+                    db.rollback()
+                    logger.warning("注册唯一约束冲突: username=%s email=%s", username, email_value)
+                    flash('用户名或邮箱已被占用，请更换后重试', 'danger')
+                    return redirect(url_for('quickform.register'))
+
                 flash('注册成功，请登录', 'success')
                 return redirect(url_for('quickform.login'))
             finally:
