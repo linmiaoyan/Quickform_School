@@ -465,6 +465,32 @@ def get_upload_file_url(saved_name, task_file_path=None):
     return url_for('quickform.uploaded_file', filename=saved_name)
 
 
+def _task_first_html_preview_url(task):
+    """返回任务第一个可预览的 HTML 访问 URL（与任务详情页逻辑一致），供社区 iframe 等使用。"""
+    if not task:
+        return None
+    saved_filename = None
+    try:
+        if task.file_path:
+            saved_filename = os.path.basename(task.file_path)
+    except Exception:
+        saved_filename = None
+    html_files = []
+    if getattr(task, "html_files", None):
+        try:
+            html_files = json.loads(task.html_files)
+        except Exception:
+            html_files = []
+    if not isinstance(html_files, list):
+        html_files = []
+    if task.file_name and saved_filename and not html_files:
+        html_files = [{"saved_name": saved_filename, "original_name": task.file_name}]
+    for f in html_files:
+        if isinstance(f, dict) and f.get("saved_name"):
+            return get_upload_file_url(f["saved_name"], task.file_path)
+    return None
+
+
 @quickform_bp.context_processor
 def inject_upload_url():
     return dict(get_upload_file_url=get_upload_file_url)
@@ -550,52 +576,78 @@ def cases():
 
 @quickform_bp.route('/community')
 def community():
-    """项目交流 - 留言板 + 公开项目展示（最新发布、最高点赞），支持分页"""
+    """项目交流：默认随机展示 3 个公开项目（含 HTML 预览）；「热榜」需带 hot=1；留言板分页。"""
     db = SessionLocal()
     try:
-        per_project = max(1, min(20, request.args.get('per_project', 8, type=int)))
-        per_post = max(1, min(50, request.args.get('per_post', 10, type=int)))
-        page_latest = max(1, request.args.get('latest_page', 1, type=int))
-        page_liked = max(1, request.args.get('liked_page', 1, type=int))
-        page_posts = max(1, request.args.get('post_page', 1, type=int))
+        show_hot = (request.args.get("hot") or "").strip() == "1"
+        per_project = max(1, min(20, request.args.get("per_project", 8, type=int)))
+        per_post = max(1, min(50, request.args.get("per_post", 10, type=int)))
+        page_latest = max(1, request.args.get("latest_page", 1, type=int))
+        page_liked = max(1, request.args.get("liked_page", 1, type=int))
+        page_posts = max(1, request.args.get("post_page", 1, type=int))
 
-        base_public = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1)
-        total_latest = base_public.count()
-        total_liked = total_latest  # 同一批数据不同排序
-        public_tasks_latest = (
-            base_public.order_by(Task.created_at.desc())
-            .offset((page_latest - 1) * per_project)
-            .limit(per_project)
-            .all()
-        )
-        public_tasks_liked = (
-            db.query(Task)
-            .filter(Task.sharing_type == 'public', Task.public_approved == 1)
-            .order_by(func.coalesce(Task.like_count, 0).desc(), Task.created_at.desc())
-            .offset((page_liked - 1) * per_project)
-            .limit(per_project)
-            .all()
-        )
-        pages_latest = max(1, (total_latest + per_project - 1) // per_project) if total_latest else 1
-        pages_liked = max(1, (total_liked + per_project - 1) // per_project) if total_liked else 1
+        base_public = db.query(Task).filter(Task.sharing_type == "public", Task.public_approved == 1)
+        public_ids = [row[0] for row in base_public.with_entities(Task.id).all()]
+        community_random = []
+        if public_ids:
+            k = min(3, len(public_ids))
+            pick_ids = random.sample(public_ids, k)
+            by_id = {t.id: t for t in db.query(Task).options(joinedload(Task.author)).filter(Task.id.in_(pick_ids)).all()}
+            for tid in pick_ids:
+                t = by_id.get(tid)
+                if t:
+                    community_random.append(
+                        {
+                            "task": t,
+                            "preview_url": _task_first_html_preview_url(t),
+                        }
+                    )
+
+        public_tasks_latest = []
+        public_tasks_liked = []
+        total_latest = 0
+        total_liked = 0
+        pages_latest = 1
+        pages_liked = 1
+        if show_hot:
+            total_latest = base_public.count()
+            total_liked = total_latest
+            public_tasks_latest = (
+                base_public.order_by(Task.created_at.desc())
+                .offset((page_latest - 1) * per_project)
+                .limit(per_project)
+                .all()
+            )
+            public_tasks_liked = (
+                db.query(Task)
+                .filter(Task.sharing_type == "public", Task.public_approved == 1)
+                .order_by(func.coalesce(Task.like_count, 0).desc(), Task.created_at.desc())
+                .offset((page_liked - 1) * per_project)
+                .limit(per_project)
+                .all()
+            )
+            pages_latest = max(1, (total_latest + per_project - 1) // per_project) if total_latest else 1
+            pages_liked = max(1, (total_liked + per_project - 1) // per_project) if total_liked else 1
 
         posts_query = db.query(Post).order_by(Post.created_at.desc())
         total_posts = posts_query.count()
         posts = posts_query.offset((page_posts - 1) * per_post).limit(per_post).all()
         pages_posts = max(1, (total_posts + per_post - 1) // per_post) if total_posts else 1
 
-        pagination_latest = {'page': page_latest, 'per_page': per_project, 'pages': pages_latest, 'total': total_latest}
-        pagination_liked = {'page': page_liked, 'per_page': per_project, 'pages': pages_liked, 'total': total_liked}
-        pagination_posts = {'page': page_posts, 'per_page': per_post, 'pages': pages_posts, 'total': total_posts}
+        pagination_latest = {"page": page_latest, "per_page": per_project, "pages": pages_latest, "total": total_latest}
+        pagination_liked = {"page": page_liked, "per_page": per_project, "pages": pages_liked, "total": total_liked}
+        pagination_posts = {"page": page_posts, "per_page": per_post, "pages": pages_posts, "total": total_posts}
 
         return render_template(
-            'community.html',
+            "community.html",
             posts=posts,
+            community_random=community_random,
+            show_hot=show_hot,
             public_tasks_latest=public_tasks_latest,
             public_tasks_liked=public_tasks_liked,
             pagination_latest=pagination_latest,
             pagination_liked=pagination_liked,
-            pagination_posts=pagination_posts
+            pagination_posts=pagination_posts,
         )
     finally:
         db.close()
