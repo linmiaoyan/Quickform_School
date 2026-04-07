@@ -440,6 +440,17 @@ quickform_bp = Blueprint(
     static_folder='../static'  # 指向主应用的static目录
 )
 
+# 避免同一任务被并发触发“清空提交数据”导致长时间锁等待
+_submission_clear_locks = {}
+_submission_clear_locks_guard = threading.Lock()
+
+
+def _get_submission_clear_lock(task_id):
+    with _submission_clear_locks_guard:
+        if task_id not in _submission_clear_locks:
+            _submission_clear_locks[task_id] = threading.Lock()
+        return _submission_clear_locks[task_id]
+
 
 def _file_in_static_uploads(saved_name):
     """判断文件是否在静态上传目录（static/uploads），用于生成静态 URL。"""
@@ -6290,7 +6301,9 @@ def clear_all_submissions(task_id):
     logger.info(
         f"[clear_all_submissions] GET user={getattr(current_user, 'id', None)} task={task_id} ip={client_ip}"
     )
-    try:
+    task_clear_lock = _get_submission_clear_lock(task_id)
+    with task_clear_lock:
+        try:
         task = db.get(Task, task_id)
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
@@ -6309,23 +6322,50 @@ def clear_all_submissions(task_id):
             )
             return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
         
-        submissions = db.query(Submission).filter_by(task_id=task_id).all()
-        count = len(submissions)
-        logger.info(
-            f"[clear_all_submissions] deleting count={count} user={getattr(current_user, 'id', None)} task={task_id}"
-        )
-        for submission in submissions:
-            db.delete(submission)
-        
-        db.commit()
-        logger.info(
-            f"[clear_all_submissions] success user={getattr(current_user, 'id', None)} task={task_id} deleted={count}"
-        )
-        return make_response({'success': True, 'message': f'成功删除 {count} 条数据'})
-    except Exception as e:
-        db.rollback()
-        logger.exception("[clear_all_submissions] error task=%s", task_id)
-        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
+            submission_ids = [
+                row[0]
+                for row in db.query(Submission.id)
+                .filter_by(task_id=task_id)
+                .order_by(Submission.id.asc())
+                .all()
+            ]
+            count = len(submission_ids)
+            logger.info(
+                f"[clear_all_submissions] deleting count={count} user={getattr(current_user, 'id', None)} task={task_id}"
+            )
+            batch_size = max(50, int(os.getenv('MYSQL_DELETE_BATCH_SIZE', '200')))
+            max_retries = max(1, int(os.getenv('MYSQL_DELETE_MAX_RETRIES', '3')))
+            retry_sleep = float(os.getenv('MYSQL_DELETE_RETRY_SLEEP', '0.3'))
+            deleted_total = 0
+
+            for i in range(0, count, batch_size):
+                chunk_ids = submission_ids[i:i + batch_size]
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        deleted_rows = (
+                            db.query(Submission)
+                            .filter(Submission.id.in_(chunk_ids))
+                            .delete(synchronize_session=False)
+                        )
+                        db.commit()
+                        deleted_total += deleted_rows
+                        break
+                    except Exception as e:
+                        db.rollback()
+                        err_msg = str(getattr(e, 'orig', e)).lower()
+                        is_lock_timeout = ('lock wait timeout exceeded' in err_msg) or ('1205' in err_msg)
+                        if is_lock_timeout and attempt < max_retries:
+                            time.sleep(retry_sleep * attempt)
+                            continue
+                        raise
+            logger.info(
+                f"[clear_all_submissions] success user={getattr(current_user, 'id', None)} task={task_id} deleted={deleted_total}"
+            )
+            return make_response({'success': True, 'message': f'成功删除 {deleted_total} 条数据'})
+        except Exception as e:
+            db.rollback()
+            logger.exception("[clear_all_submissions] error task=%s", task_id)
+            return make_response({'success': False, 'message': MSG_GENERIC}, 500)
     finally:
         db.close()
 
@@ -6345,7 +6385,9 @@ def clear_submissions_by_date_range(task_id):
         resp.headers['Cache-Control'] = 'no-store'
         return resp
 
-    try:
+    task_clear_lock = _get_submission_clear_lock(task_id)
+    with task_clear_lock:
+        try:
         task = db.get(Task, task_id)
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
@@ -6370,23 +6412,49 @@ def clear_submissions_by_date_range(task_id):
         if start_date > end_date:
             return make_response({'success': False, 'message': '开始日期不能晚于结束日期'}, 400)
 
-        # 该任务下、提交日期在 [start_date, end_date] 之间的记录（按 submitted_at 的日期比较）
-        submissions = (
-            db.query(Submission)
-            .filter_by(task_id=task_id)
-            .filter(Submission.submitted_at.isnot(None))
-            .all()
-        )
-        to_delete = [s for s in submissions if s.submitted_at and start_date <= s.submitted_at.date() <= end_date]
-        count = len(to_delete)
-        for s in to_delete:
-            db.delete(s)
-        db.commit()
-        return make_response({'success': True, 'message': f'已删除该期间内 {count} 条数据'})
-    except Exception as e:
-        db.rollback()
-        logger.exception('clear_submissions_by_date_range error')
-        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
+            # 将按日期的删除转换为按时间范围过滤，避免先全量加载再逐条删除导致长事务和锁竞争
+            range_start = datetime.combine(start_date, datetime.min.time())
+            range_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+            submission_ids = [
+                row[0]
+                for row in db.query(Submission.id)
+                .filter(Submission.task_id == task_id)
+                .filter(Submission.submitted_at >= range_start)
+                .filter(Submission.submitted_at < range_end)
+                .order_by(Submission.id.asc())
+                .all()
+            ]
+            count = len(submission_ids)
+            batch_size = max(50, int(os.getenv('MYSQL_DELETE_BATCH_SIZE', '200')))
+            max_retries = max(1, int(os.getenv('MYSQL_DELETE_MAX_RETRIES', '3')))
+            retry_sleep = float(os.getenv('MYSQL_DELETE_RETRY_SLEEP', '0.3'))
+            deleted_total = 0
+
+            for i in range(0, count, batch_size):
+                chunk_ids = submission_ids[i:i + batch_size]
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        deleted_rows = (
+                            db.query(Submission)
+                            .filter(Submission.id.in_(chunk_ids))
+                            .delete(synchronize_session=False)
+                        )
+                        db.commit()
+                        deleted_total += deleted_rows
+                        break
+                    except Exception as e:
+                        db.rollback()
+                        err_msg = str(getattr(e, 'orig', e)).lower()
+                        is_lock_timeout = ('lock wait timeout exceeded' in err_msg) or ('1205' in err_msg)
+                        if is_lock_timeout and attempt < max_retries:
+                            time.sleep(retry_sleep * attempt)
+                            continue
+                        raise
+            return make_response({'success': True, 'message': f'已删除该期间内 {deleted_total} 条数据'})
+        except Exception as e:
+            db.rollback()
+            logger.exception('clear_submissions_by_date_range error')
+            return make_response({'success': False, 'message': MSG_GENERIC}, 500)
     finally:
         db.close()
 
