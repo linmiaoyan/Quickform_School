@@ -121,7 +121,7 @@
                                 <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">详情</a>
                                 <a href="{{ url_for('quickform.export_data', task_id=task.id) }}" class="btn btn-sm btn-outline-success">导出</a>
                                 {% if task_access.get(task.id) == 'owner' %}
-                                <form action="{{ url_for('quickform.delete_task', task_id=task.id) }}" method="POST" class="d-inline" onsubmit="return confirm('{{ translate('dashboard.delete_confirm_message')|replace('{title}', task.title)|replace(\"'\", \"&#39;\") }}')">
+                                <form action="{{ url_for('quickform.delete_task', task_id=task.id) }}" method="POST" class="d-inline" onsubmit="return confirm('{{ translate('dashboard.delete_confirm_message')|replace('{title}', task.title)|e }}')">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">{{ translate('common.delete') }}</button>
                                 </form>
                                 {% endif %}
