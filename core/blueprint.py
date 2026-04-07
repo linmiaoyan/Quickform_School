@@ -4,6 +4,7 @@ QuickForm Blueprint
 """
 import os
 import json
+import hashlib
 import math
 import random
 import re
@@ -462,6 +463,56 @@ def _cleanup_scoped_session(_exception=None):
 # 避免同一任务被并发触发“清空提交数据”导致长时间锁等待
 _submission_clear_locks = {}
 _submission_clear_locks_guard = threading.Lock()
+
+# 读接口短缓存：降低高频轮询对数据库的压力
+API_READ_CACHE_TTL = max(1, int(os.getenv('API_READ_CACHE_TTL', '10')))
+API_READ_CACHE_MAX_KEYS = max(100, int(os.getenv('API_READ_CACHE_MAX_KEYS', '1000')))
+_api_read_cache = {}
+_api_read_cache_lock = threading.Lock()
+
+
+def _build_read_cache_key(scope, task_id):
+    raw_qs = request.query_string.decode('utf-8', errors='ignore') if request.query_string else ''
+    digest = hashlib.sha1(raw_qs.encode('utf-8')).hexdigest() if raw_qs else 'noqs'
+    return f"{scope}:{task_id}:{digest}"
+
+
+def _cache_read_get(cache_key):
+    now_ts = time.time()
+    with _api_read_cache_lock:
+        rec = _api_read_cache.get(cache_key)
+        if not rec:
+            return None
+        if rec['expire_at'] <= now_ts:
+            _api_read_cache.pop(cache_key, None)
+            return None
+        return rec['payload']
+
+
+def _cache_read_set(cache_key, payload, ttl=None):
+    ttl = ttl or API_READ_CACHE_TTL
+    now_ts = time.time()
+    with _api_read_cache_lock:
+        if len(_api_read_cache) >= API_READ_CACHE_MAX_KEYS:
+            # 简单淘汰：先清掉过期项，再按最早过期时间淘汰一部分
+            expired = [k for k, v in _api_read_cache.items() if v['expire_at'] <= now_ts]
+            for k in expired:
+                _api_read_cache.pop(k, None)
+            if len(_api_read_cache) >= API_READ_CACHE_MAX_KEYS:
+                oldest = sorted(_api_read_cache.items(), key=lambda item: item[1]['expire_at'])[:50]
+                for k, _ in oldest:
+                    _api_read_cache.pop(k, None)
+        _api_read_cache[cache_key] = {'payload': payload, 'expire_at': now_ts + ttl}
+
+
+def _invalidate_task_read_cache(task_id):
+    if not task_id:
+        return
+    id_text = str(task_id)
+    with _api_read_cache_lock:
+        to_delete = [k for k in _api_read_cache.keys() if f":{id_text}:" in k]
+        for k in to_delete:
+            _api_read_cache.pop(k, None)
 
 
 def _get_submission_clear_lock(task_id):
@@ -3082,6 +3133,16 @@ def submit_form(task_id):
         
         # GET方法：返回任务数据统计（只返回最新的3条）
         if request.method == 'GET':
+            cache_key = _build_read_cache_key('api_task_get', task_id)
+            cached_payload = _cache_read_get(cache_key)
+            if cached_payload is not None:
+                response = jsonify(cached_payload)
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                response.headers['Cache-Control'] = 'no-store'
+                return response, 200
+
             # 只获取最新的3条数据
             submissions = db.query(Submission).filter_by(task_id=task.id).order_by(Submission.submitted_at.desc()).limit(3).all()
             total_count = db.query(Submission).filter_by(task_id=task.id).count()
@@ -3116,6 +3177,13 @@ def submit_form(task_id):
                 'total_submissions': total_count,
                 'submissions': data_list
             })
+            _cache_read_set(cache_key, {
+                'note': f'This endpoint returns the 3 most recent submissions. Full list: {all_url}',
+                'task_id': task.task_id,
+                'task_title': task.title,
+                'total_submissions': total_count,
+                'submissions': data_list
+            })
             try:
                 db.execute(
                     text("UPDATE task SET api_task_get_count = COALESCE(api_task_get_count, 0) + 1 WHERE id = :id"),
@@ -3128,6 +3196,7 @@ def submit_form(task_id):
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            response.headers['Cache-Control'] = 'no-store'
             return response, 200
         
         # POST方法：提交数据
@@ -3178,6 +3247,7 @@ def submit_form(task_id):
             submission = Submission(task_id=task.id, data=json.dumps(form_data, ensure_ascii=False))
             db.add(submission)
             db.commit()
+            _invalidate_task_read_cache(task_id)
         except Exception as e:
             db.rollback()
             logger.exception("保存提交数据失败: %s", e)
@@ -3191,6 +3261,7 @@ def submit_form(task_id):
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Cache-Control'] = 'no-store'
         return response, 200
     except Exception as e:
         logger.exception("submit_form API 异常: %s", e)
@@ -3277,6 +3348,16 @@ def submit_form_all(task_id):
         
     ip_info['last_all_access'] = now_ts
     
+    cache_key = _build_read_cache_key('api_task_all', task_id)
+    cached_payload = _cache_read_get(cache_key)
+    if cached_payload is not None:
+        response = jsonify(cached_payload)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 200
+
     db = SessionLocal()
     try:
         task = db.query(Task).filter_by(task_id=task_id).first()
@@ -3397,6 +3478,13 @@ def submit_form_all(task_id):
                 )
             )
             db.commit()
+            _cache_read_set(cache_key, {
+                'note': f'Total {total_count} submission(s).',
+                'task_id': task.task_id,
+                'task_title': task.title,
+                'total_submissions': total_count,
+                'submissions': data_list
+            })
         except Exception as log_err:
             db.rollback()
             logger.warning("/all 配额或日志写入失败: %s", log_err)
@@ -3408,6 +3496,7 @@ def submit_form_all(task_id):
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Cache-Control'] = 'no-store'
         return response, 200
     except Exception as e:
         logger.exception("submit_form_all API 异常: %s", e)
@@ -6290,6 +6379,7 @@ def remove_submission(task_id):
         
         db.delete(submission)
         db.commit()
+        _invalidate_task_read_cache(task.task_id)
         logger.info(
             f"[remove_submission] success user={getattr(current_user, 'id', None)} task={task_id} submission={submission_id}"
         )
@@ -6381,6 +6471,7 @@ def clear_all_submissions(task_id):
             logger.info(
                 f"[clear_all_submissions] success user={getattr(current_user, 'id', None)} task={task_id} deleted={deleted_total}"
             )
+            _invalidate_task_read_cache(task.task_id)
             return make_response({'success': True, 'message': f'成功删除 {deleted_total} 条数据'})
     except Exception:
         db.rollback()
@@ -6469,6 +6560,7 @@ def clear_submissions_by_date_range(task_id):
                             time.sleep(retry_sleep * attempt)
                             continue
                         raise
+            _invalidate_task_read_cache(task.task_id)
             return make_response({'success': True, 'message': f'已删除该期间内 {deleted_total} 条数据'})
     except Exception:
         db.rollback()
