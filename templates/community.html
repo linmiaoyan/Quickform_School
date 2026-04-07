@@ -417,15 +417,14 @@
                 {% if community_random and community_random|length > 0 %}
                 <div class="community-random-grid">
                     {% for item in community_random %}
-                    {% set t = item.task %}
                     <article class="community-spot-card">
                         <div class="community-spot-card-inner">
                             <div class="community-spot-title">
-                                <a href="{{ url_for('quickform.task_detail', task_id=t.id) }}" target="_blank" rel="noopener">{{ t.title }}</a>
+                                <a href="{{ url_for('quickform.task_detail', task_id=item.task_id) }}" target="_blank" rel="noopener">{{ item.title }}</a>
                             </div>
                             {% if item.preview_url %}
                             <div class="community-preview-frame">
-                                <iframe src="{{ item.preview_url }}" title="{{ t.title }} 预览" loading="lazy" referrerpolicy="no-referrer-when-downgrade" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+                                <iframe src="{{ item.preview_url }}" title="{{ item.title }} 预览" loading="lazy" referrerpolicy="no-referrer-when-downgrade" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
                             </div>
                             {% else %}
                             <div class="community-preview-placeholder">该项目暂无 HTML 页面预览</div>

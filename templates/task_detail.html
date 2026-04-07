@@ -197,11 +197,7 @@
                         {% if quota_ui.pending %}
                         <span class="badge bg-warning text-dark">加额申请审核中</span>
                         {% else %}
-                        <form method="post" action="{{ url_for('quickform.task_quota_request_submit', task_id=task.id) }}" class="d-flex flex-wrap align-items-center gap-1 mb-0">
-                            <label class="visually-hidden" for="quotaReliefNote-{{ task.id }}">具体额度与理由（必填）</label>
-                            <input type="text" name="applicant_note" id="quotaReliefNote-{{ task.id }}" class="form-control form-control-sm" placeholder="具体额度与理由（必填）" title="请填写希望增加的次数、流量及用途，便于管理员审核" required minlength="2" autocomplete="off" style="width: 200px; max-width: 55vw;">
-                            <button type="submit" class="btn btn-sm btn-outline-secondary">申请加额</button>
-                        </form>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quotaRequestModal-{{ task.id }}">申请加额</button>
                         {% endif %}
                     </div>
                     {% endif %}
@@ -221,6 +217,38 @@
                 </div>
             </div>
         </div>
+        {% if can_request_quota_relief and not quota_ui.pending %}
+        <div class="modal fade" id="quotaRequestModal-{{ task.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <form method="post" action="{{ url_for('quickform.task_quota_request_submit', task_id=task.id) }}">
+                        <div class="modal-header">
+                            <h5 class="modal-title">申请加额</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label" for="quotaReqReads-{{ task.id }}">次数</label>
+                                <input type="number" class="form-control" id="quotaReqReads-{{ task.id }}" name="requested_extra_reads" min="0" required placeholder="例如 2000">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="quotaReqMb-{{ task.id }}">流量（MB）</label>
+                                <input type="number" class="form-control" id="quotaReqMb-{{ task.id }}" name="requested_extra_mb" min="0" required placeholder="例如 100">
+                            </div>
+                            <div class="mb-0">
+                                <label class="form-label" for="quotaReqNote-{{ task.id }}">理由</label>
+                                <textarea class="form-control" id="quotaReqNote-{{ task.id }}" name="applicant_note" rows="3" minlength="2" required placeholder="请说明用途和场景"></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                            <button type="submit" class="btn btn-primary">提交申请</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
         {% endif %}
         
         <!-- 共享管理卡片（仅任务所有者且已登录时显示） -->

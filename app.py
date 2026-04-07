@@ -124,8 +124,9 @@ else:
     logger.info("未检测到 MySQL 配置，将使用 SQLite 数据库")
 
 # 导入并注册QuickForm Blueprint
-from core.blueprint import quickform_bp, init_quickform, SessionLocal
-init_quickform(app, login_manager, database_type=DATABASE_TYPE)
+from core import blueprint as quickform_blueprint
+quickform_bp = quickform_blueprint.quickform_bp
+quickform_blueprint.init_quickform(app, login_manager, database_type=DATABASE_TYPE)
 
 # 注册Blueprint
 app.register_blueprint(quickform_bp)
@@ -140,7 +141,8 @@ except ImportError:
 # User loader
 @login_manager.user_loader
 def load_user(user_id):
-    db = SessionLocal()
+    # 始终使用 blueprint 当前会话工厂，避免数据库重初始化后仍引用旧连接池
+    db = quickform_blueprint.SessionLocal()
     try:
         return db.get(User, int(user_id))
     finally:

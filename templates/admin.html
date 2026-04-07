@@ -9,39 +9,39 @@
         <div style="padding: 1.5rem 1rem 1rem 1rem; border-bottom: 1px solid #e5e7eb;">
             <h6 style="font-weight: 600; color: #6b7280; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">{{ translate('admin.navigation') }}</h6>
         </div>
+        <div class="px-3 pt-2 pb-1 text-muted small fw-semibold">运营</div>
         <a href="{{ url_for('quickform.admin_panel', tab='users') }}" class="sidebar-item {{ 'active' if current_tab == 'users' else '' }}" data-tab="users">
             <i class="bi bi-people" style="margin-right: 0.75rem;"></i> {{ translate('admin.user_management') }}
         </a>
         <a href="{{ url_for('quickform.admin_panel', tab='tasks') }}" class="sidebar-item {{ 'active' if current_tab == 'tasks' else '' }}" data-tab="tasks">
             <i class="bi bi-list-task" style="margin-right: 0.75rem;"></i> {{ translate('admin.task_report') }}
         </a>
-        <a href="{{ url_for('quickform.admin_panel', tab='html-review') }}" class="sidebar-item {{ 'active' if current_tab == 'html-review' else '' }}" data-tab="html-review">
-            <i class="bi bi-file-earmark-code" style="margin-right: 0.75rem;"></i> {{ translate('admin.html_review') }}
+        <a href="{{ url_for('quickform.admin_panel', tab='data') }}" class="sidebar-item {{ 'active' if current_tab == 'data' else '' }}" data-tab="data">
+            <i class="bi bi-graph-up" style="margin-right: 0.75rem;"></i> {{ translate('admin.data_report') }}
         </a>
+
+        <div class="px-3 pt-3 pb-1 text-muted small fw-semibold">审核</div>
         <a href="{{ url_for('quickform.admin_panel', tab='cert-review') }}" class="sidebar-item {{ 'active' if current_tab == 'cert-review' else '' }}" data-tab="cert-review">
             <i class="bi bi-shield-check" style="margin-right: 0.75rem;"></i> {{ translate('admin.cert_review') }}
+            {% if pending_cert_sidebar and pending_cert_sidebar > 0 %}<span class="badge bg-danger ms-auto">{{ pending_cert_sidebar }}</span>{% endif %}
         </a>
-        <a href="{{ url_for('quickform.admin_panel', tab='public-review') }}" class="sidebar-item {{ 'active' if current_tab == 'public-review' else '' }}" data-tab="public-review">
-            <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> {{ translate('admin.public_review') }}
+        <a href="{{ url_for('quickform.admin_panel', tab='other-review') }}" class="sidebar-item {{ 'active' if current_tab in ['other-review', 'public-review', 'org-review', 'html-review'] else '' }}" data-tab="other-review">
+            <i class="bi bi-ui-checks-grid" style="margin-right: 0.75rem;"></i> 其他审核
+            {% if pending_other_sidebar and pending_other_sidebar > 0 %}<span class="badge bg-warning text-dark ms-auto">{{ pending_other_sidebar }}</span>{% endif %}
         </a>
-        <a href="{{ url_for('quickform.admin_panel', tab='org-review') }}" class="sidebar-item {{ 'active' if current_tab == 'org-review' else '' }}" data-tab="org-review">
-            <i class="bi bi-building-check" style="margin-right: 0.75rem;"></i> {{ translate('admin.org_review') }}
+        <a href="{{ url_for('quickform.admin_panel', tab='quota-review') }}" class="sidebar-item {{ 'active' if current_tab == 'quota-review' else '' }}" data-tab="quota-review">
+            <i class="bi bi-cloud-arrow-up" style="margin-right: 0.75rem;"></i> /all 加额审核
         </a>
+
+        <div class="px-3 pt-3 pb-1 text-muted small fw-semibold">内容</div>
         <a href="{{ url_for('quickform.admin_panel', tab='open-source') }}" class="sidebar-item {{ 'active' if current_tab == 'open-source' else '' }}" data-tab="open-source">
             <i class="bi bi-globe" style="margin-right: 0.75rem;"></i> {{ translate('admin.open_source') }}
         </a>
         <a href="{{ url_for('quickform.admin_panel', tab='tutorials-edit') }}" class="sidebar-item {{ 'active' if current_tab == 'tutorials-edit' else '' }}" data-tab="tutorials-edit">
             <i class="bi bi-book" style="margin-right: 0.75rem;"></i> {{ translate('admin.tutorials_edit') }}
         </a>
-        <a href="{{ url_for('quickform.admin_panel', tab='data') }}" class="sidebar-item {{ 'active' if current_tab == 'data' else '' }}" data-tab="data">
-            <i class="bi bi-graph-up" style="margin-right: 0.75rem;"></i> {{ translate('admin.data_report') }}
-        </a>
-        <a href="{{ url_for('quickform.admin_panel', tab='traffic') }}" class="sidebar-item {{ 'active' if current_tab == 'traffic' else '' }}" data-tab="traffic">
-            <i class="bi bi-speedometer2" style="margin-right: 0.75rem;"></i> 流量预估
-        </a>
-        <a href="{{ url_for('quickform.admin_panel', tab='quota-review') }}" class="sidebar-item {{ 'active' if current_tab == 'quota-review' else '' }}" data-tab="quota-review">
-            <i class="bi bi-cloud-arrow-up" style="margin-right: 0.75rem;"></i> /all 加额审核
-        </a>
+
+        <div class="px-3 pt-3 pb-1 text-muted small fw-semibold">配置</div>
         <a href="{{ url_for('quickform.admin_panel', tab='quota-settings') }}" class="sidebar-item {{ 'active' if current_tab == 'quota-settings' else '' }}" data-tab="quota-settings">
             <i class="bi bi-sliders" style="margin-right: 0.75rem;"></i> 全局限额参数
         </a>
@@ -339,6 +339,14 @@
                             <div class="text-muted small">
                                 共 {{ task_total }} 个任务，当前第 {{ task_page|int }} / {{ task_pages|int }} 页
                             </div>
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                <a class="btn btn-sm" style="background-color:#10b981;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='submissions', limit=20, format='xlsx') }}">
+                                    导出提交数 Top20
+                                </a>
+                                <a class="btn btn-sm" style="background-color:#3b82f6;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='storage', limit=20, format='xlsx') }}">
+                                    导出空间占用 Top20
+                                </a>
+                            </div>
                         </div>
                         <div class="table-responsive">
                             <table class="table table-striped table-hover">
@@ -496,7 +504,7 @@
             </div>
 
             <!-- {{ translate('admin.public_review') }}标签页：支持批量选中、批量通过/拒绝 -->
-            <div class="tab-pane fade {{ 'show active' if current_tab == 'public-review' else '' }}" id="public-review" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab in ['public-review', 'other-review'] else '' }}" id="public-review" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">{{ translate('admin.public_review') }}</h5>
@@ -560,7 +568,7 @@
             </div>
 
             <!-- 团队入驻审核（入驻团队 / 首页公开） -->
-            <div class="tab-pane fade {{ 'show active' if current_tab == 'org-review' else '' }}" id="org-review" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab in ['org-review', 'other-review'] else '' }}" id="org-review" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">{{ translate('admin.org_review') }}</h5>
@@ -610,7 +618,7 @@
             </div>
 
             <!-- HTML审核标签页 -->
-            <div class="tab-pane fade {{ 'show active' if current_tab == 'html-review' else '' }}" id="html-review" role="tabpanel">
+            <div class="tab-pane fade {{ 'show active' if current_tab in ['html-review', 'other-review'] else '' }}" id="html-review" role="tabpanel">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">HTML 页面审核</h5>
@@ -1188,71 +1196,6 @@
                 </div>
             </div>
 
-            <!-- 流量预估标签页 -->
-            <div class="tab-pane fade {{ 'show active' if current_tab == 'traffic' else '' }}" id="traffic" role="tabpanel">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0" style="color: white;">流量预估</h5>
-                    </div>
-                    <div class="card-body">
-                        <p class="text-muted small mb-3">统计各类接口的 GET 请求次数（自服务启动以来累计，重启后清零）。</p>
-                        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-                            <a class="btn btn-sm" style="background-color:#10b981;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='submissions', limit=20, format='xlsx') }}">
-                                导出提交数 Top20
-                            </a>
-                            <a class="btn btn-sm" style="background-color:#3b82f6;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='storage', limit=20, format='xlsx') }}">
-                                导出空间占用 Top20
-                            </a>
-                            <button type="button" class="btn btn-sm btn-outline-primary" id="checkProjectAlertsBtn">
-                                检查指定项目预警
-                            </button>
-                        </div>
-                        <div class="row g-2 mb-2">
-                            <div class="col-6 col-md-3">
-                                <label class="form-label mb-1 small text-muted">/all 1小时阈值</label>
-                                <input type="number" min="1" class="form-control form-control-sm" id="alertAllCalls1h" placeholder="800">
-                            </div>
-                            <div class="col-6 col-md-3">
-                                <label class="form-label mb-1 small text-muted">/all P1阈值</label>
-                                <input type="number" min="1" class="form-control form-control-sm" id="alertAllCalls1hP1" placeholder="2000">
-                            </div>
-                            <div class="col-6 col-md-3">
-                                <label class="form-label mb-1 small text-muted">24小时提交阈值</label>
-                                <input type="number" min="1" class="form-control form-control-sm" id="alertSubmissions24h" placeholder="200">
-                            </div>
-                            <div class="col-6 col-md-3">
-                                <label class="form-label mb-1 small text-muted">总占用阈值(MB)</label>
-                                <input type="number" min="1" class="form-control form-control-sm" id="alertTotalMb" placeholder="2048">
-                            </div>
-                        </div>
-                        <p class="text-muted small mb-2">可在弹窗里输入 task_id（逗号分隔），例如：abc123xyzz,def456lmno</p>
-                        <div id="projectAlertResult" class="small text-muted mb-3"></div>
-                        <div class="table-responsive">
-                            <table class="table table-striped table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>接口类别</th>
-                                        <th>GET 次数</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for item in api_traffic %}
-                                    <tr>
-                                        <td>{{ item.category }}</td>
-                                        <td><strong>{{ item.count }}</strong></td>
-                                    </tr>
-                                    {% else %}
-                                    <tr>
-                                        <td colspan="2" class="text-center text-muted">暂无数据，请等待接口被调用。</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- /all 加额审核 -->
             <div class="tab-pane fade {{ 'show active' if current_tab == 'quota-review' else '' }}" id="quota-review" role="tabpanel">
                 <div class="card mb-4 quota-review-pending">
@@ -1290,7 +1233,7 @@
                                         <th>任务</th>
                                         <th>申请人</th>
                                         <th>时间</th>
-                                        <th>备注</th>
+                                        <th>申请内容</th>
                                         <th style="min-width: 240px;">批复</th>
                                     </tr>
                                 </thead>
@@ -1306,12 +1249,15 @@
                                         </td>
                                         <td>{% if r.applicant %}{{ r.applicant.username }}{% else %}—{% endif %}</td>
                                         <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>
-                                        <td style="max-width:200px;word-break:break-word;">{{ r.applicant_note or '—' }}</td>
+                                        <td style="max-width:260px;word-break:break-word;">
+                                            <div class="small text-muted">申请：+{{ r.requested_extra_reads or 0 }} 次 / +{{ r.requested_extra_mb or 0 }} MB</div>
+                                            <div>{{ r.applicant_note or '—' }}</div>
+                                        </td>
                                         <td class="py-2 align-middle">
                                             <div class="d-flex flex-wrap align-items-center gap-1">
                                                 <form method="post" action="{{ url_for('quickform.admin_task_quota_approve', req_id=r.id) }}" class="d-flex flex-wrap align-items-center gap-1 mb-0">
-                                                    <input type="number" name="granted_extra_reads" class="form-control form-control-sm qf-quota-inp" min="0" placeholder="+次" title="+次数" aria-label="+次数">
-                                                    <input type="number" name="granted_extra_mb" class="form-control form-control-sm qf-quota-inp" min="0" placeholder="+MB" title="+MB" aria-label="+MB">
+                                                    <input type="number" name="granted_extra_reads" class="form-control form-control-sm qf-quota-inp" min="0" placeholder="+次" title="+次数" aria-label="+次数" value="{{ r.requested_extra_reads or 0 }}">
+                                                    <input type="number" name="granted_extra_mb" class="form-control form-control-sm qf-quota-inp" min="0" placeholder="+MB" title="+MB" aria-label="+MB" value="{{ r.requested_extra_mb or 0 }}">
                                                     <input type="text" name="review_note" class="form-control form-control-sm qf-quota-note" placeholder="备注" title="管理员备注（可选）">
                                                     <button type="submit" class="btn btn-sm btn-success flex-shrink-0">通过</button>
                                                 </form>
@@ -1379,6 +1325,9 @@
                         </p>
                         {% set q_reads = site_quota_default_row.default_all_read_limit if site_quota_default_row else 2000 %}
                         {% set q_mb = ((site_quota_default_row.default_all_bytes_limit / 1024 / 1024) | round(0) | int) if site_quota_default_row else 100 %}
+                        {% set q_auto_on = (site_quota_default_row.auto_quota_approve_enabled if site_quota_default_row else 0) %}
+                        {% set q_auto_reads = (site_quota_default_row.auto_quota_approve_max_reads if site_quota_default_row else 0) %}
+                        {% set q_auto_mb = (site_quota_default_row.auto_quota_approve_max_mb if site_quota_default_row else 0) %}
                         <form method="post" action="{{ url_for('quickform.admin_save_site_quota_defaults') }}" class="row g-3" style="max-width: 520px;">
                             <div class="col-12">
                                 <label class="form-label" for="default_all_read_limit">每任务 <code>/all</code> 访问次数上限（次）</label>
@@ -1392,6 +1341,23 @@
                             </div>
                             <div class="col-12">
                                 <button type="submit" class="btn btn-primary">保存</button>
+                            </div>
+                            <div class="col-12"><hr class="my-2"></div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="1" id="auto_quota_approve_enabled" name="auto_quota_approve_enabled" {% if q_auto_on %}checked{% endif %}>
+                                    <label class="form-check-label" for="auto_quota_approve_enabled">
+                                        启用自动审批（阈值内自动通过）
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="auto_quota_approve_max_reads">自动审批次数阈值（次）</label>
+                                <input type="number" class="form-control" id="auto_quota_approve_max_reads" name="auto_quota_approve_max_reads" min="0" max="50000000" value="{{ q_auto_reads }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="auto_quota_approve_max_mb">自动审批流量阈值（MB）</label>
+                                <input type="number" class="form-control" id="auto_quota_approve_max_mb" name="auto_quota_approve_max_mb" min="0" max="1048576" value="{{ q_auto_mb }}">
                             </div>
                         </form>
                         {% if site_quota_default_row and site_quota_default_row.updated_at %}
@@ -2018,52 +1984,6 @@
         .catch(() => alert('设置失败：网络错误'));
     }
 
-    (function initProjectAlertCheck() {
-        const btn = document.getElementById('checkProjectAlertsBtn');
-        const box = document.getElementById('projectAlertResult');
-        const allCalls1hInput = document.getElementById('alertAllCalls1h');
-        const allCalls1hP1Input = document.getElementById('alertAllCalls1hP1');
-        const submissions24hInput = document.getElementById('alertSubmissions24h');
-        const totalMbInput = document.getElementById('alertTotalMb');
-        if (!btn || !box) return;
-
-        btn.addEventListener('click', function() {
-            const taskIds = window.prompt('请输入要监控的 task_id（逗号分隔，留空则按环境变量配置）', '');
-            if (taskIds === null) return;
-            const params = new URLSearchParams();
-            params.set('task_ids', taskIds.trim());
-            if (allCalls1hInput && allCalls1hInput.value.trim()) params.set('all_calls_1h', allCalls1hInput.value.trim());
-            if (allCalls1hP1Input && allCalls1hP1Input.value.trim()) params.set('all_calls_1h_p1', allCalls1hP1Input.value.trim());
-            if (submissions24hInput && submissions24hInput.value.trim()) params.set('submissions_24h', submissions24hInput.value.trim());
-            if (totalMbInput && totalMbInput.value.trim()) params.set('total_mb', totalMbInput.value.trim());
-            const url = '{{ url_for("quickform.admin_check_project_alerts") }}' + '?' + params.toString();
-            box.className = 'small text-muted mb-3';
-            box.textContent = '正在检查预警...';
-            fetch(url, { credentials: 'same-origin' })
-                .then(r => r.json())
-                .then(data => {
-                    if (!data || !data.success) {
-                        box.className = 'small text-danger mb-3';
-                        box.textContent = (data && data.message) ? data.message : '检查失败';
-                        return;
-                    }
-                    if (!data.alert_count) {
-                        box.className = 'small text-success mb-3';
-                        box.textContent = '检查完成：当前未触发预警。';
-                        return;
-                    }
-                    const summary = data.alerts.map(function(a) {
-                        return '[' + (a.level || 'P2') + '] ' + a.task_title + '(' + a.task_id + '): ' + (a.reasons || []).join('；');
-                    }).join('\n');
-                    box.className = 'small text-danger mb-3';
-                    box.textContent = '检查完成，触发 ' + data.alert_count + ' 条预警：\n' + summary;
-                })
-                .catch(() => {
-                    box.className = 'small text-danger mb-3';
-                    box.textContent = '检查失败：网络错误';
-                });
-        });
-    })();
 </script>
 {% endblock %}
 {% endblock %}

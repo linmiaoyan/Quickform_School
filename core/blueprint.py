@@ -469,6 +469,17 @@ API_READ_CACHE_TTL = max(1, int(os.getenv('API_READ_CACHE_TTL', '10')))
 API_READ_CACHE_MAX_KEYS = max(100, int(os.getenv('API_READ_CACHE_MAX_KEYS', '1000')))
 _api_read_cache = {}
 _api_read_cache_lock = threading.Lock()
+COMMUNITY_RANDOM_CACHE_TTL = max(10, int(os.getenv('COMMUNITY_RANDOM_CACHE_TTL', '600')))
+_community_random_cache = {'items': None, 'expire_at': 0.0}
+_community_random_cache_lock = threading.Lock()
+TASK_DATA_CACHE_TTL_MIN = max(1, int(os.getenv('TASK_DATA_CACHE_TTL_MIN', '1')))
+TASK_DATA_CACHE_TTL_MAX = max(TASK_DATA_CACHE_TTL_MIN, int(os.getenv('TASK_DATA_CACHE_TTL_MAX', '10')))
+TASK_DATA_CACHE_HOT_WINDOW = max(5, int(os.getenv('TASK_DATA_CACHE_HOT_WINDOW', '15')))
+TASK_DATA_CACHE_HOT_THRESHOLD = max(1, int(os.getenv('TASK_DATA_CACHE_HOT_THRESHOLD', '12')))
+_task_data_count_cache = {}
+_task_data_page_ids_cache = {}
+_task_data_access_stats = {}
+_task_data_cache_lock = threading.Lock()
 
 
 def _build_read_cache_key(scope, task_id):
@@ -513,6 +524,61 @@ def _invalidate_task_read_cache(task_id):
         to_delete = [k for k in _api_read_cache.keys() if f":{id_text}:" in k]
         for k in to_delete:
             _api_read_cache.pop(k, None)
+
+
+def _invalidate_task_data_cache(task_db_id):
+    if not task_db_id:
+        return
+    with _task_data_cache_lock:
+        _task_data_count_cache.pop(int(task_db_id), None)
+        prefix = f"{int(task_db_id)}:"
+        to_delete = [k for k in _task_data_page_ids_cache.keys() if k.startswith(prefix)]
+        for k in to_delete:
+            _task_data_page_ids_cache.pop(k, None)
+
+
+def _get_dynamic_task_data_ttl(task_db_id, now_ts=None):
+    now_ts = now_ts or time.time()
+    with _task_data_cache_lock:
+        q = _task_data_access_stats.get(int(task_db_id))
+        if q is None:
+            q = deque()
+            _task_data_access_stats[int(task_db_id)] = q
+        q.append(now_ts)
+        while q and now_ts - q[0] > TASK_DATA_CACHE_HOT_WINDOW:
+            q.popleft()
+        # 访问密度高时拉高缓存秒数，低频时保持 1 秒近实时
+        return TASK_DATA_CACHE_TTL_MAX if len(q) >= TASK_DATA_CACHE_HOT_THRESHOLD else TASK_DATA_CACHE_TTL_MIN
+
+
+def _get_cached_community_random(db):
+    now_ts = time.time()
+    with _community_random_cache_lock:
+        if _community_random_cache['items'] is not None and _community_random_cache['expire_at'] > now_ts:
+            return _community_random_cache['items']
+
+    base_public = db.query(Task).filter(Task.sharing_type == "public", Task.public_approved == 1)
+    public_ids = [row[0] for row in base_public.with_entities(Task.id).all()]
+    items = []
+    if public_ids:
+        k = min(4, len(public_ids))
+        pick_ids = random.sample(public_ids, k)
+        by_id = {t.id: t for t in db.query(Task).filter(Task.id.in_(pick_ids)).all()}
+        for tid in pick_ids:
+            t = by_id.get(tid)
+            if t:
+                items.append(
+                    {
+                        "task_id": t.id,
+                        "title": t.title,
+                        "preview_url": _task_first_html_preview_url(t),
+                    }
+                )
+
+    with _community_random_cache_lock:
+        _community_random_cache['items'] = items
+        _community_random_cache['expire_at'] = now_ts + COMMUNITY_RANDOM_CACHE_TTL
+    return items
 
 
 def _get_submission_clear_lock(task_id):
@@ -678,21 +744,7 @@ def community():
         page_posts = max(1, request.args.get("post_page", 1, type=int))
 
         base_public = db.query(Task).filter(Task.sharing_type == "public", Task.public_approved == 1)
-        public_ids = [row[0] for row in base_public.with_entities(Task.id).all()]
-        community_random = []
-        if public_ids:
-            k = min(4, len(public_ids))
-            pick_ids = random.sample(public_ids, k)
-            by_id = {t.id: t for t in db.query(Task).options(joinedload(Task.author)).filter(Task.id.in_(pick_ids)).all()}
-            for tid in pick_ids:
-                t = by_id.get(tid)
-                if t:
-                    community_random.append(
-                        {
-                            "task": t,
-                            "preview_url": _task_first_html_preview_url(t),
-                        }
-                    )
+        community_random = _get_cached_community_random(db)
 
         public_tasks_latest = []
         public_tasks_liked = []
@@ -1734,12 +1786,50 @@ def task_quota_request_submit(task_id):
             flash('该任务已有待审核的加额申请，请等待管理员处理', 'info')
             return redirect(url_for('quickform.task_detail', task_id=task_id))
         note = (request.form.get('applicant_note') or '').strip()
-        if len(note) < 2:
-            flash('请填写申请理由：说明希望增加的次数、流量及用途（至少 2 个字）', 'warning')
+        req_reads_raw = (request.form.get('requested_extra_reads') or '0').strip()
+        req_mb_raw = (request.form.get('requested_extra_mb') or '0').strip()
+        try:
+            req_reads = max(0, int(req_reads_raw or 0))
+            req_mb = max(0, int(req_mb_raw or 0))
+        except ValueError:
+            flash('申请次数和流量请输入非负整数', 'warning')
             return redirect(url_for('quickform.task_detail', task_id=task_id))
-        db.add(TaskQuotaRequest(task_id=task.id, user_id=current_user.id, applicant_note=note, status=0))
-        db.commit()
-        flash('已提交加额申请，管理员审核通过后将增加相应次数与流量额度', 'success')
+        if req_reads == 0 and req_mb == 0:
+            flash('请至少填写一项申请额度（次数或流量）', 'warning')
+            return redirect(url_for('quickform.task_detail', task_id=task_id))
+        if len(note) < 2:
+            flash('请填写申请理由（至少 2 个字）', 'warning')
+            return redirect(url_for('quickform.task_detail', task_id=task_id))
+        req = TaskQuotaRequest(
+            task_id=task.id,
+            user_id=current_user.id,
+            applicant_note=note,
+            requested_extra_reads=req_reads,
+            requested_extra_mb=req_mb,
+            status=0,
+        )
+        db.add(req)
+
+        row = db.get(SiteQuotaDefault, 1)
+        auto_enabled = bool(int(getattr(row, 'auto_quota_approve_enabled', 0) or 0)) if row else False
+        auto_max_reads = int(getattr(row, 'auto_quota_approve_max_reads', 0) or 0) if row else 0
+        auto_max_mb = int(getattr(row, 'auto_quota_approve_max_mb', 0) or 0) if row else 0
+        auto_ok = auto_enabled and req_reads <= auto_max_reads and req_mb <= auto_max_mb
+
+        if auto_ok:
+            task.quota_extra_all_reads = (task.quota_extra_all_reads or 0) + req_reads
+            task.quota_extra_all_bytes = int(task.quota_extra_all_bytes or 0) + req_mb * 1024 * 1024
+            req.status = 1
+            req.reviewed_at = datetime.now()
+            req.reviewed_by = None
+            req.granted_extra_reads = req_reads
+            req.granted_extra_mb = req_mb
+            req.review_note = f"系统自动审批：阈值内（次数≤{auto_max_reads}，流量≤{auto_max_mb}MB）"
+            db.commit()
+            flash(f'申请已自动通过：+{req_reads} 次 /all、+{req_mb} MB', 'success')
+        else:
+            db.commit()
+            flash('已提交加额申请，管理员审核通过后将增加相应次数与流量额度', 'success')
     except Exception as e:
         db.rollback()
         logger.exception("提交 task quota 申请失败: %s", e)
@@ -1814,16 +1904,53 @@ def task_data_view(task_id):
             # LIKE 通配符转义：% _ \ -> \% \_ \\
             like_esc = search_q.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
             submission_query = submission_query.filter(Submission.data.like('%' + like_esc + '%'))
-        total_submissions = submission_query.count()
+        total_submissions = None
+        use_cache = not search_q
+        now_ts = time.time()
+        dynamic_ttl = _get_dynamic_task_data_ttl(task.id, now_ts) if use_cache else 0
+        if use_cache:
+            with _task_data_cache_lock:
+                rec = _task_data_count_cache.get(task.id)
+                if rec and rec['expire_at'] > now_ts:
+                    total_submissions = rec['total']
+        if total_submissions is None:
+            total_submissions = submission_query.count()
+            if use_cache:
+                with _task_data_cache_lock:
+                    _task_data_count_cache[task.id] = {'total': total_submissions, 'expire_at': now_ts + dynamic_ttl}
         total_pages = max(math.ceil(total_submissions / per_page), 1) if total_submissions else 1
         if page > total_pages:
             page = total_pages
-        submissions = (
-            submission_query
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
+        submissions = None
+        if use_cache:
+            page_key = f"{task.id}:{page}:{per_page}"
+            cached_ids = None
+            with _task_data_cache_lock:
+                rec = _task_data_page_ids_cache.get(page_key)
+                if rec and rec['expire_at'] > now_ts:
+                    cached_ids = rec['ids']
+            if cached_ids is not None:
+                by_id = {s.id: s for s in db.query(Submission).filter(Submission.id.in_(cached_ids)).all()}
+                submissions = [by_id[sid] for sid in cached_ids if sid in by_id]
+            if submissions is None:
+                submissions = (
+                    submission_query
+                    .offset((page - 1) * per_page)
+                    .limit(per_page)
+                    .all()
+                )
+                with _task_data_cache_lock:
+                    _task_data_page_ids_cache[page_key] = {
+                        'ids': [s.id for s in submissions],
+                        'expire_at': now_ts + dynamic_ttl,
+                    }
+        else:
+            submissions = (
+                submission_query
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+                .all()
+            )
         pagination = {'page': page, 'per_page': per_page, 'pages': total_pages}
         return render_template(
             'task_data_view.html',
@@ -3248,6 +3375,7 @@ def submit_form(task_id):
             db.add(submission)
             db.commit()
             _invalidate_task_read_cache(task_id)
+            _invalidate_task_data_cache(task.id)
         except Exception as e:
             db.rollback()
             logger.exception("保存提交数据失败: %s", e)
@@ -4539,6 +4667,8 @@ def admin_panel():
         today = datetime.now().date()
         today_start = datetime.combine(today, datetime.min.time())
         current_tab = request.args.get('tab', 'users')
+        if current_tab == 'traffic':
+            current_tab = 'tasks'
         user_per_page = 20
         task_per_page = 20
         html_review_per_page = 20
@@ -4549,6 +4679,14 @@ def admin_panel():
         admin_users = db.query(User).filter_by(role='admin').count()
         total_tasks = db.query(Task).count()
         total_submissions = db.query(Submission).count() if current_tab == 'data' else None
+        pending_cert_sidebar = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
+        pending_html_sidebar = db.query(Task).filter(Task.html_approved != 1).count()
+        pending_public_sidebar = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 0).count()
+        pending_org_sidebar = db.query(Organization).filter(
+            Organization.teams_public_requested == True,
+            Organization.teams_public_approved == 0,
+        ).count()
+        pending_other_sidebar = pending_html_sidebar + pending_public_sidebar + pending_org_sidebar
 
         # 默认值：未选中的 tab 不查数据
         users = []
@@ -4620,7 +4758,7 @@ def admin_panel():
                 .all()
             )
 
-        elif current_tab == 'html-review':
+        elif current_tab in ('html-review', 'other-review'):
             html_review_page = request.args.get('html_review_page', 1, type=int) or 1
             html_review_page = max(1, html_review_page)
             html_tasks_query = db.query(Task).filter(
@@ -4672,7 +4810,7 @@ def admin_panel():
         elif current_tab == 'data':
             pass  # stats 在下方按 tab 计算
 
-        elif current_tab == 'public-review':
+        elif current_tab in ('public-review', 'other-review'):
             public_pending_tasks = (
                 db.query(Task)
                 .filter(Task.sharing_type == 'public', Task.public_approved == 0)
@@ -4683,7 +4821,7 @@ def admin_panel():
             authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
             public_pending_with_author = [{'task': t, 'author': authors_map.get(t.user_id)} for t in public_pending_tasks]
 
-        elif current_tab == 'org-review':
+        elif current_tab in ('org-review', 'other-review'):
             org_pending = (
                 db.query(Organization)
                 .filter(
@@ -4866,6 +5004,8 @@ def admin_panel():
             quota_requests_pending=quota_requests_pending,
             quota_requests_recent=quota_requests_recent,
             site_quota_default_row=site_quota_default_row,
+            pending_cert_sidebar=pending_cert_sidebar,
+            pending_other_sidebar=pending_other_sidebar,
         )
     finally:
         db.close()
@@ -4877,12 +5017,18 @@ def admin_save_site_quota_defaults():
     """保存全站 /all 默认次数与流量（每任务基础值，不含单任务加额）"""
     raw_r = (request.form.get('default_all_read_limit') or '').strip()
     raw_mb = (request.form.get('default_all_bytes_mb') or '').strip()
+    auto_enabled_raw = (request.form.get('auto_quota_approve_enabled') or '').strip()
+    auto_reads_raw = (request.form.get('auto_quota_approve_max_reads') or '0').strip()
+    auto_mb_raw = (request.form.get('auto_quota_approve_max_mb') or '0').strip()
     try:
         r = int(raw_r)
         mb = int(raw_mb)
+        auto_reads = max(0, int(auto_reads_raw or 0))
+        auto_mb = max(0, int(auto_mb_raw or 0))
     except ValueError:
         flash('请填写有效的整数', 'warning')
         return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
+    auto_enabled = 1 if auto_enabled_raw in ('1', 'true', 'on', 'yes') else 0
     if r < 1 or r > 50_000_000:
         flash('「每任务 /all 次数」须在 1～50000000 之间', 'warning')
         return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
@@ -4897,11 +5043,17 @@ def admin_save_site_quota_defaults():
                 id=1,
                 default_all_read_limit=r,
                 default_all_bytes_limit=mb * 1024 * 1024,
+                auto_quota_approve_enabled=auto_enabled,
+                auto_quota_approve_max_reads=auto_reads,
+                auto_quota_approve_max_mb=auto_mb,
             )
             db.add(row)
         else:
             row.default_all_read_limit = r
             row.default_all_bytes_limit = mb * 1024 * 1024
+            row.auto_quota_approve_enabled = auto_enabled
+            row.auto_quota_approve_max_reads = auto_reads
+            row.auto_quota_approve_max_mb = auto_mb
             row.updated_at = datetime.now()
         db.commit()
         flash('已保存全站默认限额，对新产生的 /all 校验与任务详情展示立即生效。', 'success')
@@ -4918,22 +5070,24 @@ def admin_save_site_quota_defaults():
 @admin_required
 def admin_task_quota_approve(req_id):
     """管理员通过任务的 /all 加额申请"""
-    extra_reads_raw = (request.form.get('granted_extra_reads') or '0').strip()
-    extra_mb_raw = (request.form.get('granted_extra_mb') or '0').strip()
-    try:
-        er = max(0, int(extra_reads_raw or 0))
-        emb = max(0, int(extra_mb_raw or 0))
-    except ValueError:
-        flash('加额请输入非负整数', 'warning')
-        return redirect(url_for('quickform.admin_panel', tab='quota-review'))
-    if er == 0 and emb == 0:
-        flash('请至少填写一项加额（/all 次数或 MB）', 'warning')
-        return redirect(url_for('quickform.admin_panel', tab='quota-review'))
     db = SessionLocal()
     try:
         req = db.get(TaskQuotaRequest, req_id)
         if not req or req.status != 0:
             flash('申请不存在或已处理', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+        default_reads = int(getattr(req, 'requested_extra_reads', 0) or 0)
+        default_mb = int(getattr(req, 'requested_extra_mb', 0) or 0)
+        extra_reads_raw = (request.form.get('granted_extra_reads') or str(default_reads)).strip()
+        extra_mb_raw = (request.form.get('granted_extra_mb') or str(default_mb)).strip()
+        try:
+            er = max(0, int(extra_reads_raw or 0))
+            emb = max(0, int(extra_mb_raw or 0))
+        except ValueError:
+            flash('加额请输入非负整数', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='quota-review'))
+        if er == 0 and emb == 0:
+            flash('请至少填写一项加额（/all 次数或 MB）', 'warning')
             return redirect(url_for('quickform.admin_panel', tab='quota-review'))
         task = db.get(Task, req.task_id)
         if not task:
@@ -6380,6 +6534,7 @@ def remove_submission(task_id):
         db.delete(submission)
         db.commit()
         _invalidate_task_read_cache(task.task_id)
+        _invalidate_task_data_cache(task.id)
         logger.info(
             f"[remove_submission] success user={getattr(current_user, 'id', None)} task={task_id} submission={submission_id}"
         )
@@ -6472,6 +6627,7 @@ def clear_all_submissions(task_id):
                 f"[clear_all_submissions] success user={getattr(current_user, 'id', None)} task={task_id} deleted={deleted_total}"
             )
             _invalidate_task_read_cache(task.task_id)
+            _invalidate_task_data_cache(task.id)
             return make_response({'success': True, 'message': f'成功删除 {deleted_total} 条数据'})
     except Exception:
         db.rollback()
@@ -6561,6 +6717,7 @@ def clear_submissions_by_date_range(task_id):
                             continue
                         raise
             _invalidate_task_read_cache(task.task_id)
+            _invalidate_task_data_cache(task.id)
             return make_response({'success': True, 'message': f'已删除该期间内 {deleted_total} 条数据'})
     except Exception:
         db.rollback()

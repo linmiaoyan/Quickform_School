@@ -277,6 +277,8 @@ class TaskQuotaRequest(Base):
     reviewed_at = Column(DateTime)
     reviewed_by = Column(Integer, ForeignKey('user.id'))
     review_note = Column(Text)
+    requested_extra_reads = Column(Integer)  # 申请：希望增加的 /all 次数额度
+    requested_extra_mb = Column(Integer)  # 申请：希望增加的流量额度（MB）
     granted_extra_reads = Column(Integer)  # 批复：增加的 /all 次数额度
     granted_extra_mb = Column(Integer)  # 批复：增加的流量额度（MB）
 
@@ -291,6 +293,9 @@ class SiteQuotaDefault(Base):
     id = Column(Integer, primary_key=True)
     default_all_read_limit = Column(Integer, nullable=False, default=2000)
     default_all_bytes_limit = Column(BigInteger, nullable=False, default=100 * 1024 * 1024)
+    auto_quota_approve_enabled = Column(Integer, nullable=False, default=0)  # 0=关闭 1=开启
+    auto_quota_approve_max_reads = Column(Integer, nullable=False, default=0)  # 自动审批：次数阈值
+    auto_quota_approve_max_mb = Column(Integer, nullable=False, default=0)  # 自动审批：流量阈值(MB)
     updated_at = Column(DateTime, default=datetime.now)
 
 
@@ -739,6 +744,15 @@ def migrate_database(engine):
                     logger.info("成功创建task_quota_request表")
                 except Exception as e:
                     logger.warning(f"创建task_quota_request表失败: {str(e)}")
+            else:
+                try:
+                    quota_req_cols = [col['name'] for col in inspector.get_columns('task_quota_request')]
+                    if 'requested_extra_reads' not in quota_req_cols:
+                        conn.execute(text("ALTER TABLE task_quota_request ADD COLUMN requested_extra_reads INTEGER"))
+                    if 'requested_extra_mb' not in quota_req_cols:
+                        conn.execute(text("ALTER TABLE task_quota_request ADD COLUMN requested_extra_mb INTEGER"))
+                except Exception as e:
+                    logger.warning(f"更新 task_quota_request 字段失败（可忽略）: {str(e)}")
 
             if 'site_quota_default' not in inspector.get_table_names():
                 try:
@@ -766,5 +780,16 @@ def migrate_database(engine):
                     logger.info("成功创建 site_quota_default 表并写入默认限额")
                 except Exception as e:
                     logger.warning(f"创建 site_quota_default 失败: {str(e)}")
+            else:
+                try:
+                    site_quota_cols = [col['name'] for col in inspector.get_columns('site_quota_default')]
+                    if 'auto_quota_approve_enabled' not in site_quota_cols:
+                        conn.execute(text("ALTER TABLE site_quota_default ADD COLUMN auto_quota_approve_enabled INTEGER DEFAULT 0"))
+                    if 'auto_quota_approve_max_reads' not in site_quota_cols:
+                        conn.execute(text("ALTER TABLE site_quota_default ADD COLUMN auto_quota_approve_max_reads INTEGER DEFAULT 0"))
+                    if 'auto_quota_approve_max_mb' not in site_quota_cols:
+                        conn.execute(text("ALTER TABLE site_quota_default ADD COLUMN auto_quota_approve_max_mb INTEGER DEFAULT 0"))
+                except Exception as e:
+                    logger.warning(f"更新 site_quota_default 字段失败（可忽略）: {str(e)}")
     except Exception as e:
         logger.error(f"数据库迁移失败: {str(e)}")
