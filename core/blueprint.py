@@ -367,10 +367,19 @@ def _init_database(database_type=None):
     if DATABASE_URL.startswith('mysql'):
         # MySQL连接配置
         try:
+            # 连接池参数（可通过环境变量覆盖）
+            mysql_pool_size = int(os.getenv('MYSQL_POOL_SIZE', '20'))
+            mysql_max_overflow = int(os.getenv('MYSQL_MAX_OVERFLOW', '40'))
+            mysql_pool_timeout = int(os.getenv('MYSQL_POOL_TIMEOUT', '60'))
+            mysql_pool_recycle = int(os.getenv('MYSQL_POOL_RECYCLE', '3600'))
             engine = create_engine(
                 DATABASE_URL,
                 pool_pre_ping=True,  # 自动重连
-                pool_recycle=3600,   # 连接回收时间
+                pool_recycle=mysql_pool_recycle,   # 连接回收时间
+                pool_size=mysql_pool_size,         # 常驻连接数
+                max_overflow=mysql_max_overflow,   # 高峰临时连接数
+                pool_timeout=mysql_pool_timeout,   # 获取连接超时时间（秒）
+                pool_use_lifo=True,                # 优先复用最近释放连接，降低空闲断连概率
                 echo=False
             )
             # 测试连接是否可用
