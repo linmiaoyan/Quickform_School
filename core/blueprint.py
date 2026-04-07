@@ -6302,26 +6302,26 @@ def clear_all_submissions(task_id):
         f"[clear_all_submissions] GET user={getattr(current_user, 'id', None)} task={task_id} ip={client_ip}"
     )
     task_clear_lock = _get_submission_clear_lock(task_id)
-    with task_clear_lock:
-        try:
-        task = db.get(Task, task_id)
-        if not task:
-            return make_response({'success': False, 'message': '任务不存在'}, 404)
-        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-        org_mem = db.query(OrganizationMember).filter_by(
-            organization_id=task.organization_id, user_id=current_user.id
-        ).first() if task.organization_id else None
-        can_edit = (
-            current_user.is_admin() or task.user_id == current_user.id or
-            (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
-            (share_rec and share_rec.can_edit)
-        )
-        if not can_edit:
-            logger.warning(
-                f"[clear_all_submissions] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
+    try:
+        with task_clear_lock:
+            task = db.get(Task, task_id)
+            if not task:
+                return make_response({'success': False, 'message': '任务不存在'}, 404)
+            share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+            org_mem = db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first() if task.organization_id else None
+            can_edit = (
+                current_user.is_admin() or task.user_id == current_user.id or
+                (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
+                (share_rec and share_rec.can_edit)
             )
-            return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
-        
+            if not can_edit:
+                logger.warning(
+                    f"[clear_all_submissions] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
+                )
+                return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
+
             submission_ids = [
                 row[0]
                 for row in db.query(Submission.id)
@@ -6358,14 +6358,15 @@ def clear_all_submissions(task_id):
                             time.sleep(retry_sleep * attempt)
                             continue
                         raise
+
             logger.info(
                 f"[clear_all_submissions] success user={getattr(current_user, 'id', None)} task={task_id} deleted={deleted_total}"
             )
             return make_response({'success': True, 'message': f'成功删除 {deleted_total} 条数据'})
-        except Exception as e:
-            db.rollback()
-            logger.exception("[clear_all_submissions] error task=%s", task_id)
-            return make_response({'success': False, 'message': MSG_GENERIC}, 500)
+    except Exception:
+        db.rollback()
+        logger.exception("[clear_all_submissions] error task=%s", task_id)
+        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
     finally:
         db.close()
 
@@ -6386,33 +6387,32 @@ def clear_submissions_by_date_range(task_id):
         return resp
 
     task_clear_lock = _get_submission_clear_lock(task_id)
-    with task_clear_lock:
-        try:
-        task = db.get(Task, task_id)
-        if not task:
-            return make_response({'success': False, 'message': '任务不存在'}, 404)
-        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-        org_mem = db.query(OrganizationMember).filter_by(
-            organization_id=task.organization_id, user_id=current_user.id
-        ).first() if task.organization_id else None
-        can_edit = (
-            current_user.is_admin() or task.user_id == current_user.id or
-            (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
-            (share_rec and share_rec.can_edit)
-        )
-        if not can_edit:
-            return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
-        if not date_start_s or not date_end_s:
-            return make_response({'success': False, 'message': '请填写开始日期和结束日期'}, 400)
-        try:
-            start_date = dt.strptime(date_start_s, '%Y-%m-%d').date()
-            end_date = dt.strptime(date_end_s, '%Y-%m-%d').date()
-        except ValueError:
-            return make_response({'success': False, 'message': '日期格式应为 YYYY-MM-DD'}, 400)
-        if start_date > end_date:
-            return make_response({'success': False, 'message': '开始日期不能晚于结束日期'}, 400)
+    try:
+        with task_clear_lock:
+            task = db.get(Task, task_id)
+            if not task:
+                return make_response({'success': False, 'message': '任务不存在'}, 404)
+            share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+            org_mem = db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first() if task.organization_id else None
+            can_edit = (
+                current_user.is_admin() or task.user_id == current_user.id or
+                (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
+                (share_rec and share_rec.can_edit)
+            )
+            if not can_edit:
+                return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
+            if not date_start_s or not date_end_s:
+                return make_response({'success': False, 'message': '请填写开始日期和结束日期'}, 400)
+            try:
+                start_date = dt.strptime(date_start_s, '%Y-%m-%d').date()
+                end_date = dt.strptime(date_end_s, '%Y-%m-%d').date()
+            except ValueError:
+                return make_response({'success': False, 'message': '日期格式应为 YYYY-MM-DD'}, 400)
+            if start_date > end_date:
+                return make_response({'success': False, 'message': '开始日期不能晚于结束日期'}, 400)
 
-            # 将按日期的删除转换为按时间范围过滤，避免先全量加载再逐条删除导致长事务和锁竞争
             range_start = datetime.combine(start_date, datetime.min.time())
             range_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
             submission_ids = [
@@ -6451,10 +6451,10 @@ def clear_submissions_by_date_range(task_id):
                             continue
                         raise
             return make_response({'success': True, 'message': f'已删除该期间内 {deleted_total} 条数据'})
-        except Exception as e:
-            db.rollback()
-            logger.exception('clear_submissions_by_date_range error')
-            return make_response({'success': False, 'message': MSG_GENERIC}, 500)
+    except Exception:
+        db.rollback()
+        logger.exception('clear_submissions_by_date_range error')
+        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
     finally:
         db.close()
 
