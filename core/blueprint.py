@@ -18,7 +18,7 @@ import zipfile
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app
 from sqlalchemy import create_engine, or_, text, func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker, joinedload
+from sqlalchemy.orm import sessionmaker, scoped_session, joinedload
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
 from datetime import datetime, timedelta
@@ -362,6 +362,14 @@ def _init_database(database_type=None):
             DATABASE_URL = f'sqlite:///{os.path.join(QUICKFORM_DIR, "quickform.db")}'
             logger.info("使用SQLite数据库（向后兼容模式）")
     
+    # 初始化SQLAlchemy引擎前，先清理旧的线程本地会话，避免重建连接后遗留会话占用连接
+    global SessionLocal
+    try:
+        if SessionLocal and hasattr(SessionLocal, 'remove'):
+            SessionLocal.remove()
+    except Exception:
+        pass
+
     # 初始化SQLAlchemy引擎
     mysql_connection_failed = False
     if DATABASE_URL.startswith('mysql'):
@@ -410,7 +418,7 @@ def _init_database(database_type=None):
         if mysql_connection_failed:
             logger.info("已回退到SQLite数据库")
     
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 
 # 初始化数据库（默认行为，向后兼容）
 _init_database()
@@ -439,6 +447,17 @@ quickform_bp = Blueprint(
     template_folder='templates',
     static_folder='../static'  # 指向主应用的static目录
 )
+
+
+@quickform_bp.teardown_request
+def _cleanup_scoped_session(_exception=None):
+    """请求结束后强制回收线程本地会话，避免连接泄漏导致连接池耗尽。"""
+    try:
+        if SessionLocal and hasattr(SessionLocal, 'remove'):
+            SessionLocal.remove()
+    except Exception:
+        # 清理过程不影响主流程
+        pass
 
 # 避免同一任务被并发触发“清空提交数据”导致长时间锁等待
 _submission_clear_locks = {}
