@@ -480,6 +480,9 @@ _task_data_count_cache = {}
 _task_data_page_ids_cache = {}
 _task_data_access_stats = {}
 _task_data_cache_lock = threading.Lock()
+ADMIN_DATA_STATS_CACHE_TTL = max(5, int(os.getenv('ADMIN_DATA_STATS_CACHE_TTL', '30')))
+_admin_data_stats_cache = {'value': None, 'expire_at': 0.0}
+_admin_data_stats_cache_lock = threading.Lock()
 
 
 def _build_read_cache_key(scope, task_id):
@@ -579,6 +582,62 @@ def _get_cached_community_random(db):
         _community_random_cache['items'] = items
         _community_random_cache['expire_at'] = now_ts + COMMUNITY_RANDOM_CACHE_TTL
     return items
+
+
+def _get_admin_data_stats_cached(db, today_start, total_users, admin_users, total_tasks, total_submissions):
+    now_ts = time.time()
+    with _admin_data_stats_cache_lock:
+        rec = _admin_data_stats_cache
+        if rec['value'] is not None and rec['expire_at'] > now_ts:
+            return dict(rec['value'])
+
+    normal_users = db.query(User).filter_by(role='user').count()
+    new_users_today = db.query(User).filter(User.created_at >= today_start).count()
+    new_tasks_today = db.query(Task).filter(Task.created_at >= today_start).count()
+    avg_tasks_per_user = total_tasks / total_users if total_users > 0 else 0
+    new_submissions_today = db.query(Submission).filter(Submission.submitted_at >= today_start).count()
+    avg_submissions_per_task = total_submissions / total_tasks if total_tasks > 0 else 0
+    tasks_with_reports = db.query(Task).filter(Task.analysis_report.isnot(None)).count()
+    report_generation_rate = (tasks_with_reports / total_tasks * 100) if total_tasks > 0 else 0
+    total_organizations = db.query(Organization).count()
+    total_org_members = db.query(OrganizationMember).count()
+    tasks_in_organizations = db.query(Task).filter(Task.organization_id.isnot(None)).count()
+    certified_users = db.query(User).filter(User.is_certified == True).count()
+    public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
+    public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
+    total_task_shares = db.query(TaskShare).count()
+    total_task_likes = db.query(TaskLike).count()
+    ai_generated_tasks = db.query(Task).filter(Task.ai_generated == True).count()
+    cert_requests_pending = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
+    total_posts = db.query(Post).count()
+    total_post_replies = db.query(PostReply).count()
+
+    value = {
+        'normal_users': normal_users,
+        'new_users_today': new_users_today,
+        'new_tasks_today': new_tasks_today,
+        'avg_tasks_per_user': avg_tasks_per_user,
+        'new_submissions_today': new_submissions_today,
+        'avg_submissions_per_task': avg_submissions_per_task,
+        'tasks_with_reports': tasks_with_reports,
+        'report_generation_rate': report_generation_rate,
+        'total_organizations': total_organizations,
+        'total_org_members': total_org_members,
+        'tasks_in_organizations': tasks_in_organizations,
+        'certified_users': certified_users,
+        'public_tasks': public_tasks,
+        'public_approved_tasks': public_approved_tasks,
+        'total_task_shares': total_task_shares,
+        'total_task_likes': total_task_likes,
+        'ai_generated_tasks': ai_generated_tasks,
+        'cert_requests_pending': cert_requests_pending,
+        'total_posts': total_posts,
+        'total_post_replies': total_post_replies,
+    }
+    with _admin_data_stats_cache_lock:
+        _admin_data_stats_cache['value'] = dict(value)
+        _admin_data_stats_cache['expire_at'] = now_ts + ADMIN_DATA_STATS_CACHE_TTL
+    return value
 
 
 def _get_submission_clear_lock(task_id):
@@ -772,7 +831,14 @@ def community():
             pages_latest = max(1, (total_latest + per_project - 1) // per_project) if total_latest else 1
             pages_liked = max(1, (total_liked + per_project - 1) // per_project) if total_liked else 1
 
-        posts_query = db.query(Post).order_by(Post.created_at.desc())
+        posts_query = (
+            db.query(Post)
+            .options(
+                joinedload(Post.user),
+                joinedload(Post.replies).joinedload(PostReply.user),
+            )
+            .order_by(Post.created_at.desc())
+        )
         total_posts = posts_query.count()
         posts = posts_query.offset((page_posts - 1) * per_post).limit(per_post).all()
         pages_posts = max(1, (total_posts + per_post - 1) // per_post) if total_posts else 1
@@ -893,7 +959,10 @@ def task_like(task_id):
     try:
         task = (
             db.query(Task)
-            .options(joinedload(Task.author))
+            .options(
+                joinedload(Task.author),
+                joinedload(Task.organization),
+            )
             .filter(Task.id == task_id)
             .first()
         )
@@ -1284,17 +1353,32 @@ def dashboard():
     try:
         # 查询所有用户可以访问的任务
         # 1. 用户自己创建的任务
-        own_tasks = db.query(Task).filter_by(user_id=current_user.id).all()
+        own_tasks = (
+            db.query(Task)
+            .options(joinedload(Task.author), joinedload(Task.organization))
+            .filter_by(user_id=current_user.id)
+            .all()
+        )
         
         # 2. 用户所在组织的任务
         user_orgs = db.query(OrganizationMember).filter_by(user_id=current_user.id).all()
         org_ids = [m.organization_id for m in user_orgs]
-        org_tasks = db.query(Task).filter(Task.organization_id.in_(org_ids)).all() if org_ids else []
+        org_tasks = (
+            db.query(Task)
+            .options(joinedload(Task.author), joinedload(Task.organization))
+            .filter(Task.organization_id.in_(org_ids))
+            .all()
+        ) if org_ids else []
         
         # 3. 共享给用户的任务（带权限：只读/编辑）
         shared_records = db.query(TaskShare).filter_by(user_id=current_user.id).all()
         shared_task_ids = [s.task_id for s in shared_records]
-        shared_tasks = db.query(Task).filter(Task.id.in_(shared_task_ids)).all() if shared_task_ids else []
+        shared_tasks = (
+            db.query(Task)
+            .options(joinedload(Task.author), joinedload(Task.organization))
+            .filter(Task.id.in_(shared_task_ids))
+            .all()
+        ) if shared_task_ids else []
         shared_can_edit = {s.task_id: s.can_edit for s in shared_records}
         
         # 合并并去重，并标记访问类型：owner / org / shared_edit / shared_readonly
@@ -1595,7 +1679,7 @@ def task_detail(task_id):
     try:
         task = (
             db.query(Task)
-            .options(joinedload(Task.author))
+            .options(joinedload(Task.author), joinedload(Task.organization))
             .filter(Task.id == task_id)
             .first()
         )
@@ -1689,7 +1773,12 @@ def task_detail(task_id):
             user_orgs_created = db.query(Organization).filter_by(creator_id=current_user.id).all()
             user_orgs_joined = db.query(OrganizationMember).filter_by(user_id=current_user.id).all()
             user_organizations = user_orgs_created + [m.organization for m in user_orgs_joined if m.organization.id not in [o.id for o in user_orgs_created]]
-            shared_users = db.query(TaskShare).filter_by(task_id=task.id).all()
+            shared_users = (
+                db.query(TaskShare)
+                .options(joinedload(TaskShare.user))
+                .filter_by(task_id=task.id)
+                .all()
+            )
 
         # 公开项目且当前用户非所有者/管理员等：仅展示任务名称、简介、网页（不展示数据与导出等）
         is_public_visitor = (task.sharing_type == 'public' and not can_analyze_export)
@@ -4769,6 +4858,7 @@ def admin_panel():
             task_page = min(task_page, task_total_pages)
             all_tasks = (
                 db.query(Task)
+                .options(joinedload(Task.author))
                 .order_by(Task.created_at.desc())
                 .offset((task_page - 1) * task_per_page)
                 .limit(task_per_page)
@@ -4943,47 +5033,15 @@ def admin_panel():
             'total_post_replies': 0,
         }
         if current_tab == 'data':
-            normal_users = db.query(User).filter_by(role='user').count()
-            new_users_today = db.query(User).filter(User.created_at >= today_start).count()
-            new_tasks_today = db.query(Task).filter(Task.created_at >= today_start).count()
-            avg_tasks_per_user = total_tasks / total_users if total_users > 0 else 0
-            new_submissions_today = db.query(Submission).filter(Submission.submitted_at >= today_start).count()
-            avg_submissions_per_task = total_submissions / total_tasks if total_tasks > 0 else 0
-            tasks_with_reports = db.query(Task).filter(Task.analysis_report.isnot(None)).count()
-            report_generation_rate = (tasks_with_reports / total_tasks * 100) if total_tasks > 0 else 0
-            total_organizations = db.query(Organization).count()
-            total_org_members = db.query(OrganizationMember).count()
-            tasks_in_organizations = db.query(Task).filter(Task.organization_id.isnot(None)).count()
-            certified_users = db.query(User).filter(User.is_certified == True).count()
-            public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
-            public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
-            total_task_shares = db.query(TaskShare).count()
-            total_task_likes = db.query(TaskLike).count()
-            ai_generated_tasks = db.query(Task).filter(Task.ai_generated == True).count()
-            cert_requests_pending = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
-            total_posts = db.query(Post).count()
-            total_post_replies = db.query(PostReply).count()
             stats.update(
-                normal_users=normal_users,
-                new_users_today=new_users_today,
-                new_tasks_today=new_tasks_today,
-                avg_tasks_per_user=avg_tasks_per_user,
-                new_submissions_today=new_submissions_today,
-                avg_submissions_per_task=avg_submissions_per_task,
-                tasks_with_reports=tasks_with_reports,
-                report_generation_rate=report_generation_rate,
-                total_organizations=total_organizations,
-                total_org_members=total_org_members,
-                tasks_in_organizations=tasks_in_organizations,
-                certified_users=certified_users,
-                public_tasks=public_tasks,
-                public_approved_tasks=public_approved_tasks,
-                total_task_shares=total_task_shares,
-                total_task_likes=total_task_likes,
-                ai_generated_tasks=ai_generated_tasks,
-                cert_requests_pending=cert_requests_pending,
-                total_posts=total_posts,
-                total_post_replies=total_post_replies,
+                _get_admin_data_stats_cached(
+                    db=db,
+                    today_start=today_start,
+                    total_users=total_users,
+                    admin_users=admin_users,
+                    total_tasks=total_tasks,
+                    total_submissions=total_submissions,
+                )
             )
 
         return render_template(
@@ -7024,7 +7082,12 @@ def organization_detail(org_id):
             return redirect(url_for('quickform.organization'))
         
         # 查询组织任务
-        org_tasks = db.query(Task).filter_by(organization_id=org_id).all()
+        org_tasks = (
+            db.query(Task)
+            .options(joinedload(Task.author))
+            .filter_by(organization_id=org_id)
+            .all()
+        )
         is_org_admin = org.creator_id == current_user.id or (
             db.query(OrganizationMember).filter_by(
                 organization_id=org_id, user_id=current_user.id, role='admin'
