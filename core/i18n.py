@@ -117,6 +117,12 @@ TRANSLATIONS = {
         'dashboard.task_status_disabled': '停用',
         'dashboard.task_status_toggle_hint': '点击切换 正常/停用',
         'dashboard.task_status_aria': '任务状态',
+        'dashboard.layout_switch': '布局切换',
+        'dashboard.view_mode_hybrid': '混合型',
+        'dashboard.view_mode_card': '卡片型',
+        'dashboard.view_mode_list': '列表型',
+        'dashboard.import_task': '导入任务',
+        'dashboard.export_task': '导出任务',
         
         # Login页面
         'login.title': '登录',
@@ -253,6 +259,16 @@ TRANSLATIONS = {
         
         # Task Detail页面
         'task_detail.export_data': '导出数据',
+        'task_detail.export_task': '导出任务',
+        'task_detail.import_task': '导入任务',
+        'task_detail.task_migration': '任务迁移',
+        'task_detail.import_template_title': '导入任务模板',
+        'task_detail.import_template_file_label': '模板文件（JSON）',
+        'task_detail.import_template_hint': '仅导入：任务名称、APIID、任务描述；不包含数据和附件。允许同名任务；若服务器已有相同 APIID，将拒绝导入。',
+        'task_detail.start_import': '开始导入',
+        'task_detail.api_submit_to_server': '向服务器提交',
+        'task_detail.api_fetch_latest_3': '请求最近3条',
+        'task_detail.api_fetch_all': '请求全部',
         'task_detail.analyze': '数据分析',
         'task_detail.edit_task': '编辑任务',
         'task_detail.back_to_list': '返回列表',
@@ -995,6 +1011,12 @@ TRANSLATIONS = {
         'dashboard.task_status_disabled': '停用',
         'dashboard.task_status_toggle_hint': '點擊切換 正常/停用',
         'dashboard.task_status_aria': '任務狀態',
+        'dashboard.layout_switch': '版面切換',
+        'dashboard.view_mode_hybrid': '混合型',
+        'dashboard.view_mode_card': '卡片型',
+        'dashboard.view_mode_list': '列表型',
+        'dashboard.import_task': '匯入任務',
+        'dashboard.export_task': '匯出任務',
         
         # Login頁面
         'login.title': '登錄',
@@ -1131,6 +1153,16 @@ TRANSLATIONS = {
         
         # Task Detail頁面
         'task_detail.export_data': '導出數據',
+        'task_detail.export_task': '導出任務',
+        'task_detail.import_task': '導入任務',
+        'task_detail.task_migration': '任務遷移',
+        'task_detail.import_template_title': '導入任務模板',
+        'task_detail.import_template_file_label': '模板文件（JSON）',
+        'task_detail.import_template_hint': '僅導入：任務名稱、APIID、任務描述；不包含數據和附件。允許同名任務；若服務器已有相同 APIID，將拒絕導入。',
+        'task_detail.start_import': '開始導入',
+        'task_detail.api_submit_to_server': '向服務器提交',
+        'task_detail.api_fetch_latest_3': '請求最近3條',
+        'task_detail.api_fetch_all': '請求全部',
         'task_detail.analyze': '數據分析',
         'task_detail.edit_task': '編輯任務',
         'task_detail.back_to_list': '返回列表',
@@ -1851,6 +1883,12 @@ TRANSLATIONS = {
         'dashboard.task_status_disabled': 'Disabled',
         'dashboard.task_status_toggle_hint': 'Click to toggle Active/Disabled',
         'dashboard.task_status_aria': 'Task status',
+        'dashboard.layout_switch': 'Layout',
+        'dashboard.view_mode_hybrid': 'Hybrid',
+        'dashboard.view_mode_card': 'Card',
+        'dashboard.view_mode_list': 'List',
+        'dashboard.import_task': 'Import Task',
+        'dashboard.export_task': 'Export Task',
         
         # Login页面
         'login.title': 'Login',
@@ -1987,6 +2025,16 @@ TRANSLATIONS = {
         
         # Task Detail页面
         'task_detail.export_data': 'Export Data',
+        'task_detail.export_task': 'Export Task',
+        'task_detail.import_task': 'Import Task',
+        'task_detail.task_migration': 'Task Migration',
+        'task_detail.import_template_title': 'Import Task Template',
+        'task_detail.import_template_file_label': 'Template File (JSON)',
+        'task_detail.import_template_hint': 'Only imports title, APIID, and description; submissions and attachments are excluded. Same title is allowed; if APIID already exists on server, import will be rejected.',
+        'task_detail.start_import': 'Start Import',
+        'task_detail.api_submit_to_server': 'Submit to Server',
+        'task_detail.api_fetch_latest_3': 'Fetch Latest 3',
+        'task_detail.api_fetch_all': 'Fetch All',
         'task_detail.analyze': 'Data Analysis',
         'task_detail.edit_task': 'Edit Task',
         'task_detail.back_to_list': 'Back to List',

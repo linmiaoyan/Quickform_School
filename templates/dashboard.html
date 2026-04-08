@@ -25,6 +25,11 @@
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
                         <li><a class="dropdown-item" href="{{ url_for('quickform.profile') }}">{{ translate('nav.profile') }}</a></li>
+                        <li>
+                            <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#importTaskTemplateModal">
+                                <i class="bi bi-box-arrow-in-down me-2"></i>{{ translate('dashboard.import_task') }}
+                            </button>
+                        </li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{{ url_for('quickform.logout') }}">{{ translate('nav.logout') }}</a></li>
                     </ul>
@@ -52,22 +57,35 @@
 }
 .task-card-wrapper:hover .task-status-pill { opacity: 1; }
 .task-card-wrapper .card-header { position: relative; }
+.view-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
 </style>
 <div class="row">
     <div class="col-md-12">
+        {% set requested_view = request.args.get('view') %}
+        {% set view_mode = requested_view if requested_view in ['hybrid', 'card', 'list'] else 'card' %}
         <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-            <h2 class="mb-0" style="color: #111827; font-weight: 700;">{{ translate('dashboard.my_tasks') if translate('dashboard.my_tasks') != 'dashboard.my_tasks' else '我的数据任务' }}</h2>
-            <div class="d-flex gap-2 align-items-center flex-wrap">
-                {% set requested_view = request.args.get('view') %}
-                {% set view_mode = requested_view if requested_view in ['hybrid', 'card', 'list'] else 'card' %}
-                <div class="btn-group me-2" role="group" aria-label="视图切换">
-                    <a href="{{ url_for('quickform.dashboard', view='hybrid') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'hybrid' else 'btn-outline-primary' }}">混合型</a>
-                    <a href="{{ url_for('quickform.dashboard', view='card') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'card' else 'btn-outline-primary' }}">卡片型</a>
-                    <a href="{{ url_for('quickform.dashboard', view='list') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'list' else 'btn-outline-primary' }}">列表型</a>
+            <div class="d-flex align-items-center gap-2">
+                <h2 class="mb-0" style="color: #111827; font-weight: 700;">{{ translate('dashboard.my_tasks') if translate('dashboard.my_tasks') != 'dashboard.my_tasks' else '我的数据任务' }}</h2>
+                <div class="btn-group" role="group" aria-label="视图切换">
+                    <a href="{{ url_for('quickform.dashboard', view='hybrid') }}" class="btn btn-sm view-icon-btn {{ 'btn-primary' if view_mode == 'hybrid' else 'btn-outline-primary' }}" title="{{ translate('dashboard.view_mode_hybrid') }}" data-bs-toggle="tooltip" data-bs-placement="top" aria-label="{{ translate('dashboard.view_mode_hybrid') }}">
+                        <i class="bi bi-grid-1x2-fill"></i>
+                    </a>
+                    <a href="{{ url_for('quickform.dashboard', view='card') }}" class="btn btn-sm view-icon-btn {{ 'btn-primary' if view_mode == 'card' else 'btn-outline-primary' }}" title="{{ translate('dashboard.view_mode_card') }}" data-bs-toggle="tooltip" data-bs-placement="top" aria-label="{{ translate('dashboard.view_mode_card') }}">
+                        <i class="bi bi-grid-3x3-gap-fill"></i>
+                    </a>
+                    <a href="{{ url_for('quickform.dashboard', view='list') }}" class="btn btn-sm view-icon-btn {{ 'btn-primary' if view_mode == 'list' else 'btn-outline-primary' }}" title="{{ translate('dashboard.view_mode_list') }}" data-bs-toggle="tooltip" data-bs-placement="top" aria-label="{{ translate('dashboard.view_mode_list') }}">
+                        <i class="bi bi-list-ul"></i>
+                    </a>
                 </div>
-                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#importTaskTemplateModal" style="font-weight: 500;">
-                    <i class="bi bi-box-arrow-in-down" style="margin-right: 0.375rem;"></i>导入任务
-                </button>
+            </div>
+            <div class="d-flex gap-2 align-items-center flex-wrap">
                 <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary" style="font-weight: 500;">
                     <i class="bi bi-plus-circle" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.create_new_task') if translate('dashboard.create_new_task') != 'dashboard.create_new_task' else '创建新任务' }}
                 </a>
@@ -117,7 +135,7 @@
                                 <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">详情</a>
                                 <a href="{{ url_for('quickform.export_data', task_id=task.id) }}" class="btn btn-sm btn-outline-success">导出</a>
                                 {% if task_access.get(task.id) == 'owner' %}
-                                <a href="{{ url_for('quickform.export_task_template', task_id=task.id) }}" class="btn btn-sm btn-outline-secondary">导出模板</a>
+                                <a href="{{ url_for('quickform.export_task_template', task_id=task.id) }}" class="btn btn-sm btn-outline-secondary">{{ translate('dashboard.export_task') }}</a>
                                 {% endif %}
                                 {% if task_access.get(task.id) == 'owner' %}
                                 <form action="{{ url_for('quickform.delete_task', task_id=task.id) }}" method="POST" class="d-inline" onsubmit="return confirm('{{ translate('dashboard.delete_confirm_message')|replace('{title}', task.title)|e }}')">
@@ -268,11 +286,6 @@
                                 <i class="bi bi-download" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.export') }}
                             </a>
                             {% if task_access.get(task.id) == 'owner' %}
-                            <a href="{{ url_for('quickform.export_task_template', task_id=task.id) }}" class="btn btn-sm" style="font-weight: 500; background-color: white; color: #64748b; border: 1px solid #94a3b8; height: 36px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; flex-shrink: 0;">
-                                <i class="bi bi-box-arrow-up-right" style="margin-right: 0.375rem;"></i>导出模板
-                            </a>
-                            {% endif %}
-                            {% if task_access.get(task.id) == 'owner' %}
                             <button type="button" class="btn btn-sm" data-bs-toggle="modal" data-bs-target="#deleteModal-{{ task.id }}" style="font-weight: 500; background-color: white; color: #ef4444; border: 1px solid #ef4444; height: 36px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; flex-shrink: 0;">
                                 <i class="bi bi-trash" style="margin-right: 0.375rem;"></i>{{ translate('common.delete') }}
                             </button>
@@ -333,22 +346,22 @@
         <div class="modal-content">
             <form method="POST" action="{{ url_for('quickform.import_task_template') }}" enctype="multipart/form-data">
                 <div class="modal-header">
-                    <h5 class="modal-title">导入任务模板</h5>
+                    <h5 class="modal-title">{{ translate('task_detail.import_template_title') }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
                     <div class="mb-3">
-                        <label class="form-label">模板文件（JSON）</label>
+                        <label class="form-label">{{ translate('task_detail.import_template_file_label') }}</label>
                         <input class="form-control" type="file" name="template_file" accept=".json,application/json" required>
                     </div>
                     <div class="alert alert-warning mb-0 small">
-                        仅导入：任务名称、APIID、任务描述；不包含数据和附件。允许同名任务；若服务器已有相同 APIID，将拒绝导入。
+                        {{ translate('task_detail.import_template_hint') }}
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-primary">开始导入</button>
+                    <button type="submit" class="btn btn-primary">{{ translate('task_detail.start_import') }}</button>
                 </div>
             </form>
         </div>
@@ -420,6 +433,14 @@
         }
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindPills);
         else bindPills();
+    })();
+
+    // 视图切换按钮 tooltip
+    (function() {
+        if (typeof bootstrap === 'undefined' || !bootstrap.Tooltip) return;
+        document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+            new bootstrap.Tooltip(el);
+        });
     })();
 </script>
 {% endblock %}

@@ -20,16 +20,49 @@
         }
         
         body {
-            background-color: #f5f5f5;
+            background:
+                linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
             color: #333;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* 全站底纹（Tech Circuit 低干扰版）：大部分页面生效，不影响内容可读性 */
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -2;
+            background:
+                linear-gradient(90deg, rgba(30, 64, 175, 0.10) 0 2px, transparent 2px),
+                linear-gradient(rgba(30, 64, 175, 0.08) 0 2px, transparent 2px);
+            background-size: 120px 24px, 24px 120px;
+            mask-image: radial-gradient(ellipse at 50% 45%, #000 56%, transparent 95%);
+            -webkit-mask-image: radial-gradient(ellipse at 50% 45%, #000 56%, transparent 95%);
+            opacity: 0.38;
+        }
+
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -3;
+            background:
+                radial-gradient(circle at 20% 35%, rgba(59, 130, 246, 0.12), transparent 30%),
+                radial-gradient(circle at 78% 65%, rgba(99, 102, 241, 0.10), transparent 28%);
         }
         
         /* 导航栏 - 深蓝色主色调 */
         .navbar {
-            background-color: #2563eb !important; /* 偏亮的正蓝色 */
+            background:
+                radial-gradient(112% 122% at 82% 86%, rgba(244, 114, 182, 0.10), transparent 38%),
+                radial-gradient(90% 100% at 16% 12%, rgba(255, 255, 255, 0.16), transparent 34%),
+                linear-gradient(148deg, #1d4ed8 0%, #2b65e6 60%, #1fa9e8 100%) !important;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             padding: 0.75rem 0;
         }
@@ -74,12 +107,41 @@
         }
         
         .card-header {
-            background-color: #2563eb;
+            /* 与导航同源配色：深蓝主导，浅蓝收尾；只做轻微方向变化保持一致性 */
+            background:
+                radial-gradient(88% 95% at 16% 12%, rgba(255, 255, 255, 0.08), transparent 34%),
+                linear-gradient(148deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
             color: white;
             font-weight: 600;
             border-bottom: none;
             padding: 1rem 1.5rem;
             border-radius: 10px 10px 0 0 !important;
+        }
+
+        /* 随机感增强：优先按栅格列位置变化，确保不同卡片更容易出现不同方向 */
+        .row > [class*="col"]:nth-child(4n + 1) .card > .card-header,
+        .card:nth-of-type(4n + 1) > .card-header {
+            background:
+                radial-gradient(88% 95% at 14% 10%, rgba(255, 255, 255, 0.08), transparent 34%),
+                linear-gradient(126deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
+        }
+        .row > [class*="col"]:nth-child(4n + 2) .card > .card-header,
+        .card:nth-of-type(4n + 2) > .card-header {
+            background:
+                radial-gradient(88% 95% at 86% 12%, rgba(255, 255, 255, 0.07), transparent 34%),
+                linear-gradient(162deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
+        }
+        .row > [class*="col"]:nth-child(4n + 3) .card > .card-header,
+        .card:nth-of-type(4n + 3) > .card-header {
+            background:
+                radial-gradient(88% 95% at 22% 20%, rgba(255, 255, 255, 0.07), transparent 34%),
+                linear-gradient(206deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
+        }
+        .row > [class*="col"]:nth-child(4n + 4) .card > .card-header,
+        .card:nth-of-type(4n + 4) > .card-header {
+            background:
+                radial-gradient(88% 95% at 78% 8%, rgba(255, 255, 255, 0.08), transparent 34%),
+                linear-gradient(308deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
         }
         
         .card-body {

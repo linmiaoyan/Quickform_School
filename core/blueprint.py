@@ -583,7 +583,7 @@ def _get_cached_community_random(db, force_refresh=False):
     public_ids = [row[0] for row in base_public.with_entities(Task.id).all()]
     items = []
     if public_ids:
-        k = min(4, len(public_ids))
+        k = min(3, len(public_ids))
         pick_ids = random.sample(public_ids, k)
         by_id = {t.id: t for t in db.query(Task).filter(Task.id.in_(pick_ids)).all()}
         for tid in pick_ids:
@@ -811,7 +811,7 @@ def cases():
 
 @quickform_bp.route('/community')
 def community():
-    """项目交流：默认随机展示 4 个公开项目（含 HTML 预览）；「热榜」需带 hot=1；留言板分页。"""
+    """项目交流：默认随机展示 3 个公开项目（含 HTML 预览）；「热榜」需带 hot=1；留言板分页。"""
     db = SessionLocal()
     try:
         show_hot = (request.args.get("hot") or "").strip() == "1"

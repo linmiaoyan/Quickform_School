@@ -72,4 +72,4 @@ curl -X POST "http://127.0.0.1:5000/mcp/add" \
 | `POST /api/<apiid>` | 向该任务提交一条数据（JSON 正文） |
 | `GET /api/<apiid>/all` | 获取该任务下全部提交数据 |
 
-更完整说明见：`docs/MCP接口说明.md`。
+更完整说明见：`docs/CLI接口说明.md`。

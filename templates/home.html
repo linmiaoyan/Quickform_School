@@ -293,10 +293,10 @@
         <p class="hero-subtitle">{{ translate('home.hero_subtitle') if translate('home.hero_subtitle') != 'home.hero_subtitle' else '快速构建、智能管理表单数据，是优化 AI 表单设计的最佳方式' }}</p>
         <div class="hero-buttons">
             {% if current_user.is_authenticated %}
-                <a href="{{ url_for('quickform.dashboard') }}" class="btn btn-primary btn-lg" style="background-color: #2563eb; color: white; border: none;">{{ translate('home.enter_dashboard') }}</a>
+                <a href="{{ url_for('quickform.dashboard') }}" class="btn btn-primary btn-lg" style="background-color: rgba(255,255,255,0.22); color: #ffffff; border: 1px solid rgba(255,255,255,0.45);">{{ translate('home.enter_dashboard') }}</a>
             {% else %}
-                <a href="{{ url_for('quickform.register') }}" class="btn btn-primary btn-lg" style="background-color: #2563eb; color: white; border: none;">{{ translate('home.register_now') if translate('home.register_now') != 'home.register_now' else '立即注册' }}</a>
-                <a href="{{ url_for('quickform.login') }}" class="btn btn-outline-primary btn-lg" style="border: 2px solid #2563eb; color: #2563eb; background: transparent;">{{ translate('home.login') if translate('home.login') != 'home.login' else '登录' }}</a>
+                <a href="{{ url_for('quickform.register') }}" class="btn btn-primary btn-lg" style="background-color: rgba(255,255,255,0.22); color: #ffffff; border: 1px solid rgba(255,255,255,0.45);">{{ translate('home.register_now') if translate('home.register_now') != 'home.register_now' else '立即注册' }}</a>
+                <a href="{{ url_for('quickform.login') }}" class="btn btn-outline-primary btn-lg" style="border: 1px solid rgba(255,255,255,0.55); color: #ffffff; background: rgba(255,255,255,0.08);">{{ translate('home.login') if translate('home.login') != 'home.login' else '登录' }}</a>
             {% endif %}
         </div>
     </div>
