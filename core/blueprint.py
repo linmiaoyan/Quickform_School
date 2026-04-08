@@ -126,6 +126,24 @@ def _email_requirement_block_for_next_task(db, user, task_count):
     return None
 
 
+def _org_members_can_edit_tasks(db, organization_id):
+    """按组织ID读取成员是否可编辑任务，避免关系懒加载导致 DetachedInstanceError。"""
+    if not organization_id:
+        return False
+    return bool(
+        db.query(Organization.members_can_edit_tasks)
+        .filter(Organization.id == organization_id)
+        .scalar()
+    )
+
+
+def _org_creator_id(db, organization_id):
+    """按组织ID读取创建者ID，避免 task.organization 懒加载。"""
+    if not organization_id:
+        return None
+    return db.query(Organization.creator_id).filter(Organization.id == organization_id).scalar()
+
+
 # 简单的邮箱验证码存储（开发环境用，生产建议换成 Redis）
 EMAIL_CODE_STORE = {}
 
@@ -1396,13 +1414,24 @@ def dashboard():
             if task.id not in all_task_ids:
                 all_task_ids.add(task.id)
                 tasks.append(task)
-                org_can_edit = task.organization and getattr(task.organization, 'members_can_edit_tasks', False)
+                org_can_edit = _org_members_can_edit_tasks(db, task.organization_id)
                 task_access[task.id] = 'org_edit' if org_can_edit else 'org_readonly'
         for task in shared_tasks:
             if task.id not in all_task_ids:
                 all_task_ids.add(task.id)
                 tasks.append(task)
                 task_access[task.id] = 'shared_edit' if shared_can_edit.get(task.id, False) else 'shared_readonly'
+
+        # 一次 SQL 聚合获取每个任务的提交数，避免模板里 task.submission|length 触发关系加载
+        submission_count_map = {}
+        if all_task_ids:
+            rows = (
+                db.query(Submission.task_id, func.count(Submission.id))
+                .filter(Submission.task_id.in_(list(all_task_ids)))
+                .group_by(Submission.task_id)
+                .all()
+            )
+            submission_count_map = {task_id: int(cnt or 0) for task_id, cnt in rows}
         
         # 按创建时间倒序排序（我的任务 / 我的团队任务 独立呈现）
         own_tasks.sort(key=lambda t: t.created_at, reverse=True)
@@ -1426,6 +1455,7 @@ def dashboard():
             own_tasks=own_tasks,
             org_tasks=org_tasks,
             shared_tasks=shared_tasks,
+            submission_count_map=submission_count_map,
             task_access=task_access,
             task_count=task_count,
             task_limit=task_limit,
@@ -1787,8 +1817,9 @@ def task_detail(task_id):
 
         # 当前用户是否为组织创建者或组织管理员（用于显示组织成员权限开关）
         can_edit_org_settings = False
-        if task.organization_id and current_user.is_authenticated and task.organization:
-            if task.organization.creator_id == current_user.id:
+        if task.organization_id and current_user.is_authenticated:
+            org_creator_id = _org_creator_id(db, task.organization_id)
+            if org_creator_id == current_user.id:
                 can_edit_org_settings = True
             else:
                 om = db.query(OrganizationMember).filter_by(
@@ -1806,7 +1837,7 @@ def task_detail(task_id):
                 org_mem = db.query(OrganizationMember).filter_by(
                     organization_id=task.organization_id, user_id=current_user.id
                 ).first()
-                if org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False):
+                if org_mem and _org_members_can_edit_tasks(db, task.organization_id):
                     can_edit_task = True
             else:
                 share_record = db.query(TaskShare).filter_by(
@@ -1837,11 +1868,7 @@ def task_detail(task_id):
             if current_user.is_admin() or task.user_id == current_user.id or can_edit_task:
                 can_request_quota_relief = True
 
-        task_author_name = ''
-        try:
-            task_author_name = task.author.username if task and task.author else ''
-        except Exception:
-            task_author_name = ''
+        task_author_name = db.query(User.username).filter(User.id == task.user_id).scalar() or ''
 
         return render_template(
             'task_detail.html',
@@ -1881,7 +1908,7 @@ def task_quota_request_submit(task_id):
             om = db.query(OrganizationMember).filter_by(
                 organization_id=task.organization_id, user_id=current_user.id
             ).first()
-            if om and task.organization and getattr(task.organization, "members_can_edit_tasks", False):
+            if om and _org_members_can_edit_tasks(db, task.organization_id):
                 allowed = True
         if not allowed:
             shr = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
@@ -1990,7 +2017,8 @@ def task_data_view(task_id):
             org_mem = db.query(OrganizationMember).filter_by(
                 organization_id=task.organization_id, user_id=current_user.id
             ).first()
-            if org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False):
+            org_edit_enabled = _org_members_can_edit_tasks(db, task.organization_id)
+            if org_mem and org_edit_enabled:
                 can_edit_task = True
         else:
             share_record = db.query(TaskShare).filter_by(
@@ -2093,7 +2121,7 @@ def edit_task(task_id):
                 organization_id=task.organization_id,
                 user_id=current_user.id
             ).first()
-            if org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False):
+            if org_mem and _org_members_can_edit_tasks(db, task.organization_id):
                 has_edit_permission = True
         else:
             share_record = db.query(TaskShare).filter_by(
@@ -6589,7 +6617,7 @@ def remove_submission(task_id):
         ).first() if task.organization_id else None
         can_edit = (
             current_user.is_admin() or task.user_id == current_user.id or
-            (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
+            (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
             (share_rec and share_rec.can_edit)
         )
         if not can_edit:
@@ -6654,7 +6682,7 @@ def clear_all_submissions(task_id):
             ).first() if task.organization_id else None
             can_edit = (
                 current_user.is_admin() or task.user_id == current_user.id or
-                (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
+                (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
                 (share_rec and share_rec.can_edit)
             )
             if not can_edit:
@@ -6741,7 +6769,7 @@ def clear_submissions_by_date_range(task_id):
             ).first() if task.organization_id else None
             can_edit = (
                 current_user.is_admin() or task.user_id == current_user.id or
-                (org_mem and task.organization and getattr(task.organization, 'members_can_edit_tasks', False)) or
+                (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
                 (share_rec and share_rec.can_edit)
             )
             if not can_edit:

@@ -107,7 +107,7 @@
                             <span class="badge" style="background-color: #93c5fd; color: #1e40af;">{{ task.author.username }}</span>
                             {% endif %}
                         </td>
-                        <td>{{ task.submission|length }}</td>
+                        <td>{{ submission_count_map.get(task.id, 0) }}</td>
                         <td>{{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                         <td>
                             <div class="d-flex flex-wrap gap-2">
@@ -143,7 +143,7 @@
                     </div>
                     <div class="card-body">
                         <p class="card-text mb-2">{{ task.description or translate('dashboard.no_description') }}</p>
-                        <small class="text-muted">{{ translate('dashboard.submission_count') }}: {{ task.submission|length }}</small>
+                        <small class="text-muted">{{ translate('dashboard.submission_count') }}: {{ submission_count_map.get(task.id, 0) }}</small>
                     </div>
                     <div class="card-footer" style="background-color: #f9fafb; border-top: 1px solid #e5e7eb; padding: 0.75rem;">
                         <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">详情</a>
@@ -171,7 +171,7 @@
                     <tr>
                         <td>{{ task.title }}</td>
                         <td>{% if task.organization_id and task.organization %}{{ task.organization.name }}{% else %}{{ task.author.username }}{% endif %}</td>
-                        <td>{{ task.submission|length }}</td>
+                        <td>{{ submission_count_map.get(task.id, 0) }}</td>
                         <td><a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">详情</a></td>
                     </tr>
                     {% endfor %}
@@ -241,7 +241,7 @@
                             <small class="text-muted">{{ translate('dashboard.created_at') }}: {{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</small>
                         </div>
                         <div class="mb-3">
-                            <small class="text-muted">{{ translate('dashboard.submission_count') }}: {{ task.submission|length }}</small>
+                            <small class="text-muted">{{ translate('dashboard.submission_count') }}: {{ submission_count_map.get(task.id, 0) }}</small>
                         </div>
                         <div class="mb-2">
                             <label class="form-label small text-muted">{{ translate('dashboard.data_url') }}</label>

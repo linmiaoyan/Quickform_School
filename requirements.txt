@@ -15,3 +15,4 @@ markdown
 xhtml2pdf
 markdown
 # weasyprint
+waitress

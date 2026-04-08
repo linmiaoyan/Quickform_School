@@ -8,6 +8,7 @@ from flask_login import LoginManager, current_user
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 import logging
+from logging.handlers import RotatingFileHandler
 
 # 配置日志
 logging.basicConfig(
@@ -16,8 +17,53 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def setup_file_logging():
+    """将日志同时输出到控制台和文件（按大小轮转）"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    logs_dir = os.path.join(base_dir, 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
+
+    log_level_name = (os.getenv('APP_LOG_LEVEL', 'INFO') or 'INFO').upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+    max_bytes = int(os.getenv('APP_LOG_MAX_BYTES', str(10 * 1024 * 1024)))
+    backup_count = int(os.getenv('APP_LOG_BACKUP_COUNT', '10'))
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    app_log_path = os.path.join(logs_dir, 'app.log')
+    error_log_path = os.path.join(logs_dir, 'error.log')
+
+    def _has_same_file_handler(target_path):
+        target_norm = os.path.normcase(os.path.abspath(target_path))
+        for h in root_logger.handlers:
+            if isinstance(h, RotatingFileHandler):
+                h_path = getattr(h, 'baseFilename', '')
+                if os.path.normcase(os.path.abspath(h_path)) == target_norm:
+                    return True
+        return False
+
+    if not _has_same_file_handler(app_log_path):
+        app_file_handler = RotatingFileHandler(
+            app_log_path, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8'
+        )
+        app_file_handler.setLevel(log_level)
+        app_file_handler.setFormatter(fmt)
+        root_logger.addHandler(app_file_handler)
+
+    if not _has_same_file_handler(error_log_path):
+        error_file_handler = RotatingFileHandler(
+            error_log_path, maxBytes=max_bytes, backupCount=backup_count, encoding='utf-8'
+        )
+        error_file_handler.setLevel(logging.ERROR)
+        error_file_handler.setFormatter(fmt)
+        root_logger.addHandler(error_file_handler)
+
 # 加载环境变量
 load_dotenv()
+setup_file_logging()
 
 # ---------- 404 限流（防扫描） ----------
 # 同一 IP 在时间窗口内 404 次数超过阈值则短时拒绝，减轻扫描压力。
