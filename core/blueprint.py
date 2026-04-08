@@ -3969,6 +3969,116 @@ def export_data(task_id):
     finally:
         db.close()
 
+
+@quickform_bp.route('/task/<int:task_id>/export_template', methods=['GET'])
+@login_required
+def export_task_template(task_id):
+    """导出任务模板（仅标题/APIID/描述；不含提交数据与附件）。"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            flash('任务不存在', 'danger')
+            return redirect(url_for('quickform.dashboard'))
+        if not (current_user.is_admin() or task.user_id == current_user.id):
+            flash('无权导出该任务模板', 'danger')
+            return redirect(url_for('quickform.dashboard'))
+
+        payload = {
+            'template_version': 1,
+            'exported_at': datetime.now().isoformat(timespec='seconds'),
+            'title': (task.title or '').strip(),
+            'api_id': (task.task_id or '').strip(),
+            'description': (task.description or '').strip(),
+        }
+        json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8')
+        safe_name = re.sub(r'[^0-9A-Za-z\u4e00-\u9fa5_-]+', '_', payload['title'])[:40] or 'task_template'
+        filename = f'{safe_name}_{payload["api_id"]}.json'
+        return send_file(
+            io.BytesIO(json_bytes),
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/json; charset=utf-8',
+        )
+    except Exception:
+        logger.exception('导出任务模板失败 task_id=%s', task_id)
+        flash('导出失败，请稍后重试', 'danger')
+        return redirect(url_for('quickform.dashboard'))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/task/import_template', methods=['POST'])
+@login_required
+def import_task_template():
+    """导入任务模板（仅标题/APIID/描述；不含提交数据与附件）。"""
+    db = SessionLocal()
+    next_url = request.form.get('next') or request.referrer or url_for('quickform.dashboard')
+    try:
+        upload = request.files.get('template_file')
+        if not upload or not upload.filename:
+            flash('请选择要导入的模板文件（JSON）', 'warning')
+            return redirect(next_url)
+        if not upload.filename.lower().endswith('.json'):
+            flash('模板文件必须是 .json 格式', 'warning')
+            return redirect(next_url)
+
+        raw = upload.read()
+        max_bytes = int(os.getenv('TASK_TEMPLATE_MAX_BYTES', str(1024 * 1024)))
+        if len(raw) > max_bytes:
+            flash('模板文件过大，请控制在 1MB 以内', 'warning')
+            return redirect(next_url)
+        try:
+            data = json.loads(raw.decode('utf-8'))
+        except Exception:
+            flash('模板文件解析失败，请检查 JSON 格式', 'danger')
+            return redirect(next_url)
+
+        title = (data.get('title') or '').strip()
+        api_id = (data.get('api_id') or data.get('task_id') or '').strip()
+        description = (data.get('description') or '').strip()
+        if not title or not api_id:
+            flash('模板缺少必要字段：任务名称或 APIID', 'warning')
+            return redirect(next_url)
+        if len(title) > 200 or len(api_id) > 50:
+            flash('任务名称或 APIID 超出长度限制', 'warning')
+            return redirect(next_url)
+        if description and len(description) > 20000:
+            flash('任务描述过长，请精简后重试', 'warning')
+            return redirect(next_url)
+
+        # 防越权与防冲突：仅校验 APIID 唯一；同名任务允许不同用户重复使用
+        if db.query(Task.id).filter(Task.task_id == api_id).first():
+            flash('服务器已存在相同 APIID 的任务，已禁止重复导入', 'warning')
+            return redirect(next_url)
+
+        new_task = Task(
+            title=title,
+            description=description or None,
+            user_id=current_user.id,
+            task_id=api_id,
+            sharing_type='private',
+            organization_id=None,
+            file_name=None,
+            file_path=None,
+            html_files=None,
+        )
+        db.add(new_task)
+        db.commit()
+        flash('任务模板导入成功（不包含提交数据与附件）', 'success')
+        return redirect(url_for('quickform.task_detail', task_id=new_task.id))
+    except IntegrityError:
+        db.rollback()
+        flash('导入失败：任务标识冲突，请更换模板后重试', 'danger')
+        return redirect(next_url)
+    except Exception:
+        db.rollback()
+        logger.exception('导入任务模板失败')
+        flash('导入失败，请稍后重试', 'danger')
+        return redirect(next_url)
+    finally:
+        db.close()
+
 @quickform_bp.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():

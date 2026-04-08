@@ -65,6 +65,9 @@
                     <a href="{{ url_for('quickform.dashboard', view='card') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'card' else 'btn-outline-primary' }}">卡片型</a>
                     <a href="{{ url_for('quickform.dashboard', view='list') }}" class="btn btn-sm {{ 'btn-primary' if view_mode == 'list' else 'btn-outline-primary' }}">列表型</a>
                 </div>
+                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#importTaskTemplateModal" style="font-weight: 500;">
+                    <i class="bi bi-box-arrow-in-down" style="margin-right: 0.375rem;"></i>导入任务
+                </button>
                 <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary" style="font-weight: 500;">
                     <i class="bi bi-plus-circle" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.create_new_task') if translate('dashboard.create_new_task') != 'dashboard.create_new_task' else '创建新任务' }}
                 </a>
@@ -113,6 +116,9 @@
                             <div class="d-flex flex-wrap gap-2">
                                 <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">详情</a>
                                 <a href="{{ url_for('quickform.export_data', task_id=task.id) }}" class="btn btn-sm btn-outline-success">导出</a>
+                                {% if task_access.get(task.id) == 'owner' %}
+                                <a href="{{ url_for('quickform.export_task_template', task_id=task.id) }}" class="btn btn-sm btn-outline-secondary">导出模板</a>
+                                {% endif %}
                                 {% if task_access.get(task.id) == 'owner' %}
                                 <form action="{{ url_for('quickform.delete_task', task_id=task.id) }}" method="POST" class="d-inline" onsubmit="return confirm('{{ translate('dashboard.delete_confirm_message')|replace('{title}', task.title)|e }}')">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">{{ translate('common.delete') }}</button>
@@ -262,6 +268,11 @@
                                 <i class="bi bi-download" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.export') }}
                             </a>
                             {% if task_access.get(task.id) == 'owner' %}
+                            <a href="{{ url_for('quickform.export_task_template', task_id=task.id) }}" class="btn btn-sm" style="font-weight: 500; background-color: white; color: #64748b; border: 1px solid #94a3b8; height: 36px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; flex-shrink: 0;">
+                                <i class="bi bi-box-arrow-up-right" style="margin-right: 0.375rem;"></i>导出模板
+                            </a>
+                            {% endif %}
+                            {% if task_access.get(task.id) == 'owner' %}
                             <button type="button" class="btn btn-sm" data-bs-toggle="modal" data-bs-target="#deleteModal-{{ task.id }}" style="font-weight: 500; background-color: white; color: #ef4444; border: 1px solid #ef4444; height: 36px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; flex-shrink: 0;">
                                 <i class="bi bi-trash" style="margin-right: 0.375rem;"></i>{{ translate('common.delete') }}
                             </button>
@@ -314,6 +325,33 @@
             </div>
         </div>
         {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="importTaskTemplateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('quickform.import_task_template') }}" enctype="multipart/form-data">
+                <div class="modal-header">
+                    <h5 class="modal-title">导入任务模板</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                    <div class="mb-3">
+                        <label class="form-label">模板文件（JSON）</label>
+                        <input class="form-control" type="file" name="template_file" accept=".json,application/json" required>
+                    </div>
+                    <div class="alert alert-warning mb-0 small">
+                        仅导入：任务名称、APIID、任务描述；不包含数据和附件。允许同名任务；若服务器已有相同 APIID，将拒绝导入。
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">开始导入</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
     

@@ -19,6 +19,14 @@
                         <li><a class="dropdown-item" href="{{ url_for('quickform.export_data', task_id=task.id, fmt='json') }}"><i class="bi bi-file-earmark-code me-2"></i>导出 JSON（数据大屏）</a></li>
                     </ul>
                 </div>
+                {% if current_user.is_authenticated and (current_user.is_admin() or task.user_id == current_user.id) %}
+                <a href="{{ url_for('quickform.export_task_template', task_id=task.id) }}" class="btn btn-outline-secondary me-2" style="font-weight: 500;">
+                    <i class="bi bi-box-arrow-up-right"></i>导出模板
+                </a>
+                {% endif %}
+                <button type="button" class="btn btn-outline-secondary me-2" data-bs-toggle="modal" data-bs-target="#importTaskTemplateModal" style="font-weight: 500;">
+                    <i class="bi bi-box-arrow-in-down"></i>导入任务
+                </button>
                 <a href="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" class="btn btn-info me-2" style="font-weight: 500;">
                     <i class="bi bi-bar-chart"></i>{{ translate('task_detail.analyze') }}
                 </a>
@@ -451,6 +459,33 @@
             </div>
         </div>
         {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="importTaskTemplateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('quickform.import_task_template') }}" enctype="multipart/form-data">
+                <div class="modal-header">
+                    <h5 class="modal-title">导入任务模板</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                    <div class="mb-3">
+                        <label class="form-label">模板文件（JSON）</label>
+                        <input class="form-control" type="file" name="template_file" accept=".json,application/json" required>
+                    </div>
+                    <div class="alert alert-warning mb-0 small">
+                        仅导入：任务名称、APIID、任务描述；不包含数据和附件。允许同名任务；若服务器已有相同 APIID，将拒绝导入。
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">开始导入</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 

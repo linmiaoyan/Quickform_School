@@ -3,12 +3,13 @@ import os
 import time
 import threading
 from datetime import timedelta
-from flask import Flask, redirect, url_for, request
+from flask import Flask, redirect, url_for, request, make_response
 from flask_login import LoginManager, current_user
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 import logging
 from logging.handlers import RotatingFileHandler
+import re
 
 # 配置日志
 logging.basicConfig(
@@ -74,6 +75,7 @@ RATE_LIMIT_BAN_SECONDS = 120    # 触发限流后禁止该 IP 的时长（秒）
 _404_count = {}                 # ip -> (count, window_start)
 _404_lock = threading.Lock()
 _ban_until = {}                 # ip -> unix timestamp 解禁时间
+_HASHED_STATIC_RE = re.compile(r'\.[0-9a-f]{8,}\.(css|js|png|jpg|jpeg|gif|webp|svg|woff|woff2)$', re.IGNORECASE)
 
 
 def _get_client_ip():
@@ -236,6 +238,21 @@ def before_request_rate_limit():
             return 'Too Many Requests', 429
 
 
+@app.before_request
+def handle_api_cors_preflight():
+    """统一处理 /api/* 的 CORS 预检，减少业务路由开销。"""
+    path = (request.path or '').lstrip('/')
+    if request.method == 'OPTIONS' and path.startswith('api/'):
+        resp = make_response('', 204)
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        req_headers = request.headers.get('Access-Control-Request-Headers', '')
+        resp.headers['Access-Control-Allow-Headers'] = req_headers or 'Content-Type, Authorization, X-Requested-With'
+        resp.headers['Access-Control-Max-Age'] = os.getenv('CORS_MAX_AGE', '600')
+        resp.headers['Cache-Control'] = 'public, max-age=600'
+        return resp
+
+
 # ---------- 404 限流：请求后统计 404（/static/、/uploads/ 不统计） ----------
 @app.after_request
 def after_request_404_track(response):
@@ -259,6 +276,30 @@ def after_request_404_track(response):
         if cnt >= RATE_LIMIT_404_MAX:
             _ban_until[ip] = now + RATE_LIMIT_BAN_SECONDS
             logger.warning("404限流: IP %s 在 %ds 内 404 达 %d 次，已临时限制 %ds", ip, RATE_LIMIT_WINDOW, cnt, RATE_LIMIT_BAN_SECONDS)
+    return response
+
+
+@app.after_request
+def apply_cache_and_cors_headers(response):
+    """统一补充静态资源缓存头与 API CORS 头。"""
+    path = (request.path or '').lstrip('/')
+
+    # 1) 静态资源缓存优化：减少重复 304 往返
+    if path.startswith('static/') and request.method == 'GET' and response.status_code in (200, 304):
+        cache_seconds = int(os.getenv('STATIC_CACHE_MAX_AGE', '86400'))  # 默认 1 天
+        if _HASHED_STATIC_RE.search(path):
+            cache_seconds = int(os.getenv('STATIC_HASHED_CACHE_MAX_AGE', str(31536000)))  # 默认 1 年
+            response.headers['Cache-Control'] = f'public, max-age={cache_seconds}, immutable'
+        else:
+            response.headers['Cache-Control'] = f'public, max-age={cache_seconds}'
+
+    # 2) API CORS 响应头：包含预检缓存时间，减少 OPTIONS 次数
+    if path.startswith('api/'):
+        response.headers.setdefault('Access-Control-Allow-Origin', '*')
+        response.headers.setdefault('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        response.headers.setdefault('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        response.headers.setdefault('Access-Control-Max-Age', os.getenv('CORS_MAX_AGE', '600'))
+
     return response
 
 
