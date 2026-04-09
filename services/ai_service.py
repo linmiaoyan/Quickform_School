@@ -232,11 +232,44 @@ def _parse_deepseek_error(response):
         return (response.text or response.reason or "未知错误")[:400]
 
 
-def call_ai_model(prompt, ai_config):
+def _chat_server_model_resolve(env_key, config_key, code_fallback):
+    """硅基流动模型 ID：优先环境变量，其次 Flask app.config（无请求上下文时忽略）。"""
+    v = (os.environ.get(env_key) or '').strip()
+    if v:
+        return v
+    try:
+        v = (current_app.config.get(config_key) or '').strip()
+        if v:
+            return v
+    except RuntimeError:
+        pass
+    return code_fallback
+
+
+def get_chat_server_model_default():
+    """硅基流动：主路径（一键生成、智能分析报告主体、AI 改 HTML、连通性测试等）。"""
+    return _chat_server_model_resolve(
+        'CHAT_SERVER_MODEL', 'CHAT_SERVER_MODEL',
+        'Pro/deepseek-ai/DeepSeek-V3.2',
+    )
+
+
+def get_chat_server_model_light():
+    """硅基流动：轻量路径（上传后 HTML 摘要分析、智能分析页「仅润色提示词」步骤）。"""
+    return _chat_server_model_resolve(
+        'CHAT_SERVER_MODEL_LIGHT', 'CHAT_SERVER_MODEL_LIGHT',
+        'deepseek-ai/DeepSeek-V2.5',
+    )
+
+
+def call_ai_model(prompt, ai_config, *, chat_server_model=None):
     """调用 AI 模型生成文本。
 
     上游欠费、限流、鉴权失败等会以 ``Exception`` 抛出，由调用方（路由或后台线程）捕获处理；
     正常情况下**不会**因此终止 Flask/Waitress 进程；主应用在 ``app.py`` 还对未捕获异常做了统一 500 兜底。
+
+    chat_server_model: 仅当 ``selected_model == 'chat_server'`` 时生效；非空则作为硅基流动 ``model`` 字段，否则用
+    :func:`get_chat_server_model_default`。
     """
     decrypt_ai_config_inplace(ai_config)
     prompt = _clip_prompt(prompt)
@@ -379,6 +412,7 @@ def call_ai_model(prompt, ai_config):
                 api_key = ''
         if not api_key:
             raise Exception('硅基流动未配置，请设置 CHAT_SERVER_API_TOKEN 或在配置页填写 Token')
+        model_id = (chat_server_model or '').strip() or get_chat_server_model_default()
         system_msg = '你面向的用户一般是教师和学生'
         user_msg, sf_max_tokens = _chat_server_fit_user_and_max_tokens(system_msg, prompt)
         url = 'https://api.siliconflow.cn/v1/chat/completions'
@@ -386,16 +420,38 @@ def call_ai_model(prompt, ai_config):
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {api_key}'
         }
-        payload = {
-            'model': 'deepseek-ai/DeepSeek-V2.5',
-            'messages': [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": user_msg}
-            ],
-            'max_tokens': sf_max_tokens
-        }
-        try:
-            resp = _requests.post(url, headers=headers, json=payload, timeout=(10, 240))
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ]
+        # Pro/ 前缀模型失败时回退到同一路径的非 Pro 版本（如 Pro/deepseek-ai/DeepSeek-V3.2 -> deepseek-ai/DeepSeek-V3.2）
+        models_try = [model_id]
+        if model_id.startswith('Pro/') and len(model_id) > len('Pro/'):
+            _alt = model_id[4:].strip()
+            if _alt and _alt != model_id:
+                models_try.append(_alt)
+
+        last_error = None
+        for _mi, _mid in enumerate(models_try):
+            payload = {
+                'model': _mid,
+                'messages': messages,
+                'max_tokens': sf_max_tokens,
+            }
+            try:
+                resp = _requests.post(url, headers=headers, json=payload, timeout=(10, 240))
+            except _requests.Timeout as e:
+                last_error = e
+                if _mi + 1 < len(models_try):
+                    logger.warning(
+                        '硅基流动 model=%s 超时，回退重试 model=%s',
+                        _mid,
+                        models_try[_mi + 1],
+                    )
+                    continue
+                logger.error(f"硅基流动超时: {e}")
+                raise Exception(f"硅基流动超时: {e}")
+
             if resp.status_code != 200:
                 raw = (resp.text or "").strip()
                 detail = raw[:400]
@@ -427,26 +483,48 @@ def call_ai_model(prompt, ai_config):
                                 '硅基流动：提示词与单次输出长度之和超过模型上下文上限（约 32K tokens）。'
                                 '请缩小数据范围、缩短提示词或改用其它模型后重试。'
                             )
-                raise Exception(f"HTTP {resp.status_code}: {detail[:200]}")
+                err = Exception(f"HTTP {resp.status_code}: {detail[:200]}")
+                if _mi + 1 < len(models_try):
+                    logger.warning(
+                        '硅基流动 model=%s 调用失败（%s），回退重试 model=%s — %s',
+                        _mid,
+                        resp.status_code,
+                        models_try[_mi + 1],
+                        detail[:120],
+                    )
+                    last_error = err
+                    continue
+                raise err
+
             try:
                 data = resp.json()
             except ValueError:
-                raise Exception(f"硅基流动返回非 JSON 响应: {(resp.text or '')[:200]}")
-            # OpenAI兼容结构
+                err = Exception(f"硅基流动返回非 JSON 响应: {(resp.text or '')[:200]}")
+                if _mi + 1 < len(models_try):
+                    logger.warning('硅基流动 model=%s 响应非 JSON，回退重试 model=%s', _mid, models_try[_mi + 1])
+                    last_error = err
+                    continue
+                raise err
+
             if isinstance(data, dict) and 'choices' in data and data['choices']:
                 choice = data['choices'][0]
-                # message.content 或 text
                 msg = (choice.get('message') or {})
                 content = msg.get('content') or choice.get('text')
                 if content:
+                    if _mi > 0:
+                        logger.info('硅基流动回退模型 %s 调用成功', _mid)
                     return content
-            raise Exception(f"未知响应格式: {str(data)[:200]}")
-        except _requests.Timeout as e:
-            logger.error(f"硅基流动超时: {e}")
-            raise Exception(f"硅基流动超时: {e}")
-        except Exception as e:
-            logger.error(f"硅基流动调用失败: {str(e)}")
-            raise Exception(f"硅基流动调用失败: {str(e)}")
+
+            err = Exception(f"未知响应格式: {str(data)[:200]}")
+            if _mi + 1 < len(models_try):
+                logger.warning('硅基流动 model=%s 返回异常结构，回退重试 model=%s', _mid, models_try[_mi + 1])
+                last_error = err
+                continue
+            raise err
+
+        if last_error:
+            raise last_error
+        raise Exception('硅基流动调用失败')
     else:
         raise Exception(f"不支持的AI模型: {ai_config.selected_model}")
 
@@ -712,7 +790,9 @@ HTML内容：
             # 调用AI进行分析
             try:
                 print(f"[HTML分析] → 正在调用AI模型进行分析...")
-                analysis_result = call_ai_model_func(analysis_prompt, ai_config)
+                analysis_result = call_ai_model_func(
+                    analysis_prompt, ai_config, chat_server_model=get_chat_server_model_light()
+                )
                 # 保存分析结果到数据库
                 task.html_analysis = analysis_result
                 db.commit()

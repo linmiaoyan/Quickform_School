@@ -133,6 +133,11 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
 
 # 一键内测 / 硅基流动：用户未在个人中心配置时，使用此处提供的 API（环境变量 CHAT_SERVER_API_TOKEN）
 app.config['CHAT_SERVER_API_TOKEN'] = os.getenv('CHAT_SERVER_API_TOKEN', '')
+# 硅基流动模型 ID（OpenAI 兼容接口的 model 字段）；轻量场景见 CHAT_SERVER_MODEL_LIGHT
+_default_sf = (os.getenv('CHAT_SERVER_MODEL') or 'Pro/deepseek-ai/DeepSeek-V3.2').strip()
+app.config['CHAT_SERVER_MODEL'] = _default_sf or 'Pro/deepseek-ai/DeepSeek-V3.2'
+_light_sf = (os.getenv('CHAT_SERVER_MODEL_LIGHT') or 'deepseek-ai/DeepSeek-V2.5').strip()
+app.config['CHAT_SERVER_MODEL_LIGHT'] = _light_sf or 'deepseek-ai/DeepSeek-V2.5'
 
 # 邮件发送配置（用于邮箱验证码）
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.163.com')

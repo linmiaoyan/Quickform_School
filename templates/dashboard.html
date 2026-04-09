@@ -71,6 +71,34 @@
 
 {% block content %}
 <style>
+/* 「导出任务」未开放说明：base 无 navbar 块时 dashboard 顶部的 block navbar 不会渲染，故在此重复定义，避免提示正文以块级撑开表格行 */
+.qf-migration-soon-wrap { position: relative; display: inline-block; max-width: 100%; }
+.qf-migration-soon-tip {
+    display: none;
+    box-sizing: border-box;
+    position: absolute;
+    left: auto;
+    right: 0;
+    top: 100%;
+    margin-top: 2px;
+    min-width: 260px;
+    max-width: min(340px, 92vw);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: #212529;
+    background: #fff;
+    border: 1px solid rgba(0,0,0,.15);
+    border-radius: 0.375rem;
+    box-shadow: 0 0.25rem 0.75rem rgba(0,0,0,.12);
+    z-index: 1080;
+}
+.qf-migration-soon-wrap:hover .qf-migration-soon-tip,
+.qf-migration-soon-wrap:focus-within .qf-migration-soon-tip { display: block; }
+.qf-migration-soon-tip--table { left: 0; right: auto; }
+/* 列表视图操作列：允许气泡溢出单元格，避免被 table-responsive 裁掉 */
+.table.qf-dash-task-table td.qf-dash-ops-cell { overflow: visible; vertical-align: middle; }
+
 /* 任务卡片状态：仅所有者可见的右上角状态，hover 才显示；翻转动效 + 停用变灰 */
 .task-card-wrapper { perspective: 1000px; transition: transform 0.5s ease; }
 .task-card-wrapper .card { transition: transform 0.5s ease, filter 0.5s ease, background-color 0.5s ease; transform-style: preserve-3d; }
@@ -86,6 +114,75 @@
 }
 .task-card-wrapper:hover .task-status-pill { opacity: 1; }
 .task-card-wrapper .card-header { position: relative; }
+/* 卡片头部标签：彩色半透明 + 毛玻璃，保留私有/公开/团队等色系区分 */
+.card .card-header .qf-dash-header-meta .qf-dash-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  backdrop-filter: blur(11px);
+  -webkit-backdrop-filter: blur(11px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  font-weight: 500;
+  padding: 0.38em 0.7em;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+}
+/* 个人姓名（浅蓝，深字 —— 与原先 badge 一致） */
+.card .card-header .qf-dash-header-meta .qf-dash-pill--person {
+  background: rgba(147, 197, 253, 0.52) !important;
+  color: #1e3a8a !important;
+  border-color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+/* 团队名称（紫） */
+.card .card-header .qf-dash-header-meta .qf-dash-pill--org {
+  background: rgba(139, 92, 246, 0.48) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+/* 团队内共享 */
+.card .card-header .qf-dash-header-meta .qf-dash-pill--share-org {
+  background: rgba(124, 58, 237, 0.42) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+/* 指定用户共享 */
+.card .card-header .qf-dash-header-meta .qf-dash-pill--share {
+  background: rgba(16, 185, 129, 0.46) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+/* 公开 */
+.card .card-header .qf-dash-header-meta .qf-dash-pill--public {
+  background: rgba(245, 158, 11, 0.5) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+/* 私有（深蓝灰，与「个人姓名」浅蓝区分开） */
+.card .card-header .qf-dash-header-meta .qf-dash-pill--private {
+  background: rgba(30, 58, 138, 0.5) !important;
+  color: #f1f5f9 !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+/* 只读：中性浅玻璃 */
+.card .card-header .qf-dash-header-meta .qf-dash-pill--access {
+  background: rgba(255, 255, 255, 0.24) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.42);
+}
+/* 可编辑 */
+.card .card-header .qf-dash-header-meta .qf-dash-pill--edit {
+  background: rgba(13, 148, 136, 0.48) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+}
 .view-icon-btn {
   width: 32px;
   height: 32px;
@@ -93,6 +190,50 @@
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+/* 创建新任务：悬停时渐变沿背景流动（与全站蓝/青/紫 banner 气质一致） */
+a.qf-btn-create-task.btn-primary {
+  font-weight: 500;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background-color: #1d4ed8;
+  background-image: linear-gradient(
+    115deg,
+    #1d4ed8 0%,
+    #2563eb 18%,
+    #0ea5e9 38%,
+    #6366f1 58%,
+    #3b82f6 78%,
+    #1d4ed8 100%
+  );
+  background-size: 260% 100%;
+  background-position: 0% 50%;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.28);
+  transition: transform 0.22s ease, box-shadow 0.28s ease, border-color 0.22s ease;
+}
+a.qf-btn-create-task.btn-primary:hover,
+a.qf-btn-create-task.btn-primary:focus-visible {
+  color: #fff !important;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 8px 26px rgba(59, 130, 246, 0.42);
+  transform: translateY(-2px);
+  animation: qf-dash-create-gradient-flow 2.6s ease-in-out infinite;
+}
+a.qf-btn-create-task.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.35);
+}
+@keyframes qf-dash-create-gradient-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  a.qf-btn-create-task.btn-primary:hover,
+  a.qf-btn-create-task.btn-primary:focus-visible {
+    animation: none;
+    background-position: 50% 50%;
+  }
 }
 </style>
 <div class="row">
@@ -115,7 +256,7 @@
                 </div>
             </div>
             <div class="d-flex gap-2 align-items-center flex-wrap">
-                <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary" style="font-weight: 500;">
+                <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary qf-btn-create-task">
                     <i class="bi bi-plus-circle" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.create_new_task') if translate('dashboard.create_new_task') != 'dashboard.create_new_task' else '创建新任务' }}
                 </a>
                 {% if is_certified %}
@@ -151,14 +292,14 @@
         <h5 class="mb-3" style="color: #374151; font-weight: 600;"><i class="bi {{ section_icon }}"></i> {{ section_title }}</h5>
         {% if view_mode == 'list' %}
         <div class="table-responsive mb-4">
-            <table class="table table-hover align-middle bg-white">
+            <table class="table table-hover align-middle bg-white qf-dash-task-table">
                 <thead class="table-light">
                     <tr>
                         <th>标题</th>
                         <th>来源</th>
                         <th>提交数</th>
                         <th>创建时间</th>
-                        <th style="min-width: 220px;">操作</th>
+                        <th class="qf-dash-ops-cell" style="min-width: 220px;">操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -181,14 +322,14 @@
                         </td>
                         <td>{{ submission_count_map.get(task.id, 0) }}</td>
                         <td>{{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                        <td>
-                            <div class="d-flex flex-wrap gap-2">
+                        <td class="qf-dash-ops-cell">
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
                                 <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">{{ translate('dashboard.view_detail') }}</a>
                                 <a href="{{ url_for('quickform.export_data', task_id=task.id) }}" class="btn btn-sm btn-outline-success">导出</a>
                                 {% if task_access.get(task.id) == 'owner' %}
                                 <span class="qf-migration-soon-wrap d-inline-block align-middle" tabindex="0" role="note" aria-label="导出任务（会议后开放）">
                                     <button type="button" class="btn btn-sm btn-outline-secondary" disabled style="pointer-events: none;" aria-disabled="true">{{ translate('dashboard.export_task') }}</button>
-                                    <div class="qf-migration-soon-tip" style="left: 0; right: auto;">
+                                    <div class="qf-migration-soon-tip qf-migration-soon-tip--table">
                                         该功能将于4月29日的会议中正式发布，敬请期待。<br>
                                         <a href="{{ url_for('quickform.meeting_notice_download') }}" class="link-primary" rel="noopener">会议文件</a>
                                     </div>
@@ -292,40 +433,40 @@
                             <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
                             {% endif %}
                         </h5>
-                        <div class="d-flex gap-2 flex-wrap">
+                        <div class="d-flex gap-2 flex-wrap qf-dash-header-meta">
                             {% if task.organization_id %}
-                            <span class="badge" style="background-color: #8b5cf6; font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--org" style="font-size: 0.75rem;">
                                 <i class="bi bi-building"></i> {{ task.organization.name }}
                             </span>
                             {% else %}
-                            <span class="badge" style="background-color: #93c5fd; color: #1e40af; font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--person" style="font-size: 0.75rem;">
                                 <i class="bi bi-person"></i> {{ task.author.username }}
                             </span>
                             {% endif %}
                             {% if task.sharing_type == 'organization' %}
-                            <span class="badge" style="background-color: #8b5cf6; font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--share-org" style="font-size: 0.75rem;">
                                 <i class="bi bi-people-fill"></i> {{ translate('task_detail.organization_shared') }}
                             </span>
                             {% if task_access.get(task.id) == 'org_readonly' %}
-                            <span class="badge bg-secondary" style="font-size: 0.7rem;">只读</span>
+                            <span class="badge qf-dash-pill qf-dash-pill--access" style="font-size: 0.7rem;">只读</span>
                             {% elif task_access.get(task.id) == 'org_edit' %}
-                            <span class="badge" style="background-color: #0d9488; font-size: 0.7rem;">编辑</span>
+                            <span class="badge qf-dash-pill qf-dash-pill--edit" style="font-size: 0.7rem;">编辑</span>
                             {% endif %}
                             {% elif task.sharing_type == 'shared' %}
-                            <span class="badge" style="background-color: #10b981; font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--share" style="font-size: 0.75rem;">
                                 <i class="bi bi-share-fill"></i> {{ translate('task_detail.shared') }}
                             </span>
                             {% if task_access.get(task.id) == 'shared_readonly' %}
-                            <span class="badge bg-secondary" style="font-size: 0.7rem;">只读</span>
+                            <span class="badge qf-dash-pill qf-dash-pill--access" style="font-size: 0.7rem;">只读</span>
                             {% elif task_access.get(task.id) == 'shared_edit' %}
-                            <span class="badge" style="background-color: #0d9488; font-size: 0.7rem;">编辑</span>
+                            <span class="badge qf-dash-pill qf-dash-pill--edit" style="font-size: 0.7rem;">编辑</span>
                             {% endif %}
                             {% elif task.sharing_type == 'public' %}
-                            <span class="badge" style="background-color: #f59e0b; color: white; font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--public" style="font-size: 0.75rem;">
                                 <i class="bi bi-globe"></i> 公开
                             </span>
                             {% else %}
-                            <span class="badge" style="background-color: #93c5fd; color: #1e40af; font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--private" style="font-size: 0.75rem;">
                                 <i class="bi bi-lock-fill"></i> {{ translate('task_detail.private') }}
                             </span>
                             {% endif %}

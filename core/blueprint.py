@@ -53,7 +53,14 @@ from .login_throttle import login_blocked, record_login_failure, clear_login_thr
 from .project_usage import get_top_projects, evaluate_project_alerts
 from .client_ip import get_request_client_ip
 from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file, CERTIFICATION_ALLOWED_EXTENSIONS
-from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file, generate_html_page_from_prompt, revise_html_with_ai
+from services.ai_service import (
+    call_ai_model,
+    generate_analysis_prompt,
+    analyze_html_file,
+    generate_html_page_from_prompt,
+    revise_html_with_ai,
+    get_chat_server_model_light,
+)
 from services.report_service import (
     save_analysis_report, generate_report_image, build_report_html, perform_analysis_with_custom_prompt,
     analysis_progress, analysis_results, completed_reports, progress_lock, timeout, markdown_to_html,
@@ -5016,7 +5023,9 @@ def smart_analyze(task_id):
                         "请将以下数据分析需求改写成一条更清晰、专业、便于大模型执行的分析提示词。"
                         "只输出润色后的完整提示词内容，不要输出解释或前缀。\n\n" + custom_prompt
                     )
-                    polished = call_ai_model(polish_prompt, ai_config)
+                    polished = call_ai_model(
+                        polish_prompt, ai_config, chat_server_model=get_chat_server_model_light()
+                    )
                     if polished and polished.strip():
                         custom_prompt = polished
                 except Exception as e:
