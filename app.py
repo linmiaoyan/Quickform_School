@@ -78,8 +78,11 @@ _ban_until = {}                 # ip -> unix timestamp 解禁时间
 _HASHED_STATIC_RE = re.compile(r'\.[0-9a-f]{8,}\.(css|js|png|jpg|jpeg|gif|webp|svg|woff|woff2)$', re.IGNORECASE)
 
 
+from core.client_ip import get_request_client_ip
+
+
 def _get_client_ip():
-    return request.headers.get('X-Forwarded-For', request.remote_addr or '') or 'unknown'
+    return get_request_client_ip(request)
 
 
 def _clean_old_entries():

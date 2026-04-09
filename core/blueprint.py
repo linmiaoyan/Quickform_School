@@ -16,7 +16,8 @@ import base64
 import uuid
 from urllib.parse import unquote_plus, quote as url_quote
 import zipfile
-from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app
+from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app, abort
+from werkzeug.datastructures import FileStorage
 from sqlalchemy import create_engine, or_, text, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, scoped_session, joinedload
@@ -42,12 +43,13 @@ from email.utils import formataddr
 from .models import (
     Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply,
     Organization, OrganizationMember, TaskShare, TaskLike, ApiAccessLog, TaskQuotaRequest,
-    SiteQuotaDefault,
+    SiteQuotaDefault, _generate_task_id,
 )
 from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
 from .public_errors import MSG_GENERIC, MSG_SERVICE_BUSY, MSG_JSON_BODY, MSG_SAVE_FAILED, MSG_PAGE_LOAD, MSG_API_INTERNAL
 from .login_throttle import login_blocked, record_login_failure, clear_login_throttle
 from .project_usage import get_top_projects, evaluate_project_alerts
+from .client_ip import get_request_client_ip
 from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file, CERTIFICATION_ALLOWED_EXTENSIONS
 from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file, generate_html_page_from_prompt, revise_html_with_ai
 from services.report_service import (
@@ -179,8 +181,7 @@ def verify_email_code(email: str, code: str) -> bool:
 
 
 def _upload_auth_client_key(username: str) -> str:
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr or '') or 'unknown'
-    ip = ip.split(',')[0].strip()
+    ip = get_request_client_ip(request)
     return f"{ip}|{(username or '').strip().lower()}"
 
 
@@ -278,6 +279,9 @@ def send_email_code(to_email: str, code: str):
 
 # 获取QuickForm目录路径
 QUICKFORM_DIR = os.path.dirname(os.path.abspath(__file__))
+# 独立应用根目录（与 app.py 所在目录一致）：docs/会议通知.pdf 等静态资料
+_QUICKFORM_APP_ROOT = os.path.abspath(os.path.join(QUICKFORM_DIR, '..'))
+MEETING_NOTICE_PDF_PATH = os.path.join(_QUICKFORM_APP_ROOT, 'docs', '会议通知.pdf')
 
 # 创建上传文件目录（相对于QuickForm目录）- 保留原有目录，已上传文件继续由此路由提供
 UPLOAD_FOLDER = os.path.join(QUICKFORM_DIR, 'uploads')
@@ -1465,15 +1469,18 @@ def dashboard():
         db.close()
 
 
-# 一键生成新任务：可勾选追加的说明文案（API地址 会在提交时替换为真实地址）
-# 数据获取接口 GET API地址/all 返回格式：{ submissions: 数组, total_submissions: 数字 }，前端应用 data.submissions 或 data.total_submissions，不要用 data.length
+# 一键生成新任务：可勾选追加的说明文案（「API地址」在提交时替换为真实接口根 URL，如 https://xxx/api/任务码）
 ONECLICK_PROMPT_OPTIONS = [
-    ('opt_upload', '数据上传', '创建完应用后，向API地址发送post格式的json数据。'),
-    ('opt_fetch', '数据获取', 'GET 请求 API地址/all 可获取已提交数据。接口返回 JSON 对象格式为：{ submissions: 数组, total_submissions: 数字 }。前端用 data.submissions 得到记录数组，用 data.total_submissions 得到人数，不要用 response.json() 后直接 .length（因为根对象不是数组）。'),
-    ('opt_responsive', '响应式布局', '页面需要响应式布局，适配手机和电脑。'),
-    ('opt_validate', '表单校验', '需要表单必填项校验与提交前错误提示。'),
-    ('opt_success_tip', '提交成功提示', '提交成功后显示成功提示，并可选清空表单。'),
-    ('opt_decorate', '内置页面装饰', '页面需要内置简洁的 CSS 装饰：卡片/表单区域使用圆角、轻微阴影与适当留白，配色清爽，整体美观易读。'),
+    ('opt_upload', '数据上传', '收数方式：用户填写后通过 POST 向「API地址」提交 JSON（建议 Content-Type: application/json），与 QuickForm 数据接口约定一致。'),
+    (
+        'opt_fetch',
+        '数据获取',
+        '若需在页面上展示已收集的数据：使用 GET 请求「API地址/all」，响应为 JSON 对象；列表在 submissions 字段（数组），总条数在 total_submissions 字段。展示或统计时请使用上述字段，勿将根对象当作数组对其求 length。',
+    ),
+    ('opt_responsive', '响应式布局', '布局需适配手机与桌面：主要区域与按钮在小屏上不换行挤压，字号与触控区域足够，可用弹性布局或简单栅格实现自适应。'),
+    ('opt_validate', '表单校验', '在提交前校验必填项与基本格式（如邮箱、数字范围等），错误时用就近文案或边框高亮提示，避免静默失败。'),
+    ('opt_success_tip', '提交成功提示', '提交成功后给出明确反馈（如简短提示文案或非阻塞提示），并可按需清空表单以便连续填报。'),
+    ('opt_decorate', '内置页面装饰', '内置轻量样式即可：标题与表单分区清晰，卡片或表单区适度圆角、留白与浅阴影，配色简洁，保证可读、不花哨。'),
 ]
 
 
@@ -3463,7 +3470,7 @@ def submit_form(task_id):
             return response, 200
         
         # POST方法：提交数据
-        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        client_ip = get_request_client_ip(request)
         now_ts = datetime.utcnow().timestamp()
 
         ip_info = rate_limit_cache.setdefault(client_ip, {
@@ -3591,7 +3598,7 @@ def submit_form_all(task_id):
         response.headers['Content-Type'] = 'text/plain; charset=utf-8'
         return response
         
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    client_ip = get_request_client_ip(request)
     now_ts = datetime.utcnow().timestamp()
 
     ip_info = rate_limit_cache.setdefault(client_ip, {
@@ -3970,10 +3977,126 @@ def export_data(task_id):
         db.close()
 
 
-@quickform_bp.route('/task/<int:task_id>/export_template', methods=['GET'])
+# ---------- 任务迁移（导出 ZIP / 导入 JSON 或 ZIP）----------
+# 会议前临时关闭：改为 True 后恢复导出/导入（实现保留在 _task_migration_*_impl 中）。
+TASK_MIGRATION_ACTIVE = False
+TASK_MIGRATION_MANIFEST = 'quickform-task-migration.json'
+TASK_MIGRATION_DISABLED_FLASH = (
+    '任务迁移功能将于 4 月 29 日会议正式发布，敬请期待。会议通知 PDF 可在任务详情页「任务迁移」旁的说明中下载。'
+)
+
+
+def _migration_zip_max_bytes():
+    return int(os.getenv('TASK_MIGRATION_ZIP_MAX_BYTES', str(50 * 1024 * 1024)))
+
+
+def _pick_unique_task_id(db):
+    for _ in range(80):
+        tid = _generate_task_id()
+        if not db.query(Task.id).filter(Task.task_id == tid).first():
+            return tid
+    raise RuntimeError('无法生成唯一任务 API ID')
+
+
+def _migration_resolve_html_absolute_path(task, saved_name):
+    if not saved_name:
+        return None
+    bn = os.path.basename(str(saved_name).replace('\\', '/'))
+    if not bn or bn in ('.', '..'):
+        return None
+    candidates = []
+    if getattr(task, 'file_path', None):
+        try:
+            tf = (task.file_path or '').strip()
+            if tf and os.path.basename(tf) == bn and os.path.isfile(tf):
+                candidates.append(tf)
+        except Exception:
+            pass
+    try:
+        candidates.append(os.path.join(_static_uploads_dir(), bn))
+    except RuntimeError:
+        pass
+    candidates.append(os.path.join(STATIC_UPLOADS, bn))
+    candidates.append(os.path.join(UPLOAD_FOLDER, bn))
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return p
+    return None
+
+
+def _migration_collect_html_files(task):
+    rows = []
+    html_files = []
+    if getattr(task, 'html_files', None):
+        try:
+            html_files = json.loads(task.html_files)
+        except Exception:
+            html_files = []
+    if not isinstance(html_files, list):
+        html_files = []
+    saved = None
+    if task.file_path:
+        saved = os.path.basename(task.file_path)
+    if task.file_name and saved and not html_files:
+        html_files = [{'original_name': task.file_name, 'saved_name': saved}]
+    for i, f in enumerate(html_files):
+        if not isinstance(f, dict):
+            continue
+        sn = f.get('saved_name')
+        on = f.get('original_name') or sn or ('file_%s.html' % i)
+        ap = _migration_resolve_html_absolute_path(task, sn)
+        if ap:
+            rows.append({'original_name': on, 'abs_path': ap})
+    return rows
+
+
+def _rewrite_html_migration_endpoints(html, old_api_id, new_api_id, old_base='', new_base=''):
+    """将 HTML 中的数据接口从旧 APIID（及可选的旧站点根地址）改写为新的。"""
+    if not html or not old_api_id or not new_api_id:
+        return html
+    out = html
+    ob = (old_base or '').strip().rstrip('/')
+    nb = (new_base or '').strip().rstrip('/')
+    if ob and nb and ob != nb:
+        s_old = '%s/api/%s' % (ob, old_api_id)
+        s_new = '%s/api/%s' % (nb, new_api_id)
+        out = out.replace(s_old + '/', s_new + '/')
+        out = out.replace(s_old, s_new)
+    out = out.replace('/api/%s/' % old_api_id, '/api/%s/' % new_api_id)
+    out = out.replace('/api/%s' % old_api_id, '/api/%s' % new_api_id)
+    return out
+
+
+def _migration_validate_zip(zf):
+    total = 0
+    limit = _migration_zip_max_bytes()
+    for info in zf.infolist():
+        total += int(getattr(info, 'file_size', 0) or 0)
+        if total > limit:
+            return False, '迁移包解压后体积过大，请拆分或联系管理员提升 TASK_MIGRATION_ZIP_MAX_BYTES'
+        name = (info.filename or '').replace('\\', '/')
+        if name.startswith('/') or '..' in name.split('/'):
+            return False, '迁移包内存在非法路径'
+    return True, None
+
+
+@quickform_bp.route('/release-announcement/document', methods=['GET'])
 @login_required
-def export_task_template(task_id):
-    """导出任务模板（仅标题/APIID/描述；不含提交数据与附件）。"""
+def meeting_notice_download():
+    """会议通知 PDF（URL 不显式暴露服务器 docs/ 物理路径）。"""
+    if not os.path.isfile(MEETING_NOTICE_PDF_PATH):
+        abort(404)
+    return send_file(
+        MEETING_NOTICE_PDF_PATH,
+        as_attachment=True,
+        download_name='会议通知.pdf',
+        mimetype='application/pdf',
+        max_age=0,
+    )
+
+
+def _task_migration_export_impl(task_id):
+    """完整导出实现（ZIP + manifest + HTML）。会议前由 TASK_MIGRATION_ACTIVE=False 短路，此处代码保留无需注释。"""
     db = SessionLocal()
     try:
         task = db.get(Task, task_id)
@@ -3984,48 +4107,283 @@ def export_task_template(task_id):
             flash('无权导出该任务模板', 'danger')
             return redirect(url_for('quickform.dashboard'))
 
-        payload = {
-            'template_version': 1,
+        html_rows = _migration_collect_html_files(task)
+        export_base = ''
+        try:
+            export_base = (request.url_root or '').strip()
+        except Exception:
+            export_base = ''
+
+        manifest = {
+            'template_version': 2,
             'exported_at': datetime.now().isoformat(timespec='seconds'),
             'title': (task.title or '').strip(),
             'api_id': (task.task_id or '').strip(),
             'description': (task.description or '').strip(),
+            'share_url': (getattr(task, 'share_url', None) or '') or '',
+            'tutorial_link': (getattr(task, 'tutorial_link', None) or '') or '',
+            'export_api_base': export_base,
+            'html_files': [],
         }
-        json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8')
-        safe_name = re.sub(r'[^0-9A-Za-z\u4e00-\u9fa5_-]+', '_', payload['title'])[:40] or 'task_template'
-        filename = f'{safe_name}_{payload["api_id"]}.json'
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for idx, row in enumerate(html_rows):
+                orig = row['original_name'] or ('file_%s.html' % idx)
+                ext = ''
+                if '.' in orig:
+                    ext = orig.rsplit('.', 1)[-1].lower().strip()
+                if ext not in ('html', 'htm'):
+                    ext = 'html'
+                arc = 'html/%s.%s' % (idx, ext)
+                try:
+                    with open(row['abs_path'], 'rb') as fh:
+                        zf.writestr(arc, fh.read())
+                except OSError:
+                    logger.warning('迁移导出跳过缺失文件: %s', row.get('abs_path'))
+                    continue
+                manifest['html_files'].append({'original_name': orig, 'archive_name': arc})
+
+            zf.writestr(
+                TASK_MIGRATION_MANIFEST,
+                json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8'),
+            )
+
+        buf.seek(0)
+        safe_title = re.sub(r'[^0-9A-Za-z\u4e00-\u9fa5_-]+', '_', manifest['title'])[:40] or 'task'
+        dl_name = '%s_%s_migration.zip' % (safe_title, manifest['api_id'] or 'export')
         return send_file(
-            io.BytesIO(json_bytes),
+            buf,
             as_attachment=True,
-            download_name=filename,
-            mimetype='application/json; charset=utf-8',
+            download_name=dl_name,
+            mimetype='application/zip',
+            max_age=0,
         )
     except Exception:
-        logger.exception('导出任务模板失败 task_id=%s', task_id)
+        logger.exception('导出任务迁移包失败 task_id=%s', task_id)
         flash('导出失败，请稍后重试', 'danger')
         return redirect(url_for('quickform.dashboard'))
     finally:
         db.close()
 
 
-@quickform_bp.route('/task/import_template', methods=['POST'])
+@quickform_bp.route('/task/<int:task_id>/export_template', methods=['GET'])
 @login_required
-def import_task_template():
-    """导入任务模板（仅标题/APIID/描述；不含提交数据与附件）。"""
-    db = SessionLocal()
+def export_task_template(task_id):
+    """任务迁移导出路由：会议前仅提示；会议后将 TASK_MIGRATION_ACTIVE=True。"""
+    if not TASK_MIGRATION_ACTIVE:
+        flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
+        return redirect(url_for('quickform.task_detail', task_id=task_id))
+    return _task_migration_export_impl(task_id)
+
+
+def _task_migration_import_impl():
+    """完整导入实现（JSON v1 / ZIP v2）。会议前由 TASK_MIGRATION_ACTIVE=False 短路，此处代码保留无需注释。"""
     next_url = request.form.get('next') or request.referrer or url_for('quickform.dashboard')
+    db = SessionLocal()
     try:
         upload = request.files.get('template_file')
         if not upload or not upload.filename:
-            flash('请选择要导入的模板文件（JSON）', 'warning')
-            return redirect(next_url)
-        if not upload.filename.lower().endswith('.json'):
-            flash('模板文件必须是 .json 格式', 'warning')
+            flash('请选择要导入的模板文件（.json 或 .zip）', 'warning')
             return redirect(next_url)
 
         raw = upload.read()
-        max_bytes = int(os.getenv('TASK_TEMPLATE_MAX_BYTES', str(1024 * 1024)))
-        if len(raw) > max_bytes:
+        fname = (upload.filename or '').strip().lower()
+        max_json = int(os.getenv('TASK_TEMPLATE_MAX_BYTES', str(1024 * 1024)))
+        max_zip = _migration_zip_max_bytes()
+
+        task_count = db.query(Task).filter_by(user_id=current_user.id).count()
+        if not current_user.is_admin():
+            if not current_user.can_create_task(SessionLocal, Task):
+                task_limit = current_user.task_limit if current_user.task_limit != -1 else '无限制'
+                flash(
+                    '您已达到任务数量上限（%s个）。如需导入为新任务，请先删除部分任务或申请提升上限。' % task_limit,
+                    'warning',
+                )
+                return redirect(next_url)
+            block = _email_requirement_block_for_next_task(db, current_user, task_count)
+            if block == 'bind_email':
+                flash('创建或导入新任务前请先在个人资料中绑定邮箱。', 'warning')
+                return redirect(url_for('quickform.profile', next=next_url))
+            if block == 'verify_email':
+                flash('创建或导入新任务前请先完成邮箱验证。', 'warning')
+                return redirect(url_for('quickform.verify_email', next=next_url))
+
+        rewrite_host = request.form.get('migration_rewrite_host') == '1'
+        old_base_in = (request.form.get('migration_old_api_base') or '').strip().rstrip('/')
+        new_base_in = (request.form.get('migration_new_api_base') or '').strip().rstrip('/')
+        try:
+            default_new_base = (request.url_root or '').strip().rstrip('/')
+        except Exception:
+            default_new_base = ''
+        new_base = new_base_in or default_new_base
+
+        # ---------- ZIP（v2）----------
+        if fname.endswith('.zip'):
+            if len(raw) > max_zip:
+                flash('迁移包过大，请控制在环境变量 TASK_MIGRATION_ZIP_MAX_BYTES 限制内', 'warning')
+                return redirect(next_url)
+            try:
+                zf = zipfile.ZipFile(io.BytesIO(raw))
+            except zipfile.BadZipFile:
+                flash('无效的 ZIP 迁移包', 'danger')
+                return redirect(next_url)
+            ok, err = _migration_validate_zip(zf)
+            if not ok:
+                flash(err or '迁移包校验失败', 'danger')
+                zf.close()
+                return redirect(next_url)
+            try:
+                man_raw = zf.read(TASK_MIGRATION_MANIFEST)
+            except KeyError:
+                zf.close()
+                flash('ZIP 中缺少 %s，请使用本站「导出任务」生成的迁移包' % TASK_MIGRATION_MANIFEST, 'danger')
+                return redirect(next_url)
+            try:
+                data = json.loads(man_raw.decode('utf-8'))
+            except Exception:
+                zf.close()
+                flash('迁移清单 JSON 解析失败', 'danger')
+                return redirect(next_url)
+            zf.close()
+
+            if int(data.get('template_version') or 0) < 2:
+                flash('迁移包版本过低或损坏', 'danger')
+                return redirect(next_url)
+
+            title = (data.get('title') or '').strip()
+            description = (data.get('description') or '').strip()
+            old_api_id = (data.get('api_id') or '').strip()
+            share_url = (data.get('share_url') or '').strip() or None
+            tutorial_link = (data.get('tutorial_link') or '').strip() or None
+            if share_url and len(share_url) > 500:
+                share_url = share_url[:500]
+            if tutorial_link and len(tutorial_link) > 500:
+                tutorial_link = tutorial_link[:500]
+
+            if not title:
+                flash('迁移包缺少任务标题', 'warning')
+                return redirect(next_url)
+            if len(title) > 200:
+                flash('任务标题过长', 'warning')
+                return redirect(next_url)
+            if not old_api_id:
+                flash('迁移包缺少原 API ID 信息', 'warning')
+                return redirect(next_url)
+            if description and len(description) > 20000:
+                flash('任务描述过长，请精简源任务后重新导出', 'warning')
+                return redirect(next_url)
+
+            ob = old_base_in
+            if rewrite_host and not ob:
+                ob = (data.get('export_api_base') or '').strip().rstrip('/')
+            nb = new_base
+
+            try:
+                new_api_id = _pick_unique_task_id(db)
+            except RuntimeError:
+                flash('无法分配新的 API ID，请稍后重试', 'danger')
+                return redirect(next_url)
+
+            zf = zipfile.ZipFile(io.BytesIO(raw))
+            static_uploads = _static_uploads_dir()
+            stored_list = []
+            try:
+                for entry in data.get('html_files') or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    arc = entry.get('archive_name')
+                    oname = (entry.get('original_name') or 'page.html').strip() or 'page.html'
+                    if not isinstance(arc, str) or not arc:
+                        continue
+                    arc_norm = arc.replace('\\', '/')
+                    if arc_norm.startswith('/') or '..' in arc_norm.split('/'):
+                        continue
+                    try:
+                        body = zf.read(arc_norm)
+                    except KeyError:
+                        continue
+                    try:
+                        text = body.decode('utf-8')
+                    except UnicodeDecodeError:
+                        text = body.decode('utf-8', errors='replace')
+
+                    if rewrite_host and ob and nb:
+                        text = _rewrite_html_migration_endpoints(text, old_api_id, new_api_id, ob, nb)
+                    else:
+                        text = _rewrite_html_migration_endpoints(text, old_api_id, new_api_id, '', '')
+
+                    if len(text.encode('utf-8')) > MAX_HTML_FILE_SIZE:
+                        flash('某个 HTML 超过单文件大小限制（4MB），请压缩后重新导出', 'warning')
+                        return redirect(next_url)
+
+                    bio = io.BytesIO(text.encode('utf-8'))
+                    fs = FileStorage(stream=bio, filename=oname)
+                    unique_filename, filepath = save_uploaded_file(fs, static_uploads, ALLOWED_EXTENSIONS)
+                    if not unique_filename or not filepath:
+                        flash('保存迁移 HTML 失败', 'danger')
+                        return redirect(next_url)
+                    stored_list.append({'original_name': oname, 'saved_name': unique_filename})
+            finally:
+                zf.close()
+
+            if data.get('html_files') and not stored_list:
+                flash('迁移包声明了 HTML 文件但均未成功解压或保存，请检查包是否完整', 'danger')
+                return redirect(next_url)
+
+            new_task = Task(
+                title=title,
+                description=description or None,
+                user_id=current_user.id,
+                task_id=new_api_id,
+                sharing_type='private',
+                organization_id=None,
+                file_name=None,
+                file_path=None,
+                html_files=None,
+                share_url=share_url,
+                tutorial_link=tutorial_link,
+            )
+            if stored_list:
+                new_task.html_files = json.dumps(stored_list, ensure_ascii=False)
+                new_task.file_name = stored_list[0]['original_name']
+                new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
+                if new_task.file_path and new_task.file_path.lower().endswith(('.html', '.htm')):
+                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                        new_task.html_approved = 1
+                        new_task.html_approved_by = current_user.id
+                        new_task.html_approved_at = datetime.now()
+                        new_task.html_review_note = None
+                    else:
+                        new_task.html_approved = 0
+                        new_task.html_approved_by = None
+                        new_task.html_approved_at = None
+                        new_task.html_review_note = None
+
+            db.add(new_task)
+            db.commit()
+            if new_task.file_path and str(new_task.file_path).lower().endswith(('.html', '.htm')):
+                try:
+                    analyze_html_file(
+                        new_task.id,
+                        current_user.id,
+                        new_task.file_path,
+                        SessionLocal,
+                        Task,
+                        AIConfig,
+                        read_file_content,
+                        call_ai_model,
+                    )
+                except Exception as ex:
+                    logger.warning('迁移导入后自动分析 HTML 未启动: %s', ex)
+            flash('任务迁移导入成功（已分配新的数据接口 APIID，HTML 已按选项改写）', 'success')
+            return redirect(url_for('quickform.task_detail', task_id=new_task.id))
+
+        # ---------- JSON（v1）----------
+        if not fname.endswith('.json'):
+            flash('请上传 .json 模板或 .zip 迁移包', 'warning')
+            return redirect(next_url)
+        if len(raw) > max_json:
             flash('模板文件过大，请控制在 1MB 以内', 'warning')
             return redirect(next_url)
         try:
@@ -4047,7 +4405,6 @@ def import_task_template():
             flash('任务描述过长，请精简后重试', 'warning')
             return redirect(next_url)
 
-        # 防越权与防冲突：仅校验 APIID 唯一；同名任务允许不同用户重复使用
         if db.query(Task.id).filter(Task.task_id == api_id).first():
             flash('服务器已存在相同 APIID 的任务，已禁止重复导入', 'warning')
             return redirect(next_url)
@@ -4065,7 +4422,7 @@ def import_task_template():
         )
         db.add(new_task)
         db.commit()
-        flash('任务模板导入成功（不包含提交数据与附件）', 'success')
+        flash('任务模板导入成功（不含 HTML，可随后在编辑页上传）', 'success')
         return redirect(url_for('quickform.task_detail', task_id=new_task.id))
     except IntegrityError:
         db.rollback()
@@ -4078,6 +4435,18 @@ def import_task_template():
         return redirect(next_url)
     finally:
         db.close()
+
+
+@quickform_bp.route('/task/import_template', methods=['POST'])
+@login_required
+def import_task_template():
+    """任务迁移导入路由：会议前仅提示；会议后将 TASK_MIGRATION_ACTIVE=True。"""
+    next_url = request.form.get('next') or request.referrer or url_for('quickform.dashboard')
+    if not TASK_MIGRATION_ACTIVE:
+        flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
+        return redirect(next_url)
+    return _task_migration_import_impl()
+
 
 @quickform_bp.route('/profile', methods=['GET', 'POST'])
 @login_required
@@ -6704,7 +7073,7 @@ def admin_review_html_action(task_id):
 def remove_submission(task_id):
     """删除单条提交数据（支持DELETE与GET降级）"""
     db = SessionLocal()
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    client_ip = get_request_client_ip(request)
     submission_id = request.args.get('submission_id', type=int)
 
     def make_response(payload, status_code=200):
@@ -6769,7 +7138,7 @@ def remove_submission(task_id):
 def clear_all_submissions(task_id):
     """删除任务的所有提交数据（支持DELETE与GET降级）"""
     db = SessionLocal()
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    client_ip = get_request_client_ip(request)
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
