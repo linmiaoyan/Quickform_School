@@ -191,6 +191,13 @@
                         <h5 class="mb-0" style="color: white; font-weight: 600;">HTML 页面上传</h5>
                     </div>
                     <div class="card-body">
+                        {% if task.html_analysis and task.html_analysis.startswith('【HTML分析失败】') %}
+                        <div class="alert alert-danger mb-3" role="alert">
+                            <strong>上次 HTML 智能分析失败</strong>
+                            <p class="mb-0 mt-2 small" style="white-space: pre-wrap;">{{ task.html_analysis }}</p>
+                            <p class="mb-0 mt-2 small text-muted">修正个人中心的模型与 API Key 后，点击本页「保存修改」或重新上传 HTML，可再次触发分析。</p>
+                        </div>
+                        {% endif %}
                         <!-- 已上传文件列表（需在 form 内提交，故用 form 的 id 通过 JS 关联） -->
                         {% if html_files and html_files|length > 0 %}
                         <div class="mb-3">

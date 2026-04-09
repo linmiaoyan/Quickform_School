@@ -44,10 +44,11 @@ from email.utils import formataddr, parseaddr
 from .models import (
     Base, User, Task, Submission, AIConfig, migrate_database, CertificationRequest, Post, PostReply,
     Organization, OrganizationMember, TaskShare, TaskLike, ApiAccessLog, TaskQuotaRequest,
-    SiteQuotaDefault, _generate_task_id,
+    SiteQuotaDefault, OneclickPromptOption, DEFAULT_ONECLICK_PROMPT_OPTIONS, _generate_task_id,
 )
 from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
 from .public_errors import MSG_GENERIC, MSG_SERVICE_BUSY, MSG_JSON_BODY, MSG_SAVE_FAILED, MSG_PAGE_LOAD, MSG_API_INTERNAL
+from .i18n import translate
 from .login_throttle import login_blocked, record_login_failure, clear_login_throttle
 from .project_usage import get_top_projects, evaluate_project_alerts
 from .client_ip import get_request_client_ip
@@ -55,7 +56,8 @@ from services.file_service import save_uploaded_file, read_file_content, ALLOWED
 from services.ai_service import call_ai_model, generate_analysis_prompt, analyze_html_file, generate_html_page_from_prompt, revise_html_with_ai
 from services.report_service import (
     save_analysis_report, generate_report_image, build_report_html, perform_analysis_with_custom_prompt,
-    analysis_progress, analysis_results, completed_reports, progress_lock, timeout, markdown_to_html
+    analysis_progress, analysis_results, completed_reports, progress_lock, timeout, markdown_to_html,
+    _to_user_friendly_ai_error,
 )
 
 # 配置日志
@@ -734,6 +736,53 @@ def _file_in_static_uploads(saved_name):
     if os.path.exists(os.path.join(STATIC_UPLOADS, saved_name)):
         return True
     return False
+
+
+def _is_local_request_host(host_header: str) -> bool:
+    """判断 Host 是否为本机开发常用名（此类场景不强行把 http 改成 https）。"""
+    if not (host_header or '').strip():
+        return True
+    h = (host_header or '').split(',')[0].strip().split(':')[0].lower()
+    return h in ('localhost', '127.0.0.1', '0.0.0.0', '[::1]')
+
+
+def _public_site_base_url():
+    """
+    生成对外站点根 URL（含 scheme://host，无末尾斜杠），用于一键生成里嵌入的 API 根地址等。
+    优先顺序：PUBLIC_BASE_URL（或 QUICKFORM_PUBLIC_BASE_URL）环境变量/应用配置
+    → X-Forwarded-Proto / X-Forwarded-Host
+    → 若配置了 PREFERRED_URL_SCHEME=https 且 Host 非本机，则把 http 升为 https（缓解 Nginx 未传 X-Forwarded-Proto 的情况）
+    → request.host_url
+    """
+    cfg = (current_app.config.get('PUBLIC_BASE_URL') or '').strip().rstrip('/')
+    if cfg:
+        return cfg
+    req = request
+    xf_proto = (req.headers.get('X-Forwarded-Proto') or req.scheme or 'http').split(',')[0].strip().lower()
+    xf_host = (req.headers.get('X-Forwarded-Host') or req.headers.get('Host') or '').split(',')[0].strip()
+    host = xf_host or (getattr(req, 'host', None) or '')
+    preferred = (current_app.config.get('PREFERRED_URL_SCHEME') or '').strip().lower()
+    proto = xf_proto
+    if preferred == 'https' and proto == 'http' and host and not _is_local_request_host(host):
+        proto = 'https'
+    if host:
+        return f'{proto}://{host}'.rstrip('/')
+    return (req.host_url or req.url_root or '').rstrip('/')
+
+
+def _load_oneclick_prompt_tuples(db):
+    """返回 [(opt_key, label, body), ...] 供一键生成与模板使用；表空时回退代码默认。"""
+    try:
+        rows = (
+            db.query(OneclickPromptOption)
+            .order_by(OneclickPromptOption.sort_order.asc(), OneclickPromptOption.id.asc())
+            .all()
+        )
+    except Exception:
+        rows = []
+    if not rows:
+        return list(DEFAULT_ONECLICK_PROMPT_OPTIONS)
+    return [(r.opt_key, r.label, (r.body or '').strip()) for r in rows]
 
 
 def get_upload_file_url(saved_name, task_file_path=None):
@@ -1511,6 +1560,10 @@ def dashboard():
         else:
             task_limit = getattr(current_user, 'task_limit', None)
             is_certified = bool(getattr(current_user, 'is_certified', False))
+        pending_oneclick_tasks = [
+            t for t in own_tasks if getattr(t, 'oneclick_generation_status', None) == 'pending'
+        ]
+        pending_oneclick_tasks.sort(key=lambda x: x.id, reverse=True)
         return render_template(
             'dashboard.html',
             tasks=tasks,
@@ -1521,25 +1574,74 @@ def dashboard():
             task_access=task_access,
             task_count=task_count,
             task_limit=task_limit,
-            is_certified=is_certified
+            is_certified=is_certified,
+            pending_oneclick_tasks=pending_oneclick_tasks,
         )
     finally:
         db.close()
 
 
-# 一键生成新任务：可勾选追加的说明文案（「API地址」在提交时替换为真实接口根 URL，如 https://xxx/api/任务码）
-ONECLICK_PROMPT_OPTIONS = [
-    ('opt_upload', '数据上传', '收数方式：用户填写后通过 POST 向「API地址」提交 JSON（建议 Content-Type: application/json），与 QuickForm 数据接口约定一致。'),
-    (
-        'opt_fetch',
-        '数据获取',
-        '若需在页面上展示已收集的数据：使用 GET 请求「API地址/all」，响应为 JSON 对象；列表在 submissions 字段（数组），总条数在 total_submissions 字段。展示或统计时请使用上述字段，勿将根对象当作数组对其求 length。',
-    ),
-    ('opt_responsive', '响应式布局', '布局需适配手机与桌面：主要区域与按钮在小屏上不换行挤压，字号与触控区域足够，可用弹性布局或简单栅格实现自适应。'),
-    ('opt_validate', '表单校验', '在提交前校验必填项与基本格式（如邮箱、数字范围等），错误时用就近文案或边框高亮提示，避免静默失败。'),
-    ('opt_success_tip', '提交成功提示', '提交成功后给出明确反馈（如简短提示文案或非阻塞提示），并可按需清空表单以便连续填报。'),
-    ('opt_decorate', '内置页面装饰', '内置轻量样式即可：标题与表单分区清晰，卡片或表单区适度圆角、留白与浅阴影，配色简洁，保证可读、不花哨。'),
-]
+def _run_oneclick_generation_background(task_id: int, user_id: int, full_prompt: str):
+    """在后台线程中完成一键生成 HTML，避免同步阻塞触发 Nginx/网关超时。"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task or task.user_id != user_id:
+            return
+        if (getattr(task, 'oneclick_generation_status', None) or '') != 'pending':
+            return
+        ai_config = db.query(AIConfig).filter_by(user_id=user_id).first()
+        decrypt_ai_config_inplace(ai_config)
+        if not ai_config:
+            ai_config = AIConfig(user_id=user_id, selected_model='chat_server')
+        html_content = generate_html_page_from_prompt(full_prompt, call_ai_model, ai_config)
+        os.makedirs(STATIC_UPLOADS, exist_ok=True)
+        unique_filename = str(uuid.uuid4()) + '_oneclick.html'
+        filepath = os.path.join(STATIC_UPLOADS, unique_filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        task.file_name = 'oneclick.html'
+        task.file_path = filepath
+        task.html_files = json.dumps([{'original_name': 'oneclick.html', 'saved_name': unique_filename}])
+        task.ai_generated = True
+        task.html_ai_edit_remaining = 3
+        task.oneclick_generation_status = None
+        task.oneclick_generation_error = None
+        user_rec = db.get(User, user_id)
+        if user_rec and (user_rec.is_admin() or getattr(user_rec, 'is_certified', False)):
+            task.html_approved = 1
+            task.html_approved_by = user_id
+            task.html_approved_at = datetime.now()
+        else:
+            task.html_approved = 0
+        db.commit()
+        logger.info('一键生成后台完成 task_id=%s user_id=%s', task_id, user_id)
+        try:
+            analyze_html_file(task.id, user_id, filepath, SessionLocal, Task, AIConfig, read_file_content, call_ai_model)
+        except Exception:
+            logger.warning('一键生成完成后触发 HTML 分析调度失败 task_id=%s', task_id, exc_info=True)
+    except Exception as e:
+        db.rollback()
+        logger.exception('一键生成后台失败 task_id=%s', task_id)
+        try:
+            task = db.get(Task, task_id)
+            if task and task.user_id == user_id:
+                task.oneclick_generation_status = 'failed'
+                err = (str(e) or '').strip()
+                task.oneclick_generation_error = (err[:4000] if err else '未知错误')
+                task.file_path = None
+                task.file_name = None
+                task.html_files = None
+                task.html_approved = 0
+                db.commit()
+        except Exception:
+            db.rollback()
+    finally:
+        db.close()
+
+
+# 一键生成追加说明默认值见 models.DEFAULT_ONECLICK_PROMPT_OPTIONS（数据库无记录时回退）
+ONECLICK_PROMPT_OPTIONS = DEFAULT_ONECLICK_PROMPT_OPTIONS
 
 
 @quickform_bp.route('/oneclick_create_task', methods=['GET', 'POST'])
@@ -1550,9 +1652,14 @@ def oneclick_create_task():
         flash('一键生成新任务仅对认证教师开放，请先完成教师认证。', 'warning')
         return redirect(url_for('quickform.dashboard'))
     if request.method == 'GET':
+        db = SessionLocal()
+        try:
+            prompt_options = _load_oneclick_prompt_tuples(db)
+        finally:
+            db.close()
         return render_template(
             'oneclick_create_task.html',
-            prompt_options=ONECLICK_PROMPT_OPTIONS,
+            prompt_options=prompt_options,
         )
     # POST
     title = (request.form.get('title') or '').strip()
@@ -1578,51 +1685,34 @@ def oneclick_create_task():
         db.add(task)
         db.flush()
         new_task_pk = task.id  # 用于成功后跳转任务详情（避免 commit 后 session 状态影响）
-        api_base = (request.host_url or request.url_root or '').rstrip('/')
+        api_base = _public_site_base_url()
         api_url = f"{api_base}/api/{task.task_id}"
         # 拼接用户需求与勾选说明，作为发给 AI 的完整提示词（仅 full_prompt 用于生成，不入库）
         lines = [requirements]
-        for key, _label, text in ONECLICK_PROMPT_OPTIONS:
+        prompt_tuples = _load_oneclick_prompt_tuples(db)
+        for key, _label, text in prompt_tuples:
             if request.form.get(key) == 'on':
                 lines.append(text.replace('API地址', api_url))
         full_prompt = '\n\n'.join(lines)
         task.description = requirements  # 任务描述只存用户输入的那段，不包含勾选的预设说明
-        # 获取用户 AI 配置。一键内测优先用用户自己在个人中心配置的 API；未配置时直接使用您提供的 API（环境变量 CHAT_SERVER_API_TOKEN）
-        ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
-        decrypt_ai_config_inplace(ai_config)
-        if not ai_config:
-            # 用户从未保存过配置：用 chat_server + 空 Token，call_ai_model 会回退到环境变量 CHAT_SERVER_API_TOKEN
-            ai_config = AIConfig(user_id=current_user.id, selected_model='chat_server')
-        elif ai_config.selected_model == 'chat_server' and not (ai_config.chat_server_api_token or '').strip():
-            # 用户选了硅基流动但未填 Token：同样回退到环境变量，无需提醒
-            pass
-        try:
-            html_content = generate_html_page_from_prompt(full_prompt, call_ai_model, ai_config)
-        except Exception as e:
-            db.rollback()
-            logger.exception("一键生成 HTML 失败")
-            flash('生成 HTML 失败。请检查个人中心 AI 配置与网络后重试。', 'danger')
-            return redirect(url_for('quickform.oneclick_create_task'))
-        # 保存 HTML 到任务（单文件，新文件存 static/uploads 由静态服务提供）
-        static_uploads = _static_uploads_dir()
-        unique_filename = str(uuid.uuid4()) + '_oneclick.html'
-        filepath = os.path.join(static_uploads, unique_filename)
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        task.file_name = 'oneclick.html'
-        task.file_path = filepath
-        task.html_files = json.dumps([{'original_name': 'oneclick.html', 'saved_name': unique_filename}])
+        # 先落库为「生成中」，在后台线程调用大模型，避免长时间占用 HTTP 请求导致 Nginx/网关超时
         task.ai_generated = True
         task.html_ai_edit_remaining = 3
-        if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-            task.html_approved = 1
-            task.html_approved_by = current_user.id
-            task.html_approved_at = datetime.now()
-        else:
-            task.html_approved = 0
+        task.oneclick_generation_status = 'pending'
+        task.oneclick_generation_error = None
+        task.file_path = None
+        task.file_name = None
+        task.html_files = None
+        task.html_approved = 0
         db.commit()
-        flash('任务已创建，HTML 已生成并上传。您可在任务详情中查看或继续修改（剩余 3 次）。', 'success')
-        return redirect(url_for('quickform.task_detail', task_id=new_task_pk))
+        uid = int(current_user.id)
+        threading.Thread(
+            target=_run_oneclick_generation_background,
+            args=(new_task_pk, uid, full_prompt),
+            daemon=True,
+        ).start()
+        flash(translate('oneclick.started_background'), 'info')
+        return redirect(url_for('quickform.dashboard'))
     except Exception as e:
         db.rollback()
         logger.exception("一键创建任务失败")
@@ -4793,7 +4883,8 @@ def test_ai_api():
             response_text = call_ai_model(test_prompt, ai_config)
         except Exception as e:
             logger.exception("AI配置测试失败: %s", e)
-            return jsonify({'success': False, 'message': '测试调用失败，请检查密钥、模型选择与网络后重试。'}), 500
+            friendly = _to_user_friendly_ai_error(str(e))
+            return jsonify({'success': False, 'message': friendly}), 200
 
         preview = (response_text or '').strip()
         if len(preview) > 200:
@@ -5393,6 +5484,7 @@ def admin_panel():
         quota_requests_pending = []
         quota_requests_recent = []
         site_quota_default_row = None
+        oneclick_prompt_rows = []
 
         # ---------- 仅当前 tab 才执行对应查询 ----------
         if current_tab == 'users':
@@ -5556,6 +5648,13 @@ def admin_panel():
         elif current_tab == 'quota-settings':
             site_quota_default_row = db.get(SiteQuotaDefault, 1)
 
+        elif current_tab == 'oneclick-prompts':
+            oneclick_prompt_rows = (
+                db.query(OneclickPromptOption)
+                .order_by(OneclickPromptOption.sort_order.asc(), OneclickPromptOption.id.asc())
+                .all()
+            )
+
         # 流量预估：仅当前 tab 为 traffic 时使用
         api_traffic = []
         if current_tab == 'traffic':
@@ -5648,11 +5747,46 @@ def admin_panel():
             quota_requests_pending=quota_requests_pending,
             quota_requests_recent=quota_requests_recent,
             site_quota_default_row=site_quota_default_row,
+            oneclick_prompt_rows=oneclick_prompt_rows,
             pending_cert_sidebar=pending_cert_sidebar,
             pending_other_sidebar=pending_other_sidebar,
         )
     finally:
         db.close()
+
+
+@quickform_bp.route('/admin/oneclick_prompt_options/save', methods=['POST'])
+@admin_required
+def admin_save_oneclick_prompt_options():
+    """保存一键生成任务时勾选追加的说明文案（管理员）。"""
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(OneclickPromptOption)
+            .order_by(OneclickPromptOption.sort_order.asc(), OneclickPromptOption.id.asc())
+            .all()
+        )
+        if not rows:
+            flash('数据库中尚无一键生成选项记录，请重启应用以完成数据库迁移后再试。', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='oneclick-prompts'))
+        for row in rows:
+            lab = (request.form.get(f'label_{row.opt_key}') or '').strip()
+            bod = (request.form.get(f'body_{row.opt_key}') or '').strip()
+            if not lab:
+                flash(f'选项「{row.opt_key}」的显示名称不能为空', 'warning')
+                return redirect(url_for('quickform.admin_panel', tab='oneclick-prompts'))
+            row.label = lab[:200]
+            row.body = bod
+            row.updated_at = datetime.now()
+        db.commit()
+        flash('已保存一键生成「追加到需求后的说明」文案。', 'success')
+    except Exception as e:
+        db.rollback()
+        logger.exception('admin_save_oneclick_prompt_options: %s', e)
+        flash('保存失败', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='oneclick-prompts'))
 
 
 @quickform_bp.route('/admin/site_quota_defaults', methods=['POST'])
@@ -7450,7 +7584,16 @@ def init_quickform(app, login_manager_instance=None, database_type=None):
         os.makedirs(os.path.join(UPLOAD_FOLDER, 'reports'))
     if not os.path.exists(CERTIFICATION_FOLDER):
         os.makedirs(CERTIFICATION_FOLDER)
-    
+
+    # 未在主应用配置 PUBLIC_BASE_URL 时，从环境变量补全（一键生成嵌入 API 根 URL 用）
+    try:
+        if not (app.config.get('PUBLIC_BASE_URL') or '').strip():
+            _pb = (os.getenv('PUBLIC_BASE_URL') or os.getenv('QUICKFORM_PUBLIC_BASE_URL') or '').strip().rstrip('/')
+            if _pb:
+                app.config['PUBLIC_BASE_URL'] = _pb
+    except Exception:
+        pass
+
     logger.info("QuickForm Blueprint 初始化完成")
 
 

@@ -233,7 +233,11 @@ def _parse_deepseek_error(response):
 
 
 def call_ai_model(prompt, ai_config):
-    """调用AI模型生成分析报告"""
+    """调用 AI 模型生成文本。
+
+    上游欠费、限流、鉴权失败等会以 ``Exception`` 抛出，由调用方（路由或后台线程）捕获处理；
+    正常情况下**不会**因此终止 Flask/Waitress 进程；主应用在 ``app.py`` 还对未捕获异常做了统一 500 兜底。
+    """
     decrypt_ai_config_inplace(ai_config)
     prompt = _clip_prompt(prompt)
     if ai_config.selected_model == 'deepseek':
@@ -398,6 +402,17 @@ def call_ai_model(prompt, ai_config):
                 if resp.status_code == 401:
                     hint = "（恢复默认时使用的是系统/环境变量中的 Token，若无效请在个人中心选择其他模型或填写自己的硅基流动 Token）"
                     raise Exception(f"当前使用：硅基流动。Token 无效或已过期 {hint} — {detail[:200]}")
+                if resp.status_code == 402:
+                    raise Exception(
+                        "HTTP 402: 硅基流动账户余额或额度不足（Payment Required）。"
+                        "请至硅基流动控制台充值，或在个人中心填写您自己的 API Token；"
+                        "平台默认 Key 用尽时仅影响依赖该 Key 的 AI 调用，站点其它功能仍可正常使用。"
+                        f" 详情：{detail[:200]}"
+                    )
+                if resp.status_code == 429:
+                    raise Exception(
+                        f"HTTP 429: 硅基流动请求过于频繁或被限流，请稍后再试。{detail[:180]}"
+                    )
                 if resp.status_code == 400 and raw:
                     try:
                         errj = json.loads(raw)
@@ -413,7 +428,10 @@ def call_ai_model(prompt, ai_config):
                                 '请缩小数据范围、缩短提示词或改用其它模型后重试。'
                             )
                 raise Exception(f"HTTP {resp.status_code}: {detail[:200]}")
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError:
+                raise Exception(f"硅基流动返回非 JSON 响应: {(resp.text or '')[:200]}")
             # OpenAI兼容结构
             if isinstance(data, dict) and 'choices' in data and data['choices']:
                 choice = data['choices'][0]
@@ -703,6 +721,21 @@ HTML内容：
             except Exception as e:
                 print(f"[HTML分析] ❌ AI分析失败: {str(e)}")
                 logger.error(f"分析HTML文件失败: {str(e)}", exc_info=True)
+                # 浏览器端无法看到后台线程日志：将可读错误写入任务，便于教师在任务详情/编辑页查看
+                try:
+                    from services.report_service import _to_user_friendly_ai_error
+
+                    detail = (str(e) or "").strip()
+                    friendly = _to_user_friendly_ai_error(detail)
+                    note = f"【HTML分析失败】{friendly}"
+                    if detail and detail not in friendly:
+                        note = f"{note}\n\n（接口返回详情）{detail}"
+                    if len(note) > 12000:
+                        note = note[:12000] + "…"
+                    task.html_analysis = note
+                    db.commit()
+                except Exception as save_err:
+                    logger.warning("写入 HTML 分析失败说明到数据库时出错: %s", save_err)
         except Exception as e:
             print(f"[HTML分析] ❌ 后台分析任务失败: {str(e)}")
             logger.error(f"HTML分析后台任务失败: {str(e)}", exc_info=True)

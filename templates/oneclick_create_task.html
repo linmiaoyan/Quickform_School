@@ -3,16 +3,6 @@
 {% block title %}{{ translate('oneclick.title') }} - QuickForm{% endblock %}
 
 {% block content %}
-<!-- 加载遮罩：与数据分析页相同的样式与逻辑。必须放在最外层，避免被.card的hover transform影响导致闪烁 -->
-<div id="processingOverlay" style="display:none; position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 9999;">
-    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); text-align:center;">
-        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
-        <h5 class="mt-3" id="processingTitle">{{ translate('oneclick.generating') }}</h5>
-        <p class="text-muted" id="processingTip">{{ translate('oneclick.generating_tip') }}</p>
-        <p class="mt-2 text-muted small">{{ translate('oneclick.elapsed') }} <span id="elapsedSeconds">0</span> {{ translate('oneclick.seconds') }}</p>
-    </div>
-</div>
-
 <div class="row justify-content-center">
     <div class="col-md-8">
         <div class="card">
@@ -27,7 +17,7 @@
                     <a href="{{ url_for('quickform.profile') }}">{{ translate('oneclick.profile_link') }}</a>
                     {{ translate('oneclick.notice_text_2') }}
                 </div>
-                <form method="POST" action="{{ url_for('quickform.oneclick_create_task') }}" id="oneclick-form" onsubmit="return startOneclickProcessingOverlay()">
+                <form method="POST" action="{{ url_for('quickform.oneclick_create_task') }}" id="oneclick-form">
                     <div class="mb-4">
                         <label for="title" class="form-label">{{ translate('oneclick.task_title') }}</label>
                         <input type="text" class="form-control" id="title" name="title" required placeholder="{{ translate('oneclick.title_placeholder') }}">
@@ -56,9 +46,10 @@
                         <label class="form-label text-muted">{{ translate('oneclick.preview_label') }}</label>
                         <div class="border rounded p-3 bg-light small text-secondary" id="preview-text" style="white-space: pre-wrap;">—</div>
                     </div>
+                    <p class="text-muted small mb-3">{{ translate('oneclick.async_hint') }}</p>
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <a href="{{ url_for('quickform.dashboard') }}" class="btn btn-outline-secondary">{{ translate('oneclick.back_to_tasks') }}</a>
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-primary" id="oneclick-submit-btn">
                             <i class="bi bi-magic"></i> {{ translate('oneclick.generate_btn') }}
                         </button>
                     </div>
@@ -92,22 +83,12 @@
     updatePreview();
 })();
 
-// 与数据分析页（smart_analyze）相同的加载遮罩逻辑：提交时显示遮罩 + 计时
-var oneclickOverlayTimerId = null;
-function startOneclickProcessingOverlay() {
-    var overlay = document.getElementById('processingOverlay');
-    var elapsed = document.getElementById('elapsedSeconds');
-    var form = document.getElementById('oneclick-form');
-    var submitBtn = form ? form.querySelector('button[type="submit"]') : null;
-    if (overlay) overlay.style.display = 'block';
-    if (submitBtn) submitBtn.disabled = true;
-    if (elapsed) elapsed.textContent = '0';
-    if (oneclickOverlayTimerId) clearInterval(oneclickOverlayTimerId);
-    oneclickOverlayTimerId = setInterval(function() {
-        var n = parseInt(elapsed ? elapsed.textContent : '0', 10) || 0;
-        if (elapsed) elapsed.textContent = String(n + 1);
-    }, 1000);
-    return true; // 允许表单继续提交
-}
+document.getElementById('oneclick-form').addEventListener('submit', function() {
+    var btn = document.getElementById('oneclick-submit-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>' + {{ translate('oneclick.generate_btn')|tojson }} + '…';
+    }
+});
 </script>
 {% endblock %}

@@ -66,6 +66,12 @@ def _to_user_friendly_ai_error(err_msg):
         return "本次分析数据量过大，超过模型可处理上限。请缩小日期范围、减少样本后重试。"
     if any(k in low for k in ['500', 'internal server error']):
         return "服务暂时异常（500），请稍后重试；若数据量较大建议先缩小范围。"
+    if any(k in low for k in ['402', 'insufficient balance', '余额不足', 'insufficient_quota', 'payment required']):
+        return "API 账户余额或额度不足（常见为 HTTP 402）。请登录相应服务商控制台充值，或更换可用的 API Key 后再试。"
+    if any(k in low for k in ['401', 'unauthorized', 'invalid api key', 'invalid_api_key', 'incorrect api key']):
+        return "API 密钥无效或未授权（401）。请在个人中心核对所选模型与 API Key 是否一致、是否复制完整。"
+    if '429' in low or 'rate limit' in low or 'too many requests' in low or '限流' in msg:
+        return "请求过于频繁被限流（429）。请稍后再试，或升级服务商套餐。"
     return f"模型调用失败：{msg}" if msg else "模型调用失败，请稍后重试。"
 
 
@@ -676,7 +682,7 @@ def perform_analysis_with_custom_prompt(task_id, user_id, ai_config_id, custom_p
         with progress_lock:
             analysis_progress[task_id] = {
                 'status': 'error',
-                'message': f'分析过程中出错: {str(e)}'
+                'message': _to_user_friendly_ai_error(str(e)),
             }
     finally:
         db.close()

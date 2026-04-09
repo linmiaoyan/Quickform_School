@@ -126,6 +126,21 @@
             </div>
         </div>
 
+        {% if pending_oneclick_tasks and pending_oneclick_tasks|length > 0 %}
+        <div id="qf-oneclick-pending-bar" class="alert alert-info border border-info d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4" role="status">
+            <div class="flex-grow-1" style="min-width: 200px;">
+                <strong><i class="bi bi-hourglass-split"></i> {{ translate('dashboard.oneclick_pending_title') }}</strong>
+                <div class="small mt-1 text-muted">{{ translate('dashboard.oneclick_pending_body') }}</div>
+                <ul class="small mb-0 mt-2 ps-3">
+                    {% for t in pending_oneclick_tasks %}
+                    <li><a href="{{ url_for('quickform.task_detail', task_id=t.id) }}">{{ t.title }}</a></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary flex-shrink-0" onclick="location.reload()">{{ translate('dashboard.oneclick_refresh') }}</button>
+        </div>
+        {% endif %}
+
         {% set sections = [
             ('我的任务', 'bi-person', own_tasks),
             ('我的团队任务', 'bi-building', org_tasks),
@@ -149,7 +164,14 @@
                 <tbody>
                     {% for task in section_tasks %}
                     <tr>
-                        <td>{{ task.title }}</td>
+                        <td>
+                            {{ task.title }}
+                            {% if task.oneclick_generation_status == 'pending' %}
+                            <span class="badge bg-info text-dark ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
+                            {% elif task.oneclick_generation_status == 'failed' %}
+                            <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
+                            {% endif %}
+                        </td>
                         <td>
                             {% if task.organization_id and task.organization %}
                             <span class="badge" style="background-color: #8b5cf6;">{{ task.organization.name }}</span>
@@ -198,7 +220,13 @@
                         {% if task_access.get(task.id) == 'owner' %}
                         <span class="task-status-pill" role="button" tabindex="0" data-task-id="{{ task.id }}" data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}" title="{{ translate('dashboard.task_status_toggle_hint') }}" aria-label="{{ translate('dashboard.task_status_aria') }}">{{ translate('dashboard.task_status_disabled') if not (task.is_active|default(True)) else translate('dashboard.task_status_normal') }}</span>
                         {% endif %}
-                        <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}</h5>
+                        <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}
+                            {% if task.oneclick_generation_status == 'pending' %}
+                            <span class="badge bg-dark bg-opacity-25 ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
+                            {% elif task.oneclick_generation_status == 'failed' %}
+                            <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
+                            {% endif %}
+                        </h5>
                     </div>
                     <div class="card-body">
                         <p class="card-text mb-2">{{ task.description or translate('dashboard.no_description') }}</p>
@@ -228,7 +256,14 @@
                 <tbody>
                     {% for task in remaining_tasks %}
                     <tr>
-                        <td>{{ task.title }}</td>
+                        <td>
+                            {{ task.title }}
+                            {% if task.oneclick_generation_status == 'pending' %}
+                            <span class="badge bg-info text-dark ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
+                            {% elif task.oneclick_generation_status == 'failed' %}
+                            <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
+                            {% endif %}
+                        </td>
                         <td>{% if task.organization_id and task.organization %}{{ task.organization.name }}{% else %}{{ task.author.username }}{% endif %}</td>
                         <td>{{ submission_count_map.get(task.id, 0) }}</td>
                         <td><a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">{{ translate('dashboard.view_detail') }}</a></td>
@@ -250,7 +285,13 @@
                         {% if task_access.get(task.id) == 'owner' %}
                         <span class="task-status-pill" role="button" tabindex="0" data-task-id="{{ task.id }}" data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}" title="{{ translate('dashboard.task_status_toggle_hint') }}" aria-label="{{ translate('dashboard.task_status_aria') }}">{{ translate('dashboard.task_status_disabled') if not (task.is_active|default(True)) else translate('dashboard.task_status_normal') }}</span>
                         {% endif %}
-                        <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}</h5>
+                        <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}
+                            {% if task.oneclick_generation_status == 'pending' %}
+                            <span class="badge bg-dark bg-opacity-25 ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
+                            {% elif task.oneclick_generation_status == 'failed' %}
+                            <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
+                            {% endif %}
+                        </h5>
                         <div class="d-flex gap-2 flex-wrap">
                             {% if task.organization_id %}
                             <span class="badge" style="background-color: #8b5cf6; font-size: 0.75rem;">
@@ -468,6 +509,24 @@
         }
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindPills);
         else bindPills();
+    })();
+
+    // 一键生成进行中：最多约 12 分钟内每 20 秒刷新一次（用 sessionStorage 计数，避免整页重载后计数归零导致无限刷新）
+    (function() {
+        var KEY = 'qf_oneclick_dash_refresh_count';
+        var bar = document.getElementById('qf-oneclick-pending-bar');
+        if (!bar) {
+            try { sessionStorage.removeItem(KEY); } catch (e) {}
+            return;
+        }
+        var max = 36;
+        var count = 0;
+        try { count = parseInt(sessionStorage.getItem(KEY) || '0', 10) || 0; } catch (e) {}
+        if (count >= max) return;
+        setTimeout(function() {
+            try { sessionStorage.setItem(KEY, String(count + 1)); } catch (e) {}
+            location.reload();
+        }, 20000);
     })();
 
     // 视图切换按钮 tooltip

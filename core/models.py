@@ -112,6 +112,9 @@ class Task(Base):
     tutorial_link = Column(String(500))  # 提示词分享链接，便于分享和后期查找
     ai_generated = Column(Boolean, default=False)  # 是否为一键生成任务
     html_ai_edit_remaining = Column(Integer, nullable=True)  # 剩余可修改次数（3→2→1→0），非一键生成为 None
+    # 一键生成异步：pending=后台生成中；failed=失败（见 oneclick_generation_error）；成功后可置 NULL
+    oneclick_generation_status = Column(String(20), nullable=True)
+    oneclick_generation_error = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)  # 任务状态：True=正常接收/读取数据，False=停用（接口拒绝）
     # 单任务 API 用量（GET /api/<task_id> 与 GET /api/<task_id>/all）；限额由常量 + quota_extra_* 组成
     api_task_get_count = Column(Integer, default=0)  # 轻量 GET（最新 3 条）成功次数
@@ -297,6 +300,53 @@ class SiteQuotaDefault(Base):
     auto_quota_approve_max_reads = Column(Integer, nullable=False, default=0)  # 自动审批：次数阈值
     auto_quota_approve_max_mb = Column(Integer, nullable=False, default=0)  # 自动审批：流量阈值(MB)
     updated_at = Column(DateTime, default=datetime.now)
+
+
+class OneclickPromptOption(Base):
+    """一键生成任务：勾选后追加给模型的说明文案（管理员后台可改）；正文中的「API地址」会在生成时替换为真实接口根 URL"""
+
+    __tablename__ = 'oneclick_prompt_option'
+    id = Column(Integer, primary_key=True)
+    opt_key = Column(String(64), unique=True, nullable=False)
+    label = Column(String(200), nullable=False)
+    body = Column(Text, nullable=False, default='')
+    sort_order = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, default=datetime.now)
+
+
+# 一键生成默认追加说明（与 DB 初始种子一致；代码回退用）
+DEFAULT_ONECLICK_PROMPT_OPTIONS = [
+    (
+        'opt_upload',
+        '数据上传',
+        '收数方式：用户填写后通过 POST 向「API地址」提交 JSON（建议 Content-Type: application/json），与 QuickForm 数据接口约定一致。',
+    ),
+    (
+        'opt_fetch',
+        '数据获取',
+        '若需在页面上展示已收集的数据：使用 GET 请求「API地址/all」，响应为 JSON 对象；列表在 submissions 字段（数组），总条数在 total_submissions 字段。展示或统计时请使用上述字段，勿将根对象当作数组对其求 length。',
+    ),
+    (
+        'opt_responsive',
+        '响应式布局',
+        '布局需适配手机与桌面：主要区域与按钮在小屏上不换行挤压，字号与触控区域足够，可用弹性布局或简单栅格实现自适应。',
+    ),
+    (
+        'opt_validate',
+        '表单校验',
+        '在提交前校验必填项与基本格式（如邮箱、数字范围等），错误时用就近文案或边框高亮提示，避免静默失败。',
+    ),
+    (
+        'opt_success_tip',
+        '提交成功提示',
+        '提交成功后给出明确反馈（如简短提示文案或非阻塞提示），并可按需清空表单以便连续填报。',
+    ),
+    (
+        'opt_decorate',
+        '内置页面装饰',
+        '内置轻量样式即可：标题与表单分区清晰，卡片或表单区适度圆角、留白与浅阴影，配色简洁，保证可读、不花哨。',
+    ),
+]
 
 
 def migrate_database(engine):
@@ -489,6 +539,19 @@ def migrate_database(engine):
                     logger.info("成功为task添加html_ai_edit_remaining字段")
                 except Exception as e:
                     logger.warning(f"添加html_ai_edit_remaining失败（可能已存在）: {str(e)}")
+            if task_cols:
+                if 'oneclick_generation_status' not in task_cols:
+                    try:
+                        conn.execute(text("ALTER TABLE task ADD COLUMN oneclick_generation_status VARCHAR(20)"))
+                        logger.info("成功为task添加oneclick_generation_status字段")
+                    except Exception as e:
+                        logger.warning(f"添加oneclick_generation_status失败（可能已存在）: {str(e)}")
+                if 'oneclick_generation_error' not in task_cols:
+                    try:
+                        conn.execute(text("ALTER TABLE task ADD COLUMN oneclick_generation_error TEXT"))
+                        logger.info("成功为task添加oneclick_generation_error字段")
+                    except Exception as e:
+                        logger.warning(f"添加oneclick_generation_error失败（可能已存在）: {str(e)}")
             if task_cols and 'is_active' not in task_cols:
                 try:
                     dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
@@ -791,5 +854,64 @@ def migrate_database(engine):
                         conn.execute(text("ALTER TABLE site_quota_default ADD COLUMN auto_quota_approve_max_mb INTEGER DEFAULT 0"))
                 except Exception as e:
                     logger.warning(f"更新 site_quota_default 字段失败（可忽略）: {str(e)}")
+
+            # 一键生成：追加说明文案（管理员可后台编辑）
+            if 'oneclick_prompt_option' not in inspector.get_table_names():
+                try:
+                    OneclickPromptOption.__table__.create(bind=engine)
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    for i, (k, lab, bod) in enumerate(DEFAULT_ONECLICK_PROMPT_OPTIONS):
+                        if dialect == 'mysql':
+                            conn.execute(
+                                text(
+                                    "INSERT INTO oneclick_prompt_option "
+                                    "(opt_key, label, body, sort_order, updated_at) "
+                                    "VALUES (:k, :l, :b, :o, NOW())"
+                                ),
+                                {'k': k, 'l': lab, 'b': bod, 'o': i},
+                            )
+                        else:
+                            conn.execute(
+                                text(
+                                    "INSERT INTO oneclick_prompt_option "
+                                    "(opt_key, label, body, sort_order, updated_at) "
+                                    "VALUES (:k, :l, :b, :o, CURRENT_TIMESTAMP)"
+                                ),
+                                {'k': k, 'l': lab, 'b': bod, 'o': i},
+                            )
+                    logger.info('成功创建 oneclick_prompt_option 表并写入默认追加说明')
+                except Exception as e:
+                    logger.warning(f'创建 oneclick_prompt_option 失败: {str(e)}')
+            else:
+                try:
+                    existing_keys = {
+                        row[0]
+                        for row in conn.execute(text('SELECT opt_key FROM oneclick_prompt_option')).fetchall()
+                    }
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    for i, (k, lab, bod) in enumerate(DEFAULT_ONECLICK_PROMPT_OPTIONS):
+                        if k in existing_keys:
+                            continue
+                        if dialect == 'mysql':
+                            conn.execute(
+                                text(
+                                    "INSERT INTO oneclick_prompt_option "
+                                    "(opt_key, label, body, sort_order, updated_at) "
+                                    "VALUES (:k, :l, :b, :o, NOW())"
+                                ),
+                                {'k': k, 'l': lab, 'b': bod, 'o': i},
+                            )
+                        else:
+                            conn.execute(
+                                text(
+                                    "INSERT INTO oneclick_prompt_option "
+                                    "(opt_key, label, body, sort_order, updated_at) "
+                                    "VALUES (:k, :l, :b, :o, CURRENT_TIMESTAMP)"
+                                ),
+                                {'k': k, 'l': lab, 'b': bod, 'o': i},
+                            )
+                        logger.info('已补充一键生成默认选项: %s', k)
+                except Exception as e:
+                    logger.warning(f'补全 oneclick_prompt_option 记录失败（可忽略）: {str(e)}')
     except Exception as e:
         logger.error(f"数据库迁移失败: {str(e)}")

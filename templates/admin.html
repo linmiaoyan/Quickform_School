@@ -45,6 +45,9 @@
         <a href="{{ url_for('quickform.admin_panel', tab='quota-settings') }}" class="sidebar-item {{ 'active' if current_tab == 'quota-settings' else '' }}" data-tab="quota-settings">
             <i class="bi bi-sliders" style="margin-right: 0.75rem;"></i> 全局限额参数
         </a>
+        <a href="{{ url_for('quickform.admin_panel', tab='oneclick-prompts') }}" class="sidebar-item {{ 'active' if current_tab == 'oneclick-prompts' else '' }}" data-tab="oneclick-prompts">
+            <i class="bi bi-magic" style="margin-right: 0.75rem;"></i> 一键生成说明
+        </a>
     </div>
     
     <!-- 主内容区 -->
@@ -1362,6 +1365,44 @@
                         </form>
                         {% if site_quota_default_row and site_quota_default_row.updated_at %}
                         <p class="text-muted small mt-3 mb-0">上次保存：{{ site_quota_default_row.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 一键生成：追加到需求后的说明 -->
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'oneclick-prompts' else '' }}" id="oneclick-prompts" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0" style="color: white;">一键生成 · 追加说明文案</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            教师在「一键生成新任务」页面勾选的选项，会把下方对应正文追加进发给模型的提示词。
+                            正文中请保留占位符 <code>API地址</code>（或「API地址」），系统在生成时会替换为当前任务的接口根 URL（如 <code>https://你的域名/api/任务码</code>）。
+                            若生成的页面里接口仍是 <code>http://</code>，请在服务器环境变量中设置 <code>PUBLIC_BASE_URL=https://你的域名</code>，并确保 Nginx 传递 <code>X-Forwarded-Proto</code>。
+                        </p>
+                        {% if oneclick_prompt_rows and oneclick_prompt_rows|length > 0 %}
+                        <form method="post" action="{{ url_for('quickform.admin_save_oneclick_prompt_options') }}" class="vstack gap-4">
+                            {% for row in oneclick_prompt_rows %}
+                            <div class="border rounded p-3 bg-light">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                    <span class="badge bg-secondary">{{ row.opt_key }}</span>
+                                    <label class="form-label mb-0 flex-grow-1" for="label_{{ row.opt_key }}">选项名称（页面勾选旁显示）</label>
+                                </div>
+                                <input type="text" class="form-control mb-2" id="label_{{ row.opt_key }}" name="label_{{ row.opt_key }}" maxlength="200" required value="{{ row.label }}">
+                                <label class="form-label" for="body_{{ row.opt_key }}">追加正文</label>
+                                <textarea class="form-control font-monospace small" id="body_{{ row.opt_key }}" name="body_{{ row.opt_key }}" rows="5">{{ row.body }}</textarea>
+                            </div>
+                            {% endfor %}
+                            <div>
+                                <button type="submit" class="btn btn-primary">保存</button>
+                            </div>
+                        </form>
+                        {% else %}
+                        <div class="alert alert-warning mb-0">
+                            数据库中尚未有一键生成选项记录。请<strong>重启应用</strong>以执行数据库迁移并写入默认文案；若已重启仍如此，请查看服务端日志中的迁移信息。
+                        </div>
                         {% endif %}
                     </div>
                 </div>

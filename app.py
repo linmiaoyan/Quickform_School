@@ -110,6 +110,9 @@ app.secret_key = _secret_key
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB（教师认证上传等）；任务内 HTML 单文件限制 4MB 在业务层校验
 # 由 Nginx 做 HTTPS 时，仍生成 https 链接（依赖 ProxyFix 传递 X-Forwarded-Proto）
 app.config['PREFERRED_URL_SCHEME'] = 'https'
+# 对外站点根 URL（无末尾斜杠），用于一键生成嵌入 API 地址等；不配置时从请求头推断，见 blueprint._public_site_base_url
+_app_public_base = (os.getenv('PUBLIC_BASE_URL') or os.getenv('QUICKFORM_PUBLIC_BASE_URL') or '').strip().rstrip('/')
+app.config['PUBLIC_BASE_URL'] = _app_public_base
 
 # ---------- Session/Cookie 配置（避免未登录却显示他人账号的 cookie 串号问题）----------
 # 使用独立 cookie 名，避免同域名下其他应用共用/覆盖 session
@@ -339,7 +342,12 @@ def internal_error(error):
 
 @app.errorhandler(Exception)
 def handle_uncaught_exception(error):
-    """兜底：未捕获异常统一记录并返回 500，避免进程崩溃或暴露堆栈；HTTPException(404/400等)不在此处理"""
+    """兜底：未捕获异常统一记录并返回 500。
+
+    仅影响**当前请求**的响应（如返回纯文本 Internal Server Error），**不会**因此退出 Flask/Waitress 进程。
+    第三方 AI 欠费/限流等应在业务层捕获并提示用户；若仍漏到这里，同样只记日志并返回 500。
+    HTTPException（404/400 等）交给 Werkzeug 默认响应，不在此吞掉。
+    """
     from werkzeug.exceptions import HTTPException
     if isinstance(error, HTTPException):
         return error.get_response()
