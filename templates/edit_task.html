@@ -157,7 +157,7 @@
                             <div>
                                 <label class="form-label" style="font-weight: 600; color: #111827;">数据提交接口示例</label>
                                 <div class="input-group">
-                                    <input type="text" class="form-control" readonly value="{{ request.host_url|replace('https://', 'http://') }}api/{{ task.task_id }}" style="background: #f9fafb; font-size: 0.875rem;">
+                                    <input type="text" class="form-control" readonly value="{{ api_base_url }}/api/{{ task.task_id }}" style="background: #f9fafb; font-size: 0.875rem;">
                                 </div>
                                 <small class="text-muted" style="color: #9ca3af; font-size: 0.75rem;">将该地址配置在前端表单的提交接口中即可完成对接。</small>
                             </div>

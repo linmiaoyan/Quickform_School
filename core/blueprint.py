@@ -2137,6 +2137,7 @@ def task_detail(task_id):
             is_public_visitor=is_public_visitor,
             quota_ui=quota_ui,
             can_request_quota_relief=can_request_quota_relief,
+            api_base_url=_public_site_base_url(),
         )
     finally:
         db.close()
@@ -2750,6 +2751,7 @@ def edit_task(task_id):
             task_html_ai_edit_remaining=task_html_ai_edit_remaining,
             task_html_ai_async_pending=task_html_ai_async_pending,
             user_organizations=user_organizations,
+            api_base_url=_public_site_base_url(),
         )
     finally:
         db.close()

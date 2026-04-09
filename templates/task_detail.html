@@ -146,7 +146,7 @@
                 <div class="mt-3 pt-3 border-top">
                     <strong>{{ translate('task_detail.post_prompt_title') }}：</strong>
                     <div class="input-group mt-2">
-                        <textarea class="form-control" id="simple-prompt-top" rows="3" readonly style="font-family: 'Courier New', monospace; font-size: 13px;">{{ translate('task_detail.simple_prompt_text') }} 「{{ request.host_url }}api/{{ task.task_id }}」 {{ translate('task_detail.simple_prompt_send') }}</textarea>
+                        <textarea class="form-control" id="simple-prompt-top" rows="3" readonly style="font-family: 'Courier New', monospace; font-size: 13px;">{{ translate('task_detail.simple_prompt_text') }} 「{{ api_base_url }}/api/{{ task.task_id }}」 {{ translate('task_detail.simple_prompt_send') }}</textarea>
                         <button class="btn btn-outline-primary" onclick="copyToClipboardText('simple-prompt-top')" style="font-weight: 500;">
                             <i class="bi bi-clipboard"></i>{{ translate('task_detail.copy') }}
                         </button>
@@ -481,9 +481,9 @@
                                 <p class="mb-2 text-muted small">共 <strong>{{ total_submissions }}</strong> 条提交。在新页面中可查看具体数据，该页面每 30 秒自动刷新。</p>
                                 <div class="alert alert-light border small py-2 px-3 mb-3">
                                     <div><strong>数据接口说明</strong></div>
-                                    <div class="mt-1">{{ translate('task_detail.api_submit_to_server') }}：<code>{{ request.host_url }}api/{{ task.task_id }}</code>（POST）</div>
-                                    <div class="mt-1">{{ translate('task_detail.api_fetch_latest_3') }}：<code>{{ request.host_url }}api/{{ task.task_id }}</code>（GET）</div>
-                                    <div class="mt-1">{{ translate('task_detail.api_fetch_all') }}：<code>{{ request.host_url }}api/{{ task.task_id }}/all</code>（GET）</div>
+                                    <div class="mt-1">{{ translate('task_detail.api_submit_to_server') }}：<code>{{ api_base_url }}/api/{{ task.task_id }}</code>（POST）</div>
+                                    <div class="mt-1">{{ translate('task_detail.api_fetch_latest_3') }}：<code>{{ api_base_url }}/api/{{ task.task_id }}</code>（GET）</div>
+                                    <div class="mt-1">{{ translate('task_detail.api_fetch_all') }}：<code>{{ api_base_url }}/api/{{ task.task_id }}/all</code>（GET）</div>
                                 </div>
                                 <div class="text-center">
                                     <a href="{{ url_for('quickform.task_data_view', task_id=task.id) }}" target="_blank" rel="noopener" class="btn btn-danger btn-sm" style="font-weight: 500;">
@@ -1003,7 +1003,7 @@
         status.textContent = '';
         
         // 获取API URL
-        const apiUrl = '{{ request.host_url }}api/{{ task.task_id }}';
+        const apiUrl = '{{ url_for("quickform.submit_form", task_id=task.task_id) }}';
         
         // 提交数据
         fetch(apiUrl, {
