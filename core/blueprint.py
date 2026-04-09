@@ -149,6 +149,28 @@ def _org_members_can_edit_tasks(db, organization_id):
     )
 
 
+def _user_can_edit_task_row(db, task, user_id):
+    """与 edit_task 一致：所有者、管理员、组织内可编辑成员、被共享且带编辑权限。"""
+    if not task or not user_id:
+        return False
+    actor = db.get(User, user_id)
+    if actor and actor.is_admin():
+        return True
+    if task.user_id == user_id:
+        return True
+    share_record = db.query(TaskShare).filter_by(task_id=task.id, user_id=user_id).first()
+    if share_record and share_record.can_edit:
+        return True
+    if task.organization_id:
+        org_mem = db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id,
+            user_id=user_id,
+        ).first()
+        if org_mem and _org_members_can_edit_tasks(db, task.organization_id):
+            return True
+    return False
+
+
 def _org_creator_id(db, organization_id):
     """按组织ID读取创建者ID，避免 task.organization 懒加载。"""
     if not organization_id:
@@ -1567,9 +1589,16 @@ def dashboard():
         else:
             task_limit = getattr(current_user, 'task_limit', None)
             is_certified = bool(getattr(current_user, 'is_certified', False))
-        pending_oneclick_tasks = [
-            t for t in own_tasks if getattr(t, 'oneclick_generation_status', None) == 'pending'
-        ]
+        # 含一键生成与「AI 继续修改」后台任务；去重（同一任务可能同时出现在我的任务与团队任务中）
+        _pending_ids = set()
+        pending_oneclick_tasks = []
+        for _lst in (own_tasks, org_tasks, shared_tasks):
+            for t in _lst:
+                if t.id in _pending_ids:
+                    continue
+                if getattr(t, 'oneclick_generation_status', None) == 'pending':
+                    _pending_ids.add(t.id)
+                    pending_oneclick_tasks.append(t)
         pending_oneclick_tasks.sort(key=lambda x: x.id, reverse=True)
         return render_template(
             'dashboard.html',
@@ -1640,6 +1669,65 @@ def _run_oneclick_generation_background(task_id: int, user_id: int, full_prompt:
                 task.file_name = None
                 task.html_files = None
                 task.html_approved = 0
+                db.commit()
+        except Exception:
+            db.rollback()
+    finally:
+        db.close()
+
+
+def _run_ai_revise_html_background(task_id: int, user_id: int, instructions: str, html_snapshot: str):
+    """在后台线程中完成「AI 继续修改」HTML，避免同步阻塞触发 Nginx/网关超时。复用 oneclick_generation_status 表示进行中/失败。"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task or not _user_can_edit_task_row(db, task, user_id):
+            return
+        if (getattr(task, 'oneclick_generation_status', None) or '') != 'pending':
+            return
+        ai_config = db.query(AIConfig).filter_by(user_id=user_id).first()
+        decrypt_ai_config_inplace(ai_config)
+        if not ai_config:
+            raise Exception('请先在个人中心配置 AI 后再使用「AI 继续修改」。')
+        new_html = revise_html_with_ai(html_snapshot, instructions, call_ai_model, ai_config)
+        os.makedirs(STATIC_UPLOADS, exist_ok=True)
+        unique_filename = str(uuid.uuid4()) + '_revised.html'
+        new_filepath = os.path.join(STATIC_UPLOADS, unique_filename)
+        with open(new_filepath, 'w', encoding='utf-8') as f:
+            f.write(new_html)
+        old_path = task.file_path
+        if old_path and os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except Exception:
+                pass
+        task.file_path = new_filepath
+        task.file_name = 'revised.html'
+        task.html_files = json.dumps([{'original_name': 'revised.html', 'saved_name': unique_filename}])
+        rem = getattr(task, 'html_ai_edit_remaining', None)
+        if rem is not None and rem > 0:
+            task.html_ai_edit_remaining = rem - 1
+        user_rec = db.get(User, user_id)
+        if user_rec and (user_rec.is_admin() or getattr(user_rec, 'is_certified', False)):
+            task.html_approved = 1
+            task.html_approved_by = user_id
+            task.html_approved_at = datetime.now()
+        else:
+            task.html_approved = 0
+        task.html_analysis = None
+        task.oneclick_generation_status = None
+        task.oneclick_generation_error = None
+        db.commit()
+        logger.info('AI 继续修改后台完成 task_id=%s user_id=%s', task_id, user_id)
+    except Exception as e:
+        db.rollback()
+        logger.exception('AI 继续修改后台失败 task_id=%s', task_id)
+        try:
+            task = db.get(Task, task_id)
+            if task and _user_can_edit_task_row(db, task, user_id):
+                task.oneclick_generation_status = 'failed'
+                err = (str(e) or '').strip()
+                task.oneclick_generation_error = (err[:4000] if err else '未知错误')
                 db.commit()
         except Exception:
             db.rollback()
@@ -1718,7 +1806,6 @@ def oneclick_create_task():
             args=(new_task_pk, uid, full_prompt),
             daemon=True,
         ).start()
-        flash(translate('oneclick.started_background'), 'info')
         return redirect(url_for('quickform.dashboard'))
     except Exception as e:
         db.rollback()
@@ -2333,36 +2420,20 @@ def edit_task(task_id):
                 if not ai_config:
                     flash('请先在个人中心配置 AI 后再使用「AI 继续修改」。', 'danger')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
-                try:
-                    new_html = revise_html_with_ai(current_html, instructions, call_ai_model, ai_config)
-                except Exception as e:
-                    logger.exception('AI 继续修改 HTML 失败')
-                    flash('AI 修改失败，请稍后重试或检查 AI 配置。', 'danger')
+                if (getattr(task, 'oneclick_generation_status', None) or '') == 'pending':
+                    flash('该任务的 AI 页面正在后台处理中，请稍后在「数据任务」查看进度后再试。', 'warning')
                     return redirect(url_for('quickform.edit_task', task_id=task.id))
-                static_uploads = _static_uploads_dir()
-                unique_filename = str(uuid.uuid4()) + '_revised.html'
-                new_filepath = os.path.join(static_uploads, unique_filename)
-                with open(new_filepath, 'w', encoding='utf-8') as f:
-                    f.write(new_html)
-                if task.file_path and os.path.exists(task.file_path):
-                    try:
-                        os.remove(task.file_path)
-                    except Exception:
-                        pass
-                task.file_path = new_filepath
-                task.file_name = 'revised.html'
-                task.html_files = json.dumps([{'original_name': 'revised.html', 'saved_name': unique_filename}])
-                task.html_ai_edit_remaining = task.html_ai_edit_remaining - 1
-                if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                    task.html_approved = 1
-                    task.html_approved_by = current_user.id
-                    task.html_approved_at = datetime.now()
-                else:
-                    task.html_approved = 0
-                task.html_analysis = None
+                # 与一键生成相同：后台执行模型调用，立即跳转，避免网关超时
+                task.oneclick_generation_status = 'pending'
+                task.oneclick_generation_error = None
                 db.commit()
-                flash(f'已按您的说明完成修改，剩余可修改 {task.html_ai_edit_remaining} 次。', 'success')
-                return redirect(url_for('quickform.edit_task', task_id=task.id))
+                uid = int(current_user.id)
+                threading.Thread(
+                    target=_run_ai_revise_html_background,
+                    args=(task.id, uid, instructions, current_html),
+                    daemon=True,
+                ).start()
+                return redirect(url_for('quickform.dashboard'))
 
             title = request.form.get('title')
             description = request.form.get('description')
@@ -2373,8 +2444,6 @@ def edit_task(task_id):
             file_name_base64 = request.form.get('file_name')
             file_upload = request.files.get('file')
             files_multipart = request.files.getlist('files')  # 编辑页直接 multipart 多文件上传
-            # 是否本请求会保存新的 HTML 内容（用于一键生成任务的 3 次修改上限）
-            has_new_html = False
             if files_multipart:
                 try:
                     flist = [f for f in files_multipart if f and f.filename and (f.filename or '').strip()]
@@ -2382,23 +2451,6 @@ def edit_task(task_id):
                     flist = []
             else:
                 flist = []
-            if flist:
-                has_new_html = True
-            if html_files_data:
-                try:
-                    nf = json.loads(html_files_data)
-                    if isinstance(nf, list) and len(nf) > 0:
-                        has_new_html = True
-                except Exception:
-                    pass
-            if not has_new_html and file_content_base64 and file_name_base64:
-                has_new_html = True
-            if not has_new_html and file_upload and file_upload.filename and (file_upload.filename or '').strip():
-                has_new_html = True
-            if has_new_html and getattr(task, 'ai_generated', False) and getattr(task, 'html_ai_edit_remaining', None) is not None and task.html_ai_edit_remaining <= 0:
-                flash('一键生成的 HTML 最多可修改 3 次，您已达到上限，无法继续修改。', 'warning')
-                return redirect(url_for('quickform.edit_task', task_id=task.id))
-            html_was_saved = False  # 本请求是否成功保存了 HTML，用于扣减剩余次数
 
             task.title = title
             task.description = description
@@ -2467,7 +2519,6 @@ def edit_task(task_id):
                         first_saved = existing_files[0]['saved_name']
                         task.file_path = os.path.join(static_uploads, first_saved)
                         task.file_name = existing_files[0]['original_name']
-                    html_was_saved = True
                     if current_user.is_admin() or getattr(current_user, 'is_certified', False):
                         task.html_approved = 1
                         task.html_approved_by = current_user.id
@@ -2503,7 +2554,6 @@ def edit_task(task_id):
                             f.write(file_content)
                         existing_files.append({'original_name': file_name, 'saved_name': unique_filename})
                     task.html_files = json.dumps(existing_files)
-                    html_was_saved = True
                     if current_user.is_admin() or getattr(current_user, 'is_certified', False):
                         task.html_approved = 1
                         task.html_approved_by = current_user.id
@@ -2560,7 +2610,6 @@ def edit_task(task_id):
                             analyze_html_file(task.id, current_user.id, filepath, SessionLocal, Task, AIConfig, read_file_content, call_ai_model)
                         except Exception as e:
                             logger.error(f"启动HTML文件分析失败(编辑): {str(e)}", exc_info=True)
-                    html_was_saved = True
                 except Exception as e:
                     logger.error(f"Base64文件上传失败: {str(e)}", exc_info=True)
                     flash('文件上传失败，请重试。', 'danger')
@@ -2607,7 +2656,6 @@ def edit_task(task_id):
                             analyze_html_file(task.id, current_user.id, filepath, SessionLocal, Task, AIConfig, read_file_content, call_ai_model)
                         except Exception as e:
                             logger.error(f"启动HTML文件分析失败(编辑): {str(e)}", exc_info=True)
-                        html_was_saved = True
             if remove_file:
                 if task.file_path and os.path.exists(task.file_path):
                     os.remove(task.file_path)
@@ -2650,9 +2698,6 @@ def edit_task(task_id):
                     task.sharing_type = 'private'
                     task.public_approved = 0
             
-            # 一键生成任务：每保存一次 HTML 扣减一次剩余修改次数
-            if html_was_saved and getattr(task, 'ai_generated', False) and getattr(task, 'html_ai_edit_remaining', None) is not None:
-                task.html_ai_edit_remaining = task.html_ai_edit_remaining - 1
             db.commit()
             
             flash('任务更新成功', 'success')
@@ -2685,6 +2730,7 @@ def edit_task(task_id):
         
         task_ai_generated = getattr(task, 'ai_generated', False)
         task_html_ai_edit_remaining = getattr(task, 'html_ai_edit_remaining', None)
+        task_html_ai_async_pending = (getattr(task, 'oneclick_generation_status', None) or '') == 'pending'
         user_organizations = []
         if current_user.is_admin() or task.user_id == current_user.id:
             user_orgs_created = db.query(Organization).filter_by(creator_id=current_user.id).all()
@@ -2695,9 +2741,16 @@ def edit_task(task_id):
                 if m.organization and m.organization.id not in seen:
                     seen.add(m.organization.id)
                     user_organizations.append(m.organization)
-        return render_template('edit_task.html', task=task, saved_filename=saved_filename, html_files=html_files,
-                               task_ai_generated=task_ai_generated, task_html_ai_edit_remaining=task_html_ai_edit_remaining,
-                               user_organizations=user_organizations)
+        return render_template(
+            'edit_task.html',
+            task=task,
+            saved_filename=saved_filename,
+            html_files=html_files,
+            task_ai_generated=task_ai_generated,
+            task_html_ai_edit_remaining=task_html_ai_edit_remaining,
+            task_html_ai_async_pending=task_html_ai_async_pending,
+            user_organizations=user_organizations,
+        )
     finally:
         db.close()
 
@@ -2873,10 +2926,47 @@ def api_send_email_code():
         return jsonify({'success': False, 'message': '验证码发送失败，请稍后再试。若持续失败请联系管理员。'}), 500
 
 SUBMIT_RATE_LIMIT_WINDOW = 30   # seconds（教室/公开课场景下适当放宽窗口）
-SUBMIT_RATE_LIMIT_THRESHOLD = 200  # 窗口内同一 IP 提交超过此次数则限流（提高以适配课堂集中提交）
+SUBMIT_RATE_LIMIT_THRESHOLD = 200  # 窗口内同一设备提交超过此次数则限流（设备指纹+任务维度）
 SUBMIT_BLACKLIST_DURATION = 300  # seconds
 
 rate_limit_cache = {}
+all_rate_limit_cache = {}
+rate_limit_lock = threading.Lock()
+# /all 接口最小访问间隔（秒）：同一设备+同一任务在该间隔内重复读取会被短暂限流
+ALL_RATE_LIMIT_MIN_INTERVAL = float(os.getenv('ALL_RATE_LIMIT_MIN_INTERVAL', '0.35') or '0.35')
+
+
+def _build_client_fingerprint(req) -> str:
+    """构建设备级指纹：优先显式设备ID，否则使用稳定请求头组合哈希。"""
+    explicit_device_id = (
+        (req.headers.get('X-QuickForm-Device-ID') or '').strip()
+        or (req.headers.get('X-Device-ID') or '').strip()
+        or (req.cookies.get('qf_device_id') or '').strip()
+    )
+    if explicit_device_id:
+        safe = explicit_device_id[:128]
+        return 'dev-' + hashlib.sha256(f'explicit:{safe}'.encode('utf-8')).hexdigest()[:24]
+
+    ua = (req.headers.get('User-Agent') or '').strip()
+    lang = (req.headers.get('Accept-Language') or '').strip()
+    ch_ua = (req.headers.get('Sec-CH-UA') or '').strip()
+    ch_platform = (req.headers.get('Sec-CH-UA-Platform') or '').strip()
+    ch_mobile = (req.headers.get('Sec-CH-UA-Mobile') or '').strip()
+    ip = get_request_client_ip(req)
+    base = '|'.join([ua, lang, ch_ua, ch_platform, ch_mobile, ip])
+    return 'fp-' + hashlib.sha256(base.encode('utf-8')).hexdigest()[:24]
+
+
+def _submit_subject_key(req, task_id: str):
+    fp = _build_client_fingerprint(req)
+    ip = get_request_client_ip(req)
+    return f'submit:{task_id}:{fp}', fp, ip
+
+
+def _all_subject_key(req, task_id: str):
+    fp = _build_client_fingerprint(req)
+    ip = get_request_client_ip(req)
+    return f'all:{task_id}:{fp}', fp, ip
 
 # 单任务 /all 默认限额兜底（库表 site_quota_default 无记录或异常时使用；正常以管理后台「全局限额默认值」为准）
 _TASK_ALL_READ_FALLBACK = 2000
@@ -3627,19 +3717,34 @@ def submit_form(task_id):
             return response, 200
         
         # POST方法：提交数据
-        client_ip = get_request_client_ip(request)
+        subject_key, client_fp, client_ip = _submit_subject_key(request, task_id)
         now_ts = datetime.utcnow().timestamp()
+        over_limit = False
+        in_blacklist = False
 
-        ip_info = rate_limit_cache.setdefault(client_ip, {
-            'events': deque(),
-            'blacklist_until': 0,
-            'blocked_tasks': {}
-        })
+        with rate_limit_lock:
+            info = rate_limit_cache.setdefault(subject_key, {
+                'events': deque(),
+                'blacklist_until': 0,
+            })
+            if info['blacklist_until'] and now_ts < info['blacklist_until']:
+                in_blacklist = True
+            else:
+                events: Deque = info['events']
+                while events and now_ts - events[0] > SUBMIT_RATE_LIMIT_WINDOW:
+                    events.popleft()
+                events.append(now_ts)
+                if len(events) > SUBMIT_RATE_LIMIT_THRESHOLD:
+                    info['blacklist_until'] = now_ts + SUBMIT_BLACKLIST_DURATION
+                    over_limit = True
 
-        # 检查黑名单
-        if ip_info['blacklist_until'] and now_ts < ip_info['blacklist_until']:
-            logger.warning(f"IP {client_ip} 正在黑名单中，拒绝 task_id={task_id} 的提交")
-            return _rate_limit_response(task_id, client_ip, now_ts, db)
+        # 检查黑名单（按 设备+任务 精准封禁，避免同出口IP连坐）
+        if in_blacklist:
+            logger.warning(
+                "设备 %s（IP %s）正在黑名单中，拒绝 task_id=%s 的提交",
+                client_fp, client_ip, task_id
+            )
+            return _rate_limit_response(task_id, client_ip, client_fp, now_ts, db)
         
         # 获取提交的数据
         try:
@@ -3655,19 +3760,12 @@ def submit_form(task_id):
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             return response, 400
         
-        # 速率限制处理
-        events: Deque = ip_info['events']
-        while events and now_ts - events[0] > SUBMIT_RATE_LIMIT_WINDOW:
-            events.popleft()
-        events.append(now_ts)
-
-        if len(events) > SUBMIT_RATE_LIMIT_THRESHOLD:
-            ip_info['blacklist_until'] = now_ts + SUBMIT_BLACKLIST_DURATION
-            ip_info['blocked_tasks'][task.id] = now_ts
+        if over_limit:
             logger.warning(
-                f"IP {client_ip} 在 {SUBMIT_RATE_LIMIT_WINDOW}s 内提交 {len(events)} 次，已加入黑名单 {SUBMIT_BLACKLIST_DURATION}s"
+                "设备 %s（IP %s）在 %ss 内提交过快，已加入黑名单 %ss",
+                client_fp, client_ip, SUBMIT_RATE_LIMIT_WINDOW, SUBMIT_BLACKLIST_DURATION
             )
-            return _rate_limit_response(task_id, client_ip, now_ts, db)
+            return _rate_limit_response(task_id, client_ip, client_fp, now_ts, db)
         
         # 将数据转换为JSON字符串存储
         try:
@@ -3724,11 +3822,14 @@ def _append_rate_limit_log(existing: str, log_entry: str) -> str:
     return _truncate_utf8_tail(combined, RATE_LIMIT_LOG_MAX_BYTES)
 
 
-def _rate_limit_response(task_id, client_ip, ts, db):
+def _rate_limit_response(task_id, client_ip, client_fingerprint, ts, db):
     if db:
         task = db.query(Task).filter_by(task_id=task_id).first()
         if task:
-            notice = f"IP {client_ip} 在 {SUBMIT_RATE_LIMIT_WINDOW}s 内多次提交，已暂时封禁 {SUBMIT_BLACKLIST_DURATION // 60} 分钟"
+            notice = (
+                f"设备 {client_fingerprint}（IP {client_ip}）在 {SUBMIT_RATE_LIMIT_WINDOW}s 内多次提交，"
+                f"已暂时封禁 {SUBMIT_BLACKLIST_DURATION // 60} 分钟"
+            )
             log_entry = f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] {notice}"
             existing = task.rate_limit_log or ''
             task.rate_limit_log = _append_rate_limit_log(existing, log_entry)
@@ -3755,26 +3856,30 @@ def submit_form_all(task_id):
         response.headers['Content-Type'] = 'text/plain; charset=utf-8'
         return response
         
-    client_ip = get_request_client_ip(request)
+    subject_key, client_fp, client_ip = _all_subject_key(request, task_id)
     now_ts = datetime.utcnow().timestamp()
 
-    ip_info = rate_limit_cache.setdefault(client_ip, {
-        'events': deque(),
-        'blacklist_until': 0,
-        'blocked_tasks': {},
-        'last_all_access': 0  # 记录上次访问 /all 接口的时间
-    })
+    with rate_limit_lock:
+        info = all_rate_limit_cache.setdefault(subject_key, {'last_access': 0})
+        delta = now_ts - float(info.get('last_access', 0) or 0)
+        blocked = delta < ALL_RATE_LIMIT_MIN_INTERVAL
+        if not blocked:
+            info['last_access'] = now_ts
     
-    # 限制 /all 接口1秒最多访问1次
-    if now_ts - ip_info.get('last_all_access', 0) < 1.0:
-        logger.warning(f"IP {client_ip} 访问 /all 接口过快，被限流")
-        response = jsonify({'error': 'rate_limit', 'message': 'Too many requests. Limit: at most once per second for this endpoint.'})
+    # 限制 /all 接口短间隔访问（按 设备+任务，避免同出口IP互相影响）
+    if blocked:
+        logger.warning(
+            "设备 %s（IP %s）访问 /all 过快：delta=%.3fs < %.3fs，被限流",
+            client_fp, client_ip, delta, ALL_RATE_LIMIT_MIN_INTERVAL
+        )
+        response = jsonify({
+            'error': 'rate_limit',
+            'message': f'Too many requests. Minimum interval: {ALL_RATE_LIMIT_MIN_INTERVAL:.2f}s for this endpoint.'
+        })
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response, 429
-        
-    ip_info['last_all_access'] = now_ts
     
     cache_key = _build_read_cache_key('api_task_all', task_id)
     cached_payload = _cache_read_get(cache_key)

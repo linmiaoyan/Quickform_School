@@ -140,7 +140,13 @@
                         <div class="card-body">
                             {% if task_ai_generated and task_html_ai_edit_remaining is not none %}
                             <div class="alert py-2 mb-3 small {{ 'alert-warning' if task_html_ai_edit_remaining <= 0 else 'alert-info' }}">
-                                <strong>一键生成任务：</strong>{% if task_html_ai_edit_remaining <= 0 %}已达修改上限，无法再在此处修改 HTML。{% else %}HTML 剩余可修改 <strong>{{ task_html_ai_edit_remaining }}</strong> 次。{% endif %}
+                                <strong>一键生成任务：</strong>{% if task_html_ai_edit_remaining <= 0 %}「AI 继续修改」次数已用完；您仍可在本页下方手动上传或追加 HTML 页面。{% else %}「AI 继续修改」剩余 <strong>{{ task_html_ai_edit_remaining }}</strong> 次（与手动上传无关）。{% endif %}
+                            </div>
+                            {% endif %}
+                            {% if task_html_ai_async_pending %}
+                            <div class="alert alert-info py-2 mb-3 small" role="status">
+                                <strong><i class="bi bi-hourglass-split"></i> AI 正在后台更新页面</strong>
+                                <div class="mt-1">已跳转至「数据任务」可查看进度；处理完成前请勿重复提交。通常需数十秒至数分钟。</div>
                             </div>
                             {% endif %}
                             <ul class="list-unstyled mb-4" style="color: #111827; line-height: 1.8;">
@@ -162,22 +168,13 @@
             
             <!-- 右侧：HTML 页面上传 -->
             <div>
-                {% if task_ai_generated and task_html_ai_edit_remaining is not none and task_html_ai_edit_remaining > 0 %}
-                <!-- AI 继续修改加载遮罩（与一键生成/数据分析页相同样式） -->
-                <div id="ai-revise-overlay" style="display:none; position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 2000;">
-                    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); text-align:center;">
-                        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
-                        <h5 class="mt-3">正在按您的说明修改页面，请稍候…</h5>
-                        <p class="text-muted">AI 正在修订 HTML，通常需要 20 秒～1 分钟。</p>
-                        <p class="mt-2 text-muted small">已等待 <span id="ai-revise-elapsed">0</span> 秒</p>
-                    </div>
-                </div>
+                {% if task_ai_generated and task_html_ai_edit_remaining is not none and task_html_ai_edit_remaining > 0 and not task_html_ai_async_pending %}
                 <div class="card mb-4" style="position: sticky; top: 1rem;">
                     <div class="card-header bg-primary">
                         <h5 class="mb-0" style="color: white; font-weight: 600;"><i class="bi bi-magic"></i> AI 继续修改</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small mb-3">在现有页面上按您的说明修改，无需重新上传。会消耗 1 次修改次数（剩余 <strong>{{ task_html_ai_edit_remaining }}</strong> 次）。</p>
+                        <p class="text-muted small mb-3">在现有页面上按您的说明修改，无需重新上传。提交后立即返回「数据任务」页，后台完成后再编辑可看到新页面；会消耗 1 次修改次数（剩余 <strong>{{ task_html_ai_edit_remaining }}</strong> 次）。</p>
                         <div class="mb-3">
                             <label for="revision_instructions" class="form-label">修改说明</label>
                             <textarea class="form-control" id="revision_instructions" name="revision_instructions" rows="3" placeholder="例如：把标题改成「学生信息登记表」；增加「班级」下拉框；提交按钮改为蓝色"></textarea>
@@ -255,22 +252,7 @@
 
 {% block scripts %}
 <script>
-    // AI 继续修改：仅当点击「提交并让 AI 修改」时校验并提交，不影响「保存修改」
-    var aiReviseTimerId = null;
-    function startAiReviseOverlay() {
-        var overlay = document.getElementById('ai-revise-overlay');
-        var elapsed = document.getElementById('ai-revise-elapsed');
-        var btn = document.getElementById('ai-revise-btn');
-        if (overlay) overlay.style.display = 'block';
-        if (btn) btn.disabled = true;
-        if (elapsed) elapsed.textContent = '0';
-        if (aiReviseTimerId) clearInterval(aiReviseTimerId);
-        aiReviseTimerId = setInterval(function() {
-            var n = parseInt(elapsed ? elapsed.textContent : '0', 10) || 0;
-            if (elapsed) elapsed.textContent = String(n + 1);
-        }, 1000);
-        return true;
-    }
+    // AI 继续修改：校验后提交，由服务端后台处理并立即重定向（避免长时间占用请求导致网关超时）
     function submitAiRevise() {
         var instructions = document.getElementById('revision_instructions');
         var val = (instructions && instructions.value) ? instructions.value.trim() : '';
@@ -279,8 +261,12 @@
             if (instructions) instructions.focus();
             return;
         }
+        var btn = document.getElementById('ai-revise-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>提交中…';
+        }
         document.getElementById('edit-form-action').value = 'ai_revise_html';
-        startAiReviseOverlay();
         document.getElementById('edit-task-form').submit();
     }
     // 记录要删除的文件（允许脚本多次加载时复用同一数组）
