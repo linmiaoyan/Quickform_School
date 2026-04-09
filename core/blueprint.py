@@ -35,9 +35,10 @@ from functools import wraps
 from collections import deque
 from typing import Deque, Optional
 import time
+import unicodedata
 import smtplib
 from email.mime.text import MIMEText
-from email.utils import formataddr
+from email.utils import formataddr, parseaddr
 
 # 导入分离的模块
 from .models import (
@@ -217,6 +218,35 @@ def _upload_auth_clear_failures(client_key: str):
         _upload_auth_failures.pop(client_key, None)
 
 
+def _smtp_mail_envelope_address(raw: str) -> str:
+    """
+    将邮箱规范为 SMTP 会话命令（MAIL FROM / RCPT TO）可用的 ASCII 地址。
+    smtplib 默认用 ascii 编码命令行；中文等国际域名需转为 Punycode，全角 @ 等需归一化。
+    """
+    if raw is None:
+        return ''
+    s = unicodedata.normalize('NFKC', (raw or '').strip())
+    s = s.replace('\uFF20', '@')
+    _, addr = parseaddr(s)
+    addr = (addr or '').strip() or s
+    addr = addr.strip()
+    if '@' not in addr:
+        raise ValueError('邮箱地址缺少 @')
+    local, domain = addr.rsplit('@', 1)
+    local, domain = local.strip(), domain.strip()
+    if not local or not domain:
+        raise ValueError('邮箱地址不完整')
+    try:
+        domain_ascii = domain.encode('idna').decode('ascii')
+    except UnicodeError as e:
+        raise ValueError('邮箱域名无法转为 ASCII（IDNA）') from e
+    try:
+        local.encode('ascii')
+    except UnicodeError as e:
+        raise ValueError('邮箱 @ 前本地部分含非 ASCII，当前 SMTP 通道不支持') from e
+    return f'{local}@{domain_ascii}'
+
+
 def send_email_code(to_email: str, code: str):
     """发送邮箱验证码"""
     try:
@@ -225,6 +255,20 @@ def send_email_code(to_email: str, code: str):
         if not sender or not conf.get('MAIL_PASSWORD'):
             logger.error("邮件配置不完整，无法发送验证码")
             raise RuntimeError("邮件配置不完整")
+
+        try:
+            envelope_sender = _smtp_mail_envelope_address(sender)
+            envelope_to = _smtp_mail_envelope_address(to_email)
+        except ValueError as ve:
+            logger.error(
+                "邮箱地址无法用于 SMTP 信封: %s | MAIL_USERNAME=%r to=%r",
+                ve,
+                sender,
+                to_email,
+            )
+            raise RuntimeError(
+                "发信或收件邮箱格式异常（例如含中文域名且未正确编码），无法发送验证码，请检查系统发信邮箱与用户绑定邮箱。"
+            ) from ve
 
         sender_name = "QuickForm 验证码"
         # 统一使用中性的标题，适用于注册、重置密码等场景
@@ -235,8 +279,8 @@ def send_email_code(to_email: str, code: str):
         )
 
         msg = MIMEText(body, 'plain', 'utf-8')
-        msg['From'] = formataddr((sender_name, sender))
-        msg['To'] = to_email
+        msg['From'] = formataddr((sender_name, envelope_sender))
+        msg['To'] = envelope_to
         msg['Subject'] = subject
 
         server = None
@@ -262,7 +306,7 @@ def send_email_code(to_email: str, code: str):
                 # 针对 535 等认证错误给出更友好的提示，避免将底层错误直接暴露给前端
                 logger.error(f"邮箱服务器认证失败，请检查 MAIL_USERNAME / MAIL_PASSWORD 是否为正确的邮箱账号及 SMTP 授权码: {auth_err}")
                 raise RuntimeError("邮箱服务器认证失败，请联系管理员检查邮箱账号或授权码配置。")
-            server.sendmail(sender, [to_email], msg.as_string())
+            server.sendmail(envelope_sender, [envelope_to], msg.as_string())
         finally:
             if server is not None:
                 try:
@@ -271,10 +315,18 @@ def send_email_code(to_email: str, code: str):
                     pass
 
         logger.info(f"验证码邮件已发送至: {to_email}")
-    except Exception as e:
-        # 统一在此处记录详细日志，但对外抛出简单错误信息，避免暴露内部实现细节
-        logger.exception(f"发送邮箱验证码失败: {e}")
+    except RuntimeError:
+        # 已由上方显式抛出，供接口层原样返回给用户
         raise
+    except UnicodeEncodeError as e:
+        # SMTP 命令行仅 ASCII：收件/发件地址含非 ASCII 且未规范化时会出现（多见于特殊域名或异常字符）
+        logger.exception("发送邮箱验证码失败（SMTP 地址编码）: %s", e)
+        raise RuntimeError(
+            "验证码暂时无法发送：您绑定的邮箱格式与当前发信系统不兼容。请到个人资料中改为常用邮箱（如 QQ、163、Gmail），或联系管理员。"
+        ) from e
+    except Exception as e:
+        logger.exception("发送邮箱验证码失败: %s", e)
+        raise RuntimeError("验证码发送失败，请稍后再试。若多次失败请联系管理员。") from e
 
 
 # 获取QuickForm目录路径
@@ -1162,9 +1214,11 @@ def api_send_verify_code():
         set_email_code(email, code, ttl_seconds=600)
         send_email_code(email, code)
         return jsonify({'success': True, 'message': '验证码已发送到您的邮箱，有效期10分钟'})
+    except RuntimeError as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
     except Exception as e:
-        logger.exception("发送验证码异常")
-        return jsonify({'success': False, 'message': MSG_SERVICE_BUSY}), 500
+        logger.exception("发送验证码异常: %s", e)
+        return jsonify({'success': False, 'message': '验证码发送失败，请稍后再试。若持续失败请联系管理员。'}), 500
 
 
 @quickform_bp.route('/login', methods=['GET', 'POST'])
@@ -1327,9 +1381,13 @@ def forgot_password_send_code():
         set_email_code(user.email, code, ttl_seconds=600)
         send_email_code(user.email, code)
         return jsonify({'success': True, 'message': '验证码已发送'})
+    except RuntimeError as e:
+        # send_email_code 对配置错误、认证失败、地址异常等抛出可读中文说明
+        logger.warning("发送重置密码验证码失败（可提示用户）: %s", e)
+        return jsonify({'success': False, 'message': str(e)}), 500
     except Exception as e:
-        logger.exception(f"发送重置密码验证码失败: {e}")
-        return jsonify({'success': False, 'message': '服务器异常，请稍后再试'}), 500
+        logger.exception("发送重置密码验证码失败: %s", e)
+        return jsonify({'success': False, 'message': '验证码发送失败，请稍后再试。若持续失败请联系管理员。'}), 500
     finally:
         db.close()
 
@@ -2711,9 +2769,11 @@ def api_send_email_code():
         send_email_code(email, code)
 
         return jsonify({'success': True, 'message': '验证码已发送到邮箱，有效期10分钟'})
+    except RuntimeError as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
     except Exception as e:
-        logger.exception("发送邮箱验证码异常")
-        return jsonify({'success': False, 'message': MSG_SERVICE_BUSY}), 500
+        logger.exception("发送邮箱验证码异常: %s", e)
+        return jsonify({'success': False, 'message': '验证码发送失败，请稍后再试。若持续失败请联系管理员。'}), 500
 
 SUBMIT_RATE_LIMIT_WINDOW = 30   # seconds（教室/公开课场景下适当放宽窗口）
 SUBMIT_RATE_LIMIT_THRESHOLD = 200  # 窗口内同一 IP 提交超过此次数则限流（提高以适配课堂集中提交）
