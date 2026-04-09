@@ -19,7 +19,7 @@ import zipfile
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app, abort
 from werkzeug.datastructures import FileStorage
 from sqlalchemy import create_engine, or_, text, func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, DataError
 from sqlalchemy.orm import sessionmaker, scoped_session, joinedload
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
@@ -1612,6 +1612,7 @@ def dashboard():
             task_limit=task_limit,
             is_certified=is_certified,
             pending_oneclick_tasks=pending_oneclick_tasks,
+            api_base_url=_public_site_base_url(),
         )
     finally:
         db.close()
@@ -3779,6 +3780,21 @@ def submit_form(task_id):
         except Exception as e:
             db.rollback()
             logger.exception("保存提交数据失败: %s", e)
+            err_text = str(e) or ''
+            is_data_too_long = (
+                isinstance(e, DataError)
+                or 'Data too long for column' in err_text
+                or '1406' in err_text
+            )
+            if is_data_too_long:
+                response = jsonify({
+                    'error': 'payload_too_large',
+                    'message': '提交失败：当前任务的数据字段最大约 60KB，请勿上传图片（尤其是 Base64）。如需传图片，请使用本地版或改为仅提交图片链接 URL。'
+                })
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                return response, 413
             response = jsonify({'error': 'save_failed', 'message': MSG_SAVE_FAILED})
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
