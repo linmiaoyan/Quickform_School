@@ -104,9 +104,19 @@
                     <p class="mb-0">
                         <strong>{{ translate('task_detail.sharing_status') }}</strong>
                         {% if task.sharing_type == 'public' %}
+                        {% if task.public_approved == 0 %}
+                        <span class="badge" style="background-color: #f59e0b; color: white;" title="已申请公开，等待管理员审核">
+                            <i class="bi bi-hourglass-split"></i> 公开并等待审核中
+                        </span>
+                        {% elif task.public_approved == 1 %}
                         <span class="badge" style="background-color: #f59e0b; color: white;" title="公开在平台上给其他老师">
                             <i class="bi bi-globe"></i> 公开
                         </span>
+                        {% else %}
+                        <span class="badge" style="background-color: #ef4444; color: white;" title="公开申请未通过">
+                            <i class="bi bi-x-circle"></i> 公开申请未通过
+                        </span>
+                        {% endif %}
                         {% elif task.sharing_type == 'organization' %}
                         <span class="badge" style="background-color: #8b5cf6; color: white;">
                             <i class="bi bi-people-fill"></i> {{ translate('task_detail.organization_shared') }}
@@ -481,10 +491,62 @@
                                 <p class="mb-2 text-muted small">共 <strong>{{ total_submissions }}</strong> 条提交。在新页面中可查看具体数据，该页面每 30 秒自动刷新。</p>
                                 <div class="alert alert-light border small py-2 px-3 mb-3">
                                     <div><strong>数据接口说明</strong></div>
-                                    <div class="mt-1">{{ translate('task_detail.api_submit_to_server') }}：<code>{{ api_base_url }}/api/{{ task.task_id }}</code>（POST）</div>
-                                    <div class="mt-1">{{ translate('task_detail.api_fetch_latest_3') }}：<code>{{ api_base_url }}/api/{{ task.task_id }}</code>（GET）</div>
-                                    <div class="mt-1">{{ translate('task_detail.api_fetch_all') }}：<code>{{ api_base_url }}/api/{{ task.task_id }}/all</code>（GET）</div>
+                                    <div class="mt-1 d-flex flex-wrap align-items-center gap-2">
+                                        <span>{{ translate('task_detail.api_submit_to_server') }}：</span>
+                                        <code>{{ api_base_url }}/api/{{ task.task_id }}</code>
+                                        <span>（POST）</span>
+                                        <button type="button" class="btn btn-link p-0 qf-copy-btn" title="复制" aria-label="复制"
+                                                onclick="copyTextValue('{{ api_base_url }}/api/{{ task.task_id }}', this)">
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </div>
+                                    <div class="mt-1 d-flex flex-wrap align-items-center gap-2">
+                                        <span>{{ translate('task_detail.api_fetch_latest_3') }}：</span>
+                                        <code>{{ api_base_url }}/api/{{ task.task_id }}</code>
+                                        <span>（GET）</span>
+                                        <button type="button" class="btn btn-link p-0 qf-copy-btn" title="复制" aria-label="复制"
+                                                onclick="copyTextValue('{{ api_base_url }}/api/{{ task.task_id }}', this)">
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </div>
+                                    <div class="mt-1 d-flex flex-wrap align-items-center gap-2">
+                                        <span>{{ translate('task_detail.api_fetch_all') }}：</span>
+                                        <code>{{ api_base_url }}/api/{{ task.task_id }}/all</code>
+                                        <span>（GET）</span>
+                                        <button type="button" class="btn btn-link p-0 qf-copy-btn" title="复制" aria-label="复制"
+                                                onclick="copyTextValue('{{ api_base_url }}/api/{{ task.task_id }}/all', this)">
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </div>
                                 </div>
+                                {% if can_edit_task %}
+                                <div class="alert alert-light border small py-2 px-3 mb-3">
+                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                        <div><strong>删改认证码</strong></div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <form method="POST" action="{{ url_for('quickform.generate_submission_manage_code', task_id=task.id) }}" class="m-0"
+                                                  onsubmit="return confirm('{{ '确定要重新生成删改认证码吗？旧码会立即失效。' if task.submission_manage_code else '确定要为该任务生成删改认证码吗？' }}');">
+                                                <button type="submit" class="btn btn-outline-primary btn-sm">{{ '重新生成' if task.submission_manage_code else '生成认证码' }}</button>
+                                            </form>
+                                            {% if task.submission_manage_code %}
+                                            <form method="POST" action="{{ url_for('quickform.disable_submission_manage_code', task_id=task.id) }}" class="m-0"
+                                                  onsubmit="return confirm('确定要关闭删改认证码吗？关闭后，带码删改将立即失效。');">
+                                                <button type="submit" class="btn btn-outline-danger btn-sm">关闭</button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    <div class="mt-2 text-muted">默认不启用。生成后，可以删改已收集得到的数据</div>
+                                    {% if task.submission_manage_code %}
+                                    <div class="input-group input-group-sm mt-2">
+                                        <input type="password" class="form-control" id="submission-manage-code" value="{{ task.submission_manage_code }}" readonly>
+                                        <button type="button" class="btn btn-outline-secondary" onclick="toggleSecretVisible('submission-manage-code', this)">显示</button>
+                                        <button type="button" class="btn btn-outline-secondary" onclick="copyInputValue('submission-manage-code', this)">复制</button>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+
                                 <div class="text-center">
                                     <a href="{{ url_for('quickform.task_data_view', task_id=task.id) }}" target="_blank" rel="noopener" class="btn btn-danger btn-sm" style="font-weight: 500;">
                                         <i class="bi bi-table"></i> 查看
@@ -533,9 +595,119 @@
     </div>
 </div>
 
+{% if can_edit_task and task.submission_manage_code and request.args.get('show_manage_code_tip') %}
+<div class="modal fade" id="manageCodeTipModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">已启用删改认证码</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-success mb-3">
+                    <strong>一句话说明：</strong>以后删除/清空数据时，除了“有编辑权限的账号”，也可以在请求里带上这串认证码来通过校验（别泄露给学生）。
+                </div>
+
+                <div class="mb-2"><strong>给大模型的说明（可直接复制）</strong></div>
+                <div class="input-group">
+                    <textarea class="form-control" id="manage-code-ai-prompt" rows="10" readonly style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px;">你正在使用 QuickForm 系统。现在我为任务启用了“删改认证码”，请在需要删除数据时按以下规则构造请求：
+
+【任务删改认证码】{{ task.submission_manage_code }}
+【任务ID】{{ task.id }}
+【任务对外 task_id】{{ task.task_id }}
+
+允许的删改接口（GET）：
+1) 删除单条：{{ api_base_url }}/task/{{ task.id }}/submission/remove?submission_id=<提交ID>&edit_code={{ task.submission_manage_code }}
+2) 清空全部：{{ api_base_url }}/task/{{ task.id }}/submissions/clear?edit_code={{ task.submission_manage_code }}
+3) 按日期范围删除：{{ api_base_url }}/task/{{ task.id }}/submissions/clear_by_range?date_start=YYYY-MM-DD&date_end=YYYY-MM-DD&edit_code={{ task.submission_manage_code }}
+
+修改单条（POST JSON）：
+POST {{ api_base_url }}/task/{{ task.id }}/submission/update
+Body: {"submission_id": <提交ID>, "data": <新的数据(字符串或JSON对象)>}
+
+也可以不用 query 参数，改用请求头：
+X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
+
+注意：
+- 不要把认证码暴露给学生或写进公开网页。
+- 提交接口（收数）是：{{ api_base_url }}/api/{{ task.task_id }}（POST）</textarea>
+                    <button class="btn btn-outline-primary" type="button" onclick="copyInputValue('manage-code-ai-prompt', this)">复制</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/qrcode.min.js') }}"></script>
+<style>
+    .qf-copy-btn { color: #64748b; text-decoration: none; line-height: 1; }
+    .qf-copy-btn:hover { color: #0d6efd; }
+    .qf-copy-btn i { font-size: 1rem; vertical-align: -0.125em; }
+</style>
 <script>
+    async function copyTextValue(text, btn) {
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            if (btn) {
+                const original = btn.innerHTML;
+                btn.innerHTML = '<i class="bi bi-check2"></i>';
+                btn.setAttribute('title', '已复制');
+                setTimeout(() => {
+                    btn.innerHTML = original;
+                    btn.setAttribute('title', '复制');
+                }, 1200);
+            }
+        } catch (e) {
+            alert('复制失败，请手动复制');
+        }
+    }
+
+    function copyInputValue(inputId, btn) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        if (input.tagName && input.tagName.toLowerCase() === 'textarea') {
+            copyTextValue(input.value || '', btn);
+            return;
+        }
+        copyTextValue(input.value || input.textContent || '', btn);
+    }
+
+    function toggleSecretVisible(inputId, btn) {
+        const input = document.getElementById(inputId);
+        if (!input || !btn) return;
+        const nextType = input.type === 'password' ? 'text' : 'password';
+        input.type = nextType;
+        btn.textContent = nextType === 'password' ? '显示' : '隐藏';
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var m = document.getElementById('manageCodeTipModal');
+        if (!m) return;
+        try {
+            // 强制挂到 body，避免被父容器 stacking context 影响，导致鼠标事件穿透/闪动
+            if (m.parentElement !== document.body) {
+                document.body.appendChild(m);
+            }
+            // 某些场景下关闭后可能残留 backdrop，导致页面发黑且不可交互
+            m.addEventListener('hidden.bs.modal', function () {
+                document.body.classList.remove('modal-open');
+                document.body.style.removeProperty('padding-right');
+                document.body.style.removeProperty('overflow');
+                document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
+            });
+            var modal = new bootstrap.Modal(m);
+            modal.show();
+        } catch (e) {
+            // ignore
+        }
+    });
+
     function toggleQRCode(btn) {
         const container = btn.nextElementSibling;
         if (!container || !container.classList.contains('qr-code-container')) return;
@@ -833,9 +1005,10 @@
         if (!confirm('{{ translate("task_detail.confirm_delete_single") }}')) {
             return;
         }
-        
+        const triggerBtn = document.activeElement;
         const baseUrl = `{{ url_for('quickform.remove_submission', task_id=task.id) }}?submission_id=${subId}`;
         const url = baseUrl + `&_=${Date.now()}`;
+        if (window.qfSetButtonLoading) qfSetButtonLoading(triggerBtn, true, '删除中…');
         fetch(url, {
             method: 'GET',
             headers: {
@@ -857,13 +1030,14 @@
                 alert('{{ translate("task_detail.delete_success") }}');
                 location.reload();
             } else {
-                alert('{{ translate("task_detail.delete_failed") }}' + (data.message || '{{ translate("task_detail.unknown_error") }}'));
+                alert('{{ translate("task_detail.delete_failed") }}' + (data.message || '{{ translate("task_detail.unknown_error") }}') + (data.detail ? ('\n' + data.detail) : ''));
             }
         })
         .catch(error => {
             console.error('Error:', error);
             alert('{{ translate("task_detail.delete_failed") }}' + error.message);
-        });
+        })
+        .finally(() => { if (window.qfSetButtonLoading) qfSetButtonLoading(triggerBtn, false); });
     };
     
     // 删除全部数据
@@ -871,9 +1045,10 @@
         if (!confirm('{{ translate("task_detail.confirm_delete_all") }}')) {
             return;
         }
-        
+        const triggerBtn = document.activeElement;
         const baseUrl = `{{ url_for('quickform.clear_all_submissions', task_id=task.id) }}`;
         const url = baseUrl + `?_=${Date.now()}`;
+        if (window.qfSetButtonLoading) qfSetButtonLoading(triggerBtn, true, '清空中…');
         fetch(url, {
             method: 'GET',
             headers: {
@@ -895,13 +1070,14 @@
                 alert('{{ translate("task_detail.delete_success") }}');
                 location.reload();
             } else {
-                alert('{{ translate("task_detail.delete_failed") }}' + (data.message || '{{ translate("task_detail.unknown_error") }}'));
+                alert('{{ translate("task_detail.delete_failed") }}' + (data.message || '{{ translate("task_detail.unknown_error") }}') + (data.detail ? ('\n' + data.detail) : ''));
             }
         })
         .catch(error => {
             console.error('Error:', error);
             alert('{{ translate("task_detail.delete_failed") }}' + error.message);
-        });
+        })
+        .finally(() => { if (window.qfSetButtonLoading) qfSetButtonLoading(triggerBtn, false); });
     };
     
     // 移除组织分配

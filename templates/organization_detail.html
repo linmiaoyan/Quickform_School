@@ -185,7 +185,7 @@
                                 {% if is_creator %}
                                 <td>
                                     {% if member.user.id != organization.creator_id %}
-                                    <button class="btn btn-sm btn-outline-danger" onclick="removeMember({{ member.id }}, '{{ member.user.username }}')">
+                                    <button class="btn btn-sm btn-outline-danger" onclick="removeMember(this, {{ member.id }}, '{{ member.user.username }}')">
                                         <i class="bi bi-person-x"></i> 移除
                                     </button>
                                     {% else %}
@@ -277,10 +277,11 @@
         });
     }
 })();
-function removeMember(memberId, username) {
+function removeMember(btn, memberId, username) {
     if (!confirm(`确定要将"${username}"移出组织吗？`)) {
         return;
     }
+    if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '移除中…');
     
     fetch(`/organization/member/${memberId}/remove`, {
         method: 'POST',
@@ -294,12 +295,13 @@ function removeMember(memberId, username) {
             alert('成员已移除');
             location.reload();
         } else {
-            alert('移除失败：' + (data.message || '未知错误'));
+            alert('移除失败：' + (data.message || '未知错误') + (data.detail ? ('\n' + data.detail) : ''));
         }
     })
     .catch(error => {
         alert('移除失败：网络错误');
-    });
+    })
+    .finally(() => { if (window.qfSetButtonLoading) qfSetButtonLoading(btn, false); });
 }
 </script>
 {% endblock %}

@@ -811,7 +811,13 @@ def _load_oneclick_prompt_tuples(db):
         rows = []
     if not rows:
         return list(DEFAULT_ONECLICK_PROMPT_OPTIONS)
-    return [(r.opt_key, r.label, (r.body or '').strip()) for r in rows]
+    tuples = [(r.opt_key, r.label, (r.body or '').strip()) for r in rows]
+    # 兜底：若数据库缺少新引入的默认选项（尚未迁移/未补齐），先在运行时补上
+    existing_keys = {k for k, _l, _b in tuples}
+    for k, l, b in DEFAULT_ONECLICK_PROMPT_OPTIONS:
+        if k not in existing_keys:
+            tuples.append((k, l, b))
+    return tuples
 
 
 def get_upload_file_url(saved_name, task_file_path=None):
@@ -2144,6 +2150,76 @@ def task_detail(task_id):
         db.close()
 
 
+@quickform_bp.route('/task/<int:task_id>/submission_manage_code/generate', methods=['POST'])
+@login_required
+def generate_submission_manage_code(task_id):
+    """为任务生成或重置删改认证码。"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            flash('任务不存在', 'danger')
+            return redirect(url_for('quickform.dashboard'))
+        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+        org_mem = db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id, user_id=current_user.id
+        ).first() if task.organization_id else None
+        can_edit = (
+            current_user.is_admin() or task.user_id == current_user.id or
+            (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
+            (share_rec and share_rec.can_edit)
+        )
+        if not can_edit:
+            flash('无权为该任务生成删改认证码', 'danger')
+            return redirect(url_for('quickform.task_detail', task_id=task.id))
+        task.submission_manage_code = _generate_submission_manage_code()
+        db.commit()
+        flash('已生成新的删改认证码。请妥善保存，后续可用于带码删改提交数据。', 'success')
+        return redirect(url_for('quickform.task_detail', task_id=task.id, show_manage_code_tip=1))
+    except Exception as e:
+        db.rollback()
+        logger.exception('generate_submission_manage_code failed: %s', e)
+        flash('生成删改认证码失败，请稍后重试。', 'danger')
+        return redirect(url_for('quickform.task_detail', task_id=task_id))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/task/<int:task_id>/submission_manage_code/disable', methods=['POST'])
+@login_required
+def disable_submission_manage_code(task_id):
+    """关闭/停用任务删改认证码（清空）。"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            flash('任务不存在', 'danger')
+            return redirect(url_for('quickform.dashboard'))
+        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+        org_mem = db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id, user_id=current_user.id
+        ).first() if task.organization_id else None
+        can_edit = (
+            current_user.is_admin() or task.user_id == current_user.id or
+            (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
+            (share_rec and share_rec.can_edit)
+        )
+        if not can_edit:
+            flash('无权关闭该任务的删改认证码', 'danger')
+            return redirect(url_for('quickform.task_detail', task_id=task.id))
+        task.submission_manage_code = None
+        db.commit()
+        flash('已关闭删改认证码。后续带码删改请求将不再允许。', 'success')
+        return redirect(url_for('quickform.task_detail', task_id=task.id))
+    except Exception as e:
+        db.rollback()
+        logger.exception('disable_submission_manage_code failed: %s', e)
+        flash('关闭删改认证码失败，请稍后重试。', 'danger')
+        return redirect(url_for('quickform.task_detail', task_id=task_id))
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/task/<int:task_id>/quota_request', methods=['POST'])
 @login_required
 def task_quota_request_submit(task_id):
@@ -2346,7 +2422,8 @@ def task_data_view(task_id):
             total_submissions=total_submissions,
             pagination=pagination,
             can_edit_task=can_edit_task,
-            search_q=search_q
+            search_q=search_q,
+            api_base_url=_public_site_base_url(),
         )
     finally:
         db.close()
@@ -2970,6 +3047,63 @@ def _all_subject_key(req, task_id: str):
     fp = _build_client_fingerprint(req)
     ip = get_request_client_ip(req)
     return f'all:{task_id}:{fp}', fp, ip
+
+
+def _generate_submission_manage_code() -> str:
+    """生成任务级删改认证码。"""
+    # 生成更长随机串，降低被猜测/爆破风险（约 32+ chars）
+    return secrets.token_urlsafe(24)
+
+
+def _extract_submission_manage_code() -> str:
+    """从查询参数、表单或请求头中提取删改认证码。"""
+    return (
+        (request.args.get('edit_code') or '').strip()
+        or (request.form.get('edit_code') or '').strip()
+        or (request.headers.get('X-QuickForm-Edit-Code') or '').strip()
+    )
+
+
+def _can_manage_task_submissions(db, task, auth_code: str = ''):
+    """是否允许删改任务提交：教师原有编辑权限，或提供正确的任务删改认证码。"""
+    if not task:
+        return False
+    if auth_code and getattr(task, 'submission_manage_code', None):
+        return secrets.compare_digest((task.submission_manage_code or '').strip(), auth_code.strip())
+    if not getattr(current_user, 'is_authenticated', False):
+        return False
+    share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
+    org_mem = db.query(OrganizationMember).filter_by(
+        organization_id=task.organization_id, user_id=current_user.id
+    ).first() if task.organization_id else None
+    return (
+        current_user.is_admin() or task.user_id == current_user.id or
+        (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
+        (share_rec and share_rec.can_edit)
+    )
+
+
+# 删改接口限频（防爆破/防刷）：按 任务+设备 指纹
+MANAGE_RATE_LIMIT_WINDOW = float(os.getenv('MANAGE_RATE_LIMIT_WINDOW', '10') or '10')  # seconds
+MANAGE_RATE_LIMIT_THRESHOLD = int(os.getenv('MANAGE_RATE_LIMIT_THRESHOLD', '40') or '40')  # window max
+_manage_rate_limit_cache = {}
+_manage_rate_limit_lock = threading.Lock()
+
+
+def _manage_rate_limit_check(task_id: int) -> bool:
+    """返回 True 表示允许；False 表示应限流。"""
+    try:
+        fp = _build_client_fingerprint(request)
+    except Exception:
+        fp = 'unknown'
+    key = f'manage:{task_id}:{fp}'
+    now_ts = datetime.utcnow().timestamp()
+    with _manage_rate_limit_lock:
+        dq = _manage_rate_limit_cache.setdefault(key, deque())
+        while dq and now_ts - dq[0] > MANAGE_RATE_LIMIT_WINDOW:
+            dq.popleft()
+        dq.append(now_ts)
+        return len(dq) <= MANAGE_RATE_LIMIT_THRESHOLD
 
 # 单任务 /all 默认限额兜底（库表 site_quota_default 无记录或异常时使用；正常以管理后台「全局限额默认值」为准）
 _TASK_ALL_READ_FALLBACK = 2000
@@ -3752,11 +3886,32 @@ def submit_form(task_id):
         # 获取提交的数据
         try:
             if request.is_json:
-                form_data = request.get_json()
+                form_data = request.get_json(silent=True)
+                if form_data is None:
+                    raw_body = request.get_data(cache=True, as_text=True) or ''
+                    if not raw_body.strip():
+                        response = jsonify({'error': 'invalid_body', 'message': MSG_JSON_BODY})
+                        response.headers['Access-Control-Allow-Origin'] = '*'
+                        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                        return response, 400
+                    try:
+                        # 兼容部分网页把多行文本直接拼进 JSON，导致出现未转义控制字符的情况
+                        form_data = json.loads(raw_body, strict=False)
+                    except Exception as json_err:
+                        logger.warning("解析JSON请求失败（task_id=%s）: %s", task_id, json_err)
+                        response = jsonify({
+                            'error': 'invalid_body',
+                            'message': '提交失败：JSON 格式不正确。若包含多行文本，请确保换行已正确转义；不要直接提交未处理的图片/Base64大文本。'
+                        })
+                        response.headers['Access-Control-Allow-Origin'] = '*'
+                        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                        return response, 400
             else:
                 form_data = request.form.to_dict()
         except Exception as e:
-            logger.exception("解析请求数据失败: %s", e)
+            logger.warning("解析请求数据失败(task_id=%s): %s", task_id, e)
             response = jsonify({'error': 'invalid_body', 'message': MSG_JSON_BODY})
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
@@ -3857,7 +4012,11 @@ def _rate_limit_response(task_id, client_ip, client_fingerprint, ts, db):
                 db.rollback()
                 logger.error(f"记录限流日志失败: {str(e)}")
  
-    response = jsonify({'error': 'rate_limit', 'message': 'Too many requests. Please try again later.'})
+    response = jsonify({
+        'error': 'rate_limit',
+        'message': 'Too many requests. Please try again later.',
+        'detail': f'提交过于频繁，系统已临时限制该设备约 {SUBMIT_BLACKLIST_DURATION // 60} 分钟。请稍后再试，或降低并发提交频率。'
+    })
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -3892,7 +4051,8 @@ def submit_form_all(task_id):
         )
         response = jsonify({
             'error': 'rate_limit',
-            'message': f'Too many requests. Minimum interval: {ALL_RATE_LIMIT_MIN_INTERVAL:.2f}s for this endpoint.'
+            'message': f'Too many requests. Minimum interval: {ALL_RATE_LIMIT_MIN_INTERVAL:.2f}s for this endpoint.',
+            'detail': f'该接口读取较重，请至少间隔 {ALL_RATE_LIMIT_MIN_INTERVAL:.2f} 秒再请求一次。'
         })
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
@@ -7395,12 +7555,12 @@ def admin_review_html_action(task_id):
     return redirect(url_for('quickform.admin_panel', tab='html-review'))
 
 @quickform_bp.route('/task/<int:task_id>/submission/remove', methods=['GET'])
-@login_required
 def remove_submission(task_id):
     """删除单条提交数据（支持DELETE与GET降级）"""
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
     submission_id = request.args.get('submission_id', type=int)
+    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -7410,26 +7570,23 @@ def remove_submission(task_id):
 
     logger.info(
         f"[remove_submission] GET user={getattr(current_user, 'id', None)} "
-        f"task={task_id} submission={submission_id} ip={client_ip}"
+        f"task={task_id} submission={submission_id} ip={client_ip} code={'yes' if auth_code else 'no'}"
     )
     try:
+        if not _manage_rate_limit_check(task_id):
+            return make_response({'success': False, 'message': '操作过于频繁，请稍后再试。', 'detail': '请避免重复点击；等待数秒后再重试。'}, 429)
         task = db.get(Task, task_id)
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
-        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-        org_mem = db.query(OrganizationMember).filter_by(
-            organization_id=task.organization_id, user_id=current_user.id
-        ).first() if task.organization_id else None
-        can_edit = (
-            current_user.is_admin() or task.user_id == current_user.id or
-            (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
-            (share_rec and share_rec.can_edit)
-        )
+        can_edit = _can_manage_task_submissions(db, task, auth_code)
         if not can_edit:
             logger.warning(
                 f"[remove_submission] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
             )
-            return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
+            return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
+        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
+        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
         if not submission_id:
             logger.warning(f"[remove_submission] missing submission_id task={task_id}")
             return make_response({'success': False, 'message': '缺少提交ID'}, 400)
@@ -7459,12 +7616,106 @@ def remove_submission(task_id):
         db.close()
 
 
+@quickform_bp.route('/task/<int:task_id>/submission/update', methods=['POST'])
+def update_submission(task_id):
+    """修改单条提交数据（允许编辑权限账号或携带任务删改认证码）。"""
+    db = SessionLocal()
+    client_ip = get_request_client_ip(request)
+    auth_code = _extract_submission_manage_code()
+
+    def make_response(payload, status_code=200):
+        resp = jsonify(payload)
+        resp.status_code = status_code
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+
+    try:
+        if not _manage_rate_limit_check(task_id):
+            return make_response({'success': False, 'message': '操作过于频繁，请稍后再试。', 'detail': '请避免重复点击；等待数秒后再重试。'}, 429)
+        task = db.get(Task, task_id)
+        if not task:
+            return make_response({'success': False, 'message': '任务不存在'}, 404)
+
+        can_edit = _can_manage_task_submissions(db, task, auth_code)
+        if not can_edit:
+            logger.warning(
+                "[update_submission] forbidden task=%s ip=%s code=%s",
+                task_id, client_ip, 'yes' if auth_code else 'no'
+            )
+            return make_response({'success': False, 'message': '无权修改此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
+        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
+        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+
+        payload = None
+        if request.is_json:
+            payload = request.get_json(silent=True) or {}
+        if payload is None:
+            payload = {}
+        if not payload:
+            try:
+                payload = request.form.to_dict()
+            except Exception:
+                payload = {}
+
+        try:
+            submission_id = int(payload.get('submission_id') or payload.get('id') or 0)
+        except Exception:
+            submission_id = 0
+        if not submission_id:
+            return make_response({'success': False, 'message': '缺少提交ID'}, 400)
+
+        submission = db.query(Submission).filter_by(id=submission_id, task_id=task_id).first()
+        if not submission:
+            return make_response({'success': False, 'message': '提交不存在'}, 404)
+
+        new_data = payload.get('data')
+        if new_data is None:
+            new_data = payload.get('new_data')
+        if new_data is None:
+            return make_response({'success': False, 'message': '缺少 data 字段'}, 400)
+
+        # 允许前端传字符串（编辑器文本），或传对象（JSON）
+        if isinstance(new_data, (dict, list)):
+            data_text = json.dumps(new_data, ensure_ascii=False)
+        else:
+            data_text = str(new_data)
+
+        if not data_text.strip():
+            return make_response({'success': False, 'message': '数据内容不能为空'}, 400)
+
+        submission.data = data_text
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            err_text = str(e) or ''
+            is_data_too_long = (
+                isinstance(e, DataError)
+                or 'Data too long for column' in err_text
+                or '1406' in err_text
+            )
+            if is_data_too_long:
+                return make_response({'success': False, 'message': '修改失败：数据过大（当前字段约 60KB 上限），请勿写入图片/Base64大文本。', 'detail': '建议只提交图片链接 URL，不要把 data:image/...base64 直接写进数据字段。'}, 413)
+            raise
+        _invalidate_task_read_cache(task.task_id)
+        _invalidate_task_data_cache(task.id)
+        logger.info("[update_submission] success task=%s submission=%s ip=%s", task_id, submission_id, client_ip)
+        return make_response({'success': True, 'message': '修改成功'})
+    except Exception as e:
+        db.rollback()
+        logger.exception("[update_submission] error task=%s ip=%s", task_id, client_ip)
+        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/task/<int:task_id>/submissions/clear', methods=['GET'])
-@login_required
 def clear_all_submissions(task_id):
     """删除任务的所有提交数据（支持DELETE与GET降级）"""
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
+    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -7473,28 +7724,24 @@ def clear_all_submissions(task_id):
         return resp
 
     logger.info(
-        f"[clear_all_submissions] GET user={getattr(current_user, 'id', None)} task={task_id} ip={client_ip}"
+        f"[clear_all_submissions] GET user={getattr(current_user, 'id', None)} task={task_id} ip={client_ip} code={'yes' if auth_code else 'no'}"
     )
     task_clear_lock = _get_submission_clear_lock(task_id)
     try:
         with task_clear_lock:
+            if not _manage_rate_limit_check(task_id):
+                return make_response({'success': False, 'message': '操作过于频繁，请稍后再试。', 'detail': '请避免重复点击；等待数秒后再重试。'}, 429)
             task = db.get(Task, task_id)
             if not task:
                 return make_response({'success': False, 'message': '任务不存在'}, 404)
-            share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-            org_mem = db.query(OrganizationMember).filter_by(
-                organization_id=task.organization_id, user_id=current_user.id
-            ).first() if task.organization_id else None
-            can_edit = (
-                current_user.is_admin() or task.user_id == current_user.id or
-                (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
-                (share_rec and share_rec.can_edit)
-            )
+            can_edit = _can_manage_task_submissions(db, task, auth_code)
             if not can_edit:
                 logger.warning(
                     f"[clear_all_submissions] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
                 )
-                return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
+                return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
+            if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+                return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
 
             submission_ids = [
                 row[0]
@@ -7548,13 +7795,13 @@ def clear_all_submissions(task_id):
 
 
 @quickform_bp.route('/task/<int:task_id>/submissions/clear_by_range', methods=['GET'])
-@login_required
 def clear_submissions_by_date_range(task_id):
     """按提交日期期间删除数据。参数：date_start（YYYY-MM-DD）、date_end（YYYY-MM-DD），均为必填。"""
     from datetime import datetime as dt
     db = SessionLocal()
     date_start_s = request.args.get('date_start', '').strip()
     date_end_s = request.args.get('date_end', '').strip()
+    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -7565,20 +7812,16 @@ def clear_submissions_by_date_range(task_id):
     task_clear_lock = _get_submission_clear_lock(task_id)
     try:
         with task_clear_lock:
+            if not _manage_rate_limit_check(task_id):
+                return make_response({'success': False, 'message': '操作过于频繁，请稍后再试。', 'detail': '请避免重复点击；等待数秒后再重试。'}, 429)
             task = db.get(Task, task_id)
             if not task:
                 return make_response({'success': False, 'message': '任务不存在'}, 404)
-            share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-            org_mem = db.query(OrganizationMember).filter_by(
-                organization_id=task.organization_id, user_id=current_user.id
-            ).first() if task.organization_id else None
-            can_edit = (
-                current_user.is_admin() or task.user_id == current_user.id or
-                (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
-                (share_rec and share_rec.can_edit)
-            )
+            can_edit = _can_manage_task_submissions(db, task, auth_code)
             if not can_edit:
-                return make_response({'success': False, 'message': '无权删除此任务的数据（仅拥有编辑权限时可删除）'}, 403)
+                return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
+            if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+                return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
             if not date_start_s or not date_end_s:
                 return make_response({'success': False, 'message': '请填写开始日期和结束日期'}, 400)
             try:

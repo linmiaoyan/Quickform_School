@@ -45,7 +45,7 @@
                     </div>
                 {% else %}
                     <div class="alert alert-info">
-                        <strong>说明：</strong> 请上传能够证明您教师身份的材料，例如：工牌、校章证明、教师证件扫描件等。支持 PNG / JPG / PDF 等格式，单次仅需上传一个文件即可，单个文件最大 10MB。
+                        <strong>说明：</strong> 请上传能够证明您教师身份，且带有您个人姓名的材料，例如：教师证、工作证（工牌）、支付宝教师证明、加盖学校公章的在职证明等。支持 PNG / JPG / PDF 等格式，上传一个文件即可，单个文件最大 10MB。
                     </div>
                     <form method="POST" action="{{ url_for('quickform.certification_request') }}" enctype="multipart/form-data">
                         <div class="mb-3">

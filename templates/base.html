@@ -610,9 +610,91 @@
         </div>
     </footer>
 
+    <!-- 全局 Toast 容器 -->
+    <div id="qf-toast-container" class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 2000;"></div>
+
     <!-- Bootstrap JS -->
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script>
+        // ========== 全局 Toast / 非阻塞提示 ==========
+        (function initQuickFormToast() {
+            function _escapeHtml(s) {
+                return String(s || '').replace(/[&<>"']/g, function (c) {
+                    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] || c);
+                });
+            }
+
+            window.showToast = function showToast(type, message, timeoutMs) {
+                try {
+                    var container = document.getElementById('qf-toast-container');
+                    if (!container || !window.bootstrap) {
+                        throw new Error('toast_unavailable');
+                    }
+                    var t = (type || 'info').toLowerCase();
+                    var headerClass = 'text-bg-primary';
+                    var title = '提示';
+                    if (t === 'success') { headerClass = 'text-bg-success'; title = '成功'; }
+                    else if (t === 'warning') { headerClass = 'text-bg-warning'; title = '注意'; }
+                    else if (t === 'danger' || t === 'error') { headerClass = 'text-bg-danger'; title = '错误'; }
+                    else if (t === 'info') { headerClass = 'text-bg-primary'; title = '提示'; }
+
+                    var toastEl = document.createElement('div');
+                    toastEl.className = 'toast align-items-center border-0 shadow-sm';
+                    toastEl.setAttribute('role', 'status');
+                    toastEl.setAttribute('aria-live', 'polite');
+                    toastEl.setAttribute('aria-atomic', 'true');
+                    toastEl.innerHTML =
+                        '<div class="toast-header ' + headerClass + ' border-0">' +
+                            '<strong class="me-auto">' + _escapeHtml(title) + '</strong>' +
+                            '<button type="button" class="btn-close btn-close-white ms-2 mb-1" data-bs-dismiss="toast" aria-label="Close"></button>' +
+                        '</div>' +
+                        '<div class="toast-body" style="background:#fff;color:#111827;">' + _escapeHtml(message) + '</div>';
+
+                    container.appendChild(toastEl);
+                    var toast = bootstrap.Toast.getOrCreateInstance(toastEl, {
+                        delay: (typeof timeoutMs === 'number' ? timeoutMs : 2500),
+                        autohide: true
+                    });
+                    toastEl.addEventListener('hidden.bs.toast', function () {
+                        try { toastEl.remove(); } catch (e) {}
+                    });
+                    toast.show();
+                } catch (e) {
+                    try {
+                        (window._nativeAlert || window.alert)(String(message || ''));
+                    } catch (e2) {}
+                }
+            };
+
+            // 将 alert() 降级为 Toast（保留原生 alert 兜底）
+            try {
+                if (!window._nativeAlert) {
+                    window._nativeAlert = window.alert;
+                }
+                window.alert = function (msg) {
+                    window.showToast('warning', msg, 3000);
+                };
+            } catch (e) {}
+
+            // 按钮加载态工具：防重复点击
+            window.qfSetButtonLoading = function qfSetButtonLoading(btn, isLoading, loadingText) {
+                if (!btn) return;
+                if (isLoading) {
+                    if (btn.dataset && btn.dataset.qfLoading === '1') return;
+                    btn.dataset.qfLoading = '1';
+                    btn.dataset.qfOrigDisabled = btn.disabled ? '1' : '0';
+                    btn.dataset.qfOrigHtml = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = (loadingText || '处理中…');
+                } else {
+                    if (btn.dataset && btn.dataset.qfLoading !== '1') return;
+                    btn.dataset.qfLoading = '0';
+                    btn.disabled = (btn.dataset.qfOrigDisabled === '1');
+                    if (btn.dataset.qfOrigHtml) btn.innerHTML = btn.dataset.qfOrigHtml;
+                }
+            };
+        })();
+
         // ========== 公共文件上传工具函数 ==========
         
         /**

@@ -154,6 +154,28 @@
                                 <li class="mb-2">• 重新上传 HTML 页面后，系统会自动重新进行安全审核与智能分析。</li>
                                 <li class="mb-2">• 建议在标题中体现年级、学科与主题，方便后续管理。</li>
                             </ul>
+                            {% if current_user.is_admin() or task.user_id == current_user.id %}
+                            <div class="alert alert-light border small py-2 px-3 mb-3">
+                                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                    <div><strong>删改认证码</strong></div>
+                                    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('quickform.task_detail', task_id=task.id) }}#manage-code">去任务详情管理</a>
+                                </div>
+                                {% if task.submission_manage_code %}
+                                <div class="mt-2 text-muted">已启用：可用于删改已收集得到的数据。</div>
+                                <div class="input-group input-group-sm mt-2" style="max-width: 520px;">
+                                    <input type="password" class="form-control" id="edit-page-manage-code" value="{{ task.submission_manage_code }}" readonly>
+                                    <button type="button" class="btn btn-outline-secondary" onclick="qfToggleSecret('edit-page-manage-code', this)">显示</button>
+                                    <button type="button" class="btn btn-outline-secondary" onclick="qfCopyFromInput('edit-page-manage-code', this)">复制</button>
+                                    <form method="POST" action="{{ url_for('quickform.disable_submission_manage_code', task_id=task.id) }}" class="m-0"
+                                          onsubmit="return confirm('确定要关闭删改认证码吗？关闭后，带码删改将立即失效。');">
+                                        <button type="submit" class="btn btn-outline-danger">关闭</button>
+                                    </form>
+                                </div>
+                                {% else %}
+                                <div class="mt-2 text-muted">默认不启用。需要时请到任务详情页点击“生成认证码”。</div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
                             <div>
                                 <label class="form-label" style="font-weight: 600; color: #111827;">数据提交接口示例</label>
                                 <div class="input-group">
@@ -179,7 +201,7 @@
                             <label for="revision_instructions" class="form-label">修改说明</label>
                             <textarea class="form-control" id="revision_instructions" name="revision_instructions" rows="3" placeholder="例如：把标题改成「学生信息登记表」；增加「班级」下拉框；提交按钮改为蓝色"></textarea>
                         </div>
-                        <button type="button" class="btn btn-primary w-100" id="ai-revise-btn" onclick="submitAiRevise()"><i class="bi bi-magic"></i> 提交并让 AI 修改</button>
+                        <button type="button" class="btn btn-primary w-100" id="ai-revise-btn" onclick="submitAiRevise(this)"><i class="bi bi-magic"></i> 提交并让 AI 修改</button>
                     </div>
                 </div>
                 {% endif %}
@@ -252,8 +274,38 @@
 
 {% block scripts %}
 <script>
+    function qfToggleSecret(inputId, btn) {
+        const input = document.getElementById(inputId);
+        if (!input || !btn) return;
+        input.type = (input.type === 'password') ? 'text' : 'password';
+        btn.textContent = (input.type === 'password') ? '显示' : '隐藏';
+    }
+    function qfCopyFromInput(inputId, btn) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        const text = input.value || '';
+        if (window.navigator && navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function(){
+                if (window.showToast) showToast('success', '已复制', 1200);
+                else alert('已复制');
+            }).catch(function(){
+                alert('复制失败，请手动复制');
+            });
+        } else {
+            try {
+                input.type = 'text';
+                input.select();
+                document.execCommand('copy');
+                input.type = 'password';
+                if (window.showToast) showToast('success', '已复制', 1200);
+                else alert('已复制');
+            } catch (e) {
+                alert('复制失败，请手动复制');
+            }
+        }
+    }
     // AI 继续修改：校验后提交，由服务端后台处理并立即重定向（避免长时间占用请求导致网关超时）
-    function submitAiRevise() {
+    function submitAiRevise(triggerBtn) {
         var instructions = document.getElementById('revision_instructions');
         var val = (instructions && instructions.value) ? instructions.value.trim() : '';
         if (!val) {
@@ -261,8 +313,10 @@
             if (instructions) instructions.focus();
             return;
         }
-        var btn = document.getElementById('ai-revise-btn');
-        if (btn) {
+        var btn = triggerBtn || document.getElementById('ai-revise-btn');
+        if (window.qfSetButtonLoading) {
+            qfSetButtonLoading(btn, true, '<span class=\"spinner-border spinner-border-sm me-1\" role=\"status\" aria-hidden=\"true\"></span>提交中…');
+        } else if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>提交中…';
         }

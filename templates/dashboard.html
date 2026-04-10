@@ -462,9 +462,19 @@ a.qf-btn-create-task.btn-primary:active {
                             <span class="badge qf-dash-pill qf-dash-pill--edit" style="font-size: 0.7rem;">编辑</span>
                             {% endif %}
                             {% elif task.sharing_type == 'public' %}
+                            {% if task.public_approved == 0 %}
+                            <span class="badge qf-dash-pill qf-dash-pill--public" style="font-size: 0.75rem;">
+                                <i class="bi bi-hourglass-split"></i> 公开并等待审核中
+                            </span>
+                            {% elif task.public_approved == 1 %}
                             <span class="badge qf-dash-pill qf-dash-pill--public" style="font-size: 0.75rem;">
                                 <i class="bi bi-globe"></i> 公开
                             </span>
+                            {% else %}
+                            <span class="badge qf-dash-pill" style="font-size: 0.75rem; background: rgba(239, 68, 68, 0.6) !important; color: #fff !important;">
+                                <i class="bi bi-x-circle"></i> 公开申请未通过
+                            </span>
+                            {% endif %}
                             {% else %}
                             <span class="badge qf-dash-pill qf-dash-pill--private" style="font-size: 0.75rem;">
                                 <i class="bi bi-lock-fill"></i> {{ translate('task_detail.private') }}

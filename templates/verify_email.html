@@ -38,8 +38,8 @@
     if (!btn) return;
     btn.addEventListener('click', function() {
         if (cooldown > 0) return;
-        btn.disabled = true;
-        btn.textContent = '发送中...';
+        if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '发送中…');
+        else { btn.disabled = true; btn.textContent = '发送中...'; }
         fetch('{{ url_for("quickform.api_send_verify_code") }}', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
@@ -56,13 +56,15 @@
                     if (cooldown <= 0) clearInterval(t);
                 }, 1000);
             } else {
-                alert(data.message || '发送失败');
+                alert((data.message || '发送失败') + (data.detail ? ('\n' + data.detail) : ''));
+                if (window.qfSetButtonLoading) qfSetButtonLoading(btn, false);
                 btn.disabled = false;
                 btn.textContent = '发送验证码';
             }
         })
         .catch(function() {
             alert('请求失败');
+            if (window.qfSetButtonLoading) qfSetButtonLoading(btn, false);
             btn.disabled = false;
             btn.textContent = '发送验证码';
         });

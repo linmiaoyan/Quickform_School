@@ -975,12 +975,6 @@
                                                         <input type="hidden" name="action" value="reject">
                                                         <input type="hidden" name="note" value="">
                                                         <button type="button"
-                                                                class="btn btn-sm cert-reject-default-btn"
-                                                                style="background-color: #f59e0b; color: white; border: none; white-space: nowrap;">
-                                                            <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>
-                                                            {{ translate('admin.reject_with_default') }}
-                                                        </button>
-                                                        <button type="button"
                                                                 class="btn btn-sm"
                                                                 style="background-color: #ef4444; color: white; border: none; white-space: nowrap;"
                                                                 onclick="handleCertReject(this)">
@@ -1222,10 +1216,10 @@
                         <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 quota-batch-preset" data-reads="10000" data-mb="500" title="填入 +10000 次、+500 MB">+1万/+500</button>
                         <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 quota-batch-preset" data-reads="20000" data-mb="1024" title="填入 +20000 次、+1024 MB">+2万/+1G</button>
                         <input type="text" name="review_note" form="quotaBatchApproveForm" class="form-control form-control-sm" style="width:8rem;max-width:28vw;" placeholder="通过备注(可选)">
-                        <button type="submit" form="quotaBatchApproveForm" class="btn btn-sm btn-success">批量通过并加额</button>
+                        <button type="submit" form="quotaBatchApproveForm" id="quotaBatchApproveBtn" class="btn btn-sm btn-success">批量通过并加额</button>
                         <span class="text-muted px-1">|</span>
                         <input type="text" name="review_note" form="quotaBatchRejectForm" class="form-control form-control-sm" style="width:8rem;max-width:28vw;" placeholder="拒绝原因(可选)">
-                        <button type="submit" form="quotaBatchRejectForm" class="btn btn-sm btn-outline-secondary">批量拒绝</button>
+                        <button type="submit" form="quotaBatchRejectForm" id="quotaBatchRejectBtn" class="btn btn-sm btn-outline-secondary">批量拒绝</button>
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
@@ -1675,7 +1669,12 @@
         });
 
         formApprove.addEventListener('submit', function (e) {
-            if (!appendSelected(formApprove)) e.preventDefault();
+            if (!appendSelected(formApprove)) {
+                e.preventDefault();
+                return;
+            }
+            var btn = document.getElementById('quotaBatchApproveBtn');
+            if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '处理中…');
         });
         formReject.addEventListener('submit', function (e) {
             if (!appendSelected(formReject)) {
@@ -1683,6 +1682,8 @@
                 return;
             }
             if (!confirm('确定批量拒绝所选申请？')) e.preventDefault();
+            var btn = document.getElementById('quotaBatchRejectBtn');
+            if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '处理中…');
         });
 
         document.querySelectorAll('.quota-batch-preset').forEach(function (btn) {
@@ -1767,20 +1768,6 @@
         actionInput.value = 'reject';
         form.submit();
     }
-    // 教师认证拒绝（默认理由）：点选后直接提交
-    (function(){
-        document.addEventListener('click', function(e) {
-            var btn = e.target.closest('.cert-reject-default-btn');
-            if (!btn) return;
-            var form = btn.closest('form');
-            if (!form) return;
-            var noteInput = form.querySelector('input[name="note"]');
-            var defaultReason = form.getAttribute('data-default-reject-reason') || '请提供更多个人相关信息';
-            if (noteInput) noteInput.value = defaultReason;
-            if (confirm('{{ translate('admin.confirm_reject_cert') }}')) form.submit();
-        });
-    })();
-
     // HTML审核批量选择功能
     (function(){
         const selectAll = document.getElementById('selectAllTasks');
@@ -1850,11 +1837,53 @@
         updatePublicButtons();
     })();
 
+    // 批量/审核类按钮：提交时加 loading，防重复点击
+    (function () {
+        function setLoadingFromActive(form, fallbackBtnId) {
+            if (!form) return;
+            var btn = document.activeElement;
+            if (!(btn instanceof HTMLElement) || btn.tagName !== 'BUTTON' || !form.contains(btn)) {
+                btn = fallbackBtnId ? document.getElementById(fallbackBtnId) : null;
+            }
+            if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '处理中…');
+        }
+
+        var htmlBatchForm = document.getElementById('batchApproveForm');
+        if (htmlBatchForm) {
+            htmlBatchForm.addEventListener('submit', function () {
+                setLoadingFromActive(htmlBatchForm, 'batchApproveBtn');
+            });
+        }
+
+        var certBatchForm = document.getElementById('certBatchForm');
+        if (certBatchForm) {
+            certBatchForm.addEventListener('submit', function () {
+                setLoadingFromActive(certBatchForm, 'certBatchApproveBtn');
+            });
+        }
+
+        var publicBatchForm = document.getElementById('publicBatchForm');
+        if (publicBatchForm) {
+            publicBatchForm.addEventListener('submit', function () {
+                setLoadingFromActive(publicBatchForm);
+            });
+        }
+
+        // /all 加额审核：单条通过/拒绝也加 loading
+        document.querySelectorAll('#quota-review form[action*="admin_task_quota_"]').forEach(function (f) {
+            f.addEventListener('submit', function () {
+                setLoadingFromActive(f);
+            });
+        });
+    })();
+
     // 密码重置功能
     function resetPassword(userId, username) {
         if (!confirm(`确定要将用户 "${username}" 的密码重置为 123456 吗？`)) {
             return;
         }
+        var triggerBtn = document.activeElement;
+        if (window.qfSetButtonLoading) qfSetButtonLoading(triggerBtn, true, '处理中…');
         
         fetch(`{{ url_for('quickform.admin_reset_password') }}`, {
             method: 'POST',
@@ -1897,13 +1926,14 @@
                 `;
                 document.body.appendChild(modal);
             } else {
-                alert('密码重置失败：' + (data.message || '未知错误'));
+                alert('密码重置失败：' + (data.message || '未知错误') + (data.detail ? ('\n' + data.detail) : ''));
             }
         })
         .catch(error => {
             console.error('Error:', error);
             alert('密码重置失败：网络错误');
-        });
+        })
+        .finally(function(){ if (window.qfSetButtonLoading) qfSetButtonLoading(triggerBtn, false); });
     }
 
     function adminSetUserEmailPrompt(el) {
@@ -1932,7 +1962,7 @@
                     alert(data.message || '已更新');
                     window.location.reload();
                 } else {
-                    alert('修改失败：' + (data && data.message ? data.message : '未知错误'));
+                    alert('修改失败：' + (data && data.message ? data.message : '未知错误') + (data && data.detail ? ('\n' + data.detail) : ''));
                 }
             })
             .catch(function () {
@@ -1942,9 +1972,27 @@
 
     function copyPasswordInfo() {
         const textarea = document.getElementById('passwordInfo');
-        textarea.select();
-        document.execCommand('copy');
-        alert('信息已复制到剪贴板');
+        try {
+            const text = textarea.value || textarea.textContent || '';
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function(){
+                    if (window.showToast) showToast('success', '已复制到剪贴板', 1200);
+                    else alert('已复制到剪贴板');
+                }).catch(function(){
+                    textarea.select();
+                    document.execCommand('copy');
+                    if (window.showToast) showToast('success', '已复制到剪贴板', 1200);
+                    else alert('已复制到剪贴板');
+                });
+            } else {
+                textarea.select();
+                document.execCommand('copy');
+                if (window.showToast) showToast('success', '已复制到剪贴板', 1200);
+                else alert('已复制到剪贴板');
+            }
+        } catch (e) {
+            alert('复制失败，请手动复制');
+        }
     }
 
     // 每日注册人数图表（可选时间范围）

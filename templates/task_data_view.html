@@ -13,6 +13,39 @@
                 <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-secondary btn-sm">返回任务详情</a>
             </div>
         </div>
+
+        {% if can_edit_task and task.submission_manage_code %}
+        <div class="alert alert-info small">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div><strong>使用删改认证码删改数据</strong></div>
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleManageCodeHelp()">展开/收起</button>
+            </div>
+            <div id="manageCodeHelp" class="mt-2" style="display:none;">
+                <div class="input-group input-group-sm mb-2" style="max-width: 520px;">
+                    <span class="input-group-text">认证码</span>
+                    <input type="password" class="form-control" id="manageCodeInput" value="{{ task.submission_manage_code }}" readonly>
+                    <button type="button" class="btn btn-outline-secondary" onclick="toggleSecretVisible('manageCodeInput', this)">显示</button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="copyFromInput('manageCodeInput', this)">复制</button>
+                </div>
+                <div class="input-group">
+                    <textarea class="form-control" id="manageCodeAiPrompt" rows="6" readonly style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px;">QuickForm 任务删改说明（仅对本任务有效）：
+
+认证码：{{ task.submission_manage_code }}
+任务ID：{{ task.id }}
+
+删除单条（GET）：
+{{ api_base_url }}/task/{{ task.id }}/submission/remove?submission_id=<提交ID>&edit_code={{ task.submission_manage_code }}
+
+修改单条（POST JSON）：
+POST {{ api_base_url }}/task/{{ task.id }}/submission/update
+Body: {"submission_id": <提交ID>, "data": <新的数据(字符串或JSON对象)>}
+也可用请求头：X-QuickForm-Edit-Code: {{ task.submission_manage_code }}</textarea>
+                    <button class="btn btn-outline-primary" type="button" onclick="copyTextarea('manageCodeAiPrompt', this)">复制给大模型</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h5 class="mb-0" style="color: white; font-weight: 600;">{{ translate('task_detail.submission_list') }}（共 {{ total_submissions }} 条）</h5>
@@ -23,9 +56,9 @@
                         <input type="date" id="deleteDateStart" class="form-control form-control-sm" style="width: auto; max-width: 150px;">
                         <span class="text-white">至</span>
                         <input type="date" id="deleteDateEnd" class="form-control form-control-sm" style="width: auto; max-width: 150px;">
-                        <button type="button" class="btn btn-warning btn-sm" onclick="deleteByDateRange()">删除该期间数据</button>
+                    <button type="button" class="btn btn-warning btn-sm" onclick="deleteByDateRange(this)">删除该期间数据</button>
                     </div>
-                    <button type="button" class="btn btn-danger btn-sm" onclick="deleteAllData()">🗑 {{ translate('task_detail.delete_all') }}</button>
+                    <button type="button" class="btn btn-danger btn-sm" onclick="deleteAllData(this)">🗑 {{ translate('task_detail.delete_all') }}</button>
                     {% endif %}
                 </div>
             </div>
@@ -38,7 +71,7 @@
                                 <th>ID</th>
                                 <th>{{ translate('task_detail.submission_time') }}</th>
                                 <th>数据内容</th>
-                                <th style="width: 90px;">操作</th>
+                                <th style="width: 140px;">操作</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -51,7 +84,8 @@
                                 </td>
                                 <td>
                                     {% if can_edit_task %}
-                                    <button type="button" class="btn btn-sm btn-danger" onclick="deleteSingleData({{ sub.id }})">🗑 {{ translate('task_detail.delete') }}</button>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openEditSubmission({{ sub.id }}, {{ sub.data|tojson|safe }})">✎ 修改</button>
+                                    <button type="button" class="btn btn-sm btn-danger" onclick="deleteSingleData({{ sub.id }}, this)">🗑 {{ translate('task_detail.delete') }}</button>
                                     {% else %}
                                     <span class="text-muted small">—</span>
                                     {% endif %}
@@ -113,9 +147,67 @@
     </div>
 </div>
 
+{% if can_edit_task %}
+<div class="modal fade" id="editSubmissionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">修改提交内容</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2 text-muted small">建议保持为 JSON 文本；修改后将覆盖该条提交的原始数据。</div>
+        <input type="hidden" id="editSubmissionId" value="">
+        <textarea id="editSubmissionTextarea" class="form-control" rows="12" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px;"></textarea>
+        <div class="small text-muted mt-2" id="editSubmissionStatus"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" onclick="saveEditedSubmission(this)">保存修改</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
-function deleteSingleData(subId) {
+function toggleManageCodeHelp() {
+    var el = document.getElementById('manageCodeHelp');
+    if (!el) return;
+    el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
+}
+function toggleSecretVisible(inputId, btn) {
+    var input = document.getElementById(inputId);
+    if (!input || !btn) return;
+    input.type = (input.type === 'password') ? 'text' : 'password';
+    btn.textContent = (input.type === 'password') ? '显示' : '隐藏';
+}
+async function copyText(text, btn) {
+    try {
+        await navigator.clipboard.writeText(text);
+        if (btn) {
+            var orig = btn.textContent;
+            btn.textContent = '已复制';
+            setTimeout(function(){ btn.textContent = orig; }, 1200);
+        }
+    } catch (e) {
+        alert('复制失败，请手动复制');
+    }
+}
+function copyFromInput(inputId, btn) {
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    copyText(input.value || '', btn);
+}
+function copyTextarea(id, btn) {
+    var ta = document.getElementById(id);
+    if (!ta) return;
+    copyText(ta.value || '', btn);
+}
+
+function deleteSingleData(subId, btn) {
     if (!confirm('确定要删除这条提交记录吗？')) return;
+    if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '删除中…');
     fetch("{{ url_for('quickform.remove_submission', task_id=task.id) }}?submission_id=" + subId + "&_=" + Date.now(), {
         method: 'GET',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -126,10 +218,12 @@ function deleteSingleData(subId) {
         if (data.success) { location.reload(); }
         else { alert(data.message || '删除失败'); }
     })
-    .catch(function(e) { alert('删除失败：' + e.message); });
+    .catch(function(e) { alert('删除失败：' + e.message); })
+    .finally(function(){ if (window.qfSetButtonLoading) qfSetButtonLoading(btn, false); });
 }
-function deleteAllData() {
+function deleteAllData(btn) {
     if (!confirm('确定要清空该任务的全部提交数据吗？此操作不可恢复。')) return;
+    if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '清空中…');
     fetch("{{ url_for('quickform.clear_all_submissions', task_id=task.id) }}?_=" + Date.now(), {
         method: 'GET',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -140,9 +234,10 @@ function deleteAllData() {
         if (data.success) { location.reload(); }
         else { alert(data.message || '清空失败'); }
     })
-    .catch(function(e) { alert('清空失败：' + e.message); });
+    .catch(function(e) { alert('清空失败：' + e.message); })
+    .finally(function(){ if (window.qfSetButtonLoading) qfSetButtonLoading(btn, false); });
 }
-function deleteByDateRange() {
+function deleteByDateRange(btn) {
     var start = document.getElementById('deleteDateStart').value;
     var end = document.getElementById('deleteDateEnd').value;
     if (!start || !end) {
@@ -154,6 +249,7 @@ function deleteByDateRange() {
         return;
     }
     if (!confirm('确定要删除 ' + start + ' 至 ' + end + ' 期间内的全部提交数据吗？此操作不可恢复。')) return;
+    if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '删除中…');
     var url = "{{ url_for('quickform.clear_submissions_by_date_range', task_id=task.id) }}?date_start=" + encodeURIComponent(start) + "&date_end=" + encodeURIComponent(end) + "&_=" + Date.now();
     fetch(url, {
         method: 'GET',
@@ -165,7 +261,59 @@ function deleteByDateRange() {
         if (data.success) { location.reload(); }
         else { alert(data.message || '删除失败'); }
     })
-    .catch(function(e) { alert('删除失败：' + e.message); });
+    .catch(function(e) { alert('删除失败：' + e.message); })
+    .finally(function(){ if (window.qfSetButtonLoading) qfSetButtonLoading(btn, false); });
 }
+
+{% if can_edit_task %}
+function openEditSubmission(subId, dataText) {
+    var idEl = document.getElementById('editSubmissionId');
+    var ta = document.getElementById('editSubmissionTextarea');
+    var status = document.getElementById('editSubmissionStatus');
+    if (!idEl || !ta) return;
+    idEl.value = String(subId || '');
+    ta.value = (dataText === undefined || dataText === null) ? '' : String(dataText);
+    if (status) status.textContent = '';
+    try {
+        var modal = new bootstrap.Modal(document.getElementById('editSubmissionModal'));
+        modal.show();
+    } catch (e) {
+        // ignore
+    }
+}
+
+function saveEditedSubmission(btn) {
+    var idEl = document.getElementById('editSubmissionId');
+    var ta = document.getElementById('editSubmissionTextarea');
+    var status = document.getElementById('editSubmissionStatus');
+    if (!idEl || !ta) return;
+    var subId = parseInt(idEl.value || '0', 10);
+    if (!subId) { alert('提交ID无效'); return; }
+    var newText = ta.value || '';
+    if (!newText.trim()) { alert('内容不能为空'); return; }
+    if (status) status.textContent = '正在保存...';
+    if (window.qfSetButtonLoading) qfSetButtonLoading(btn, true, '保存中…');
+    fetch("{{ url_for('quickform.update_submission', task_id=task.id) }}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({ submission_id: subId, data: newText })
+    })
+    .then(function(r){ return r.json().catch(function(){ return {}; }); })
+    .then(function(data){
+        if (data && data.success) {
+            if (status) status.textContent = '保存成功，正在刷新...';
+            setTimeout(function(){ location.reload(); }, 500);
+        } else {
+            alert((data && data.message) ? data.message : '保存失败');
+            if (status) status.textContent = '';
+        }
+    })
+    .catch(function(e){
+        alert('保存失败：' + e.message);
+        if (status) status.textContent = '';
+    })
+    .finally(function(){ if (window.qfSetButtonLoading) qfSetButtonLoading(btn, false); });
+}
+{% endif %}
 </script>
 {% endblock %}
