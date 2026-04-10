@@ -155,19 +155,20 @@ class AIConfig(Base):
     user_id = Column(Integer, ForeignKey('user.id'), unique=True)
     user = relationship('User', back_populates='ai_config')
     selected_model = Column(String(50), default='deepseek')
-    deepseek_api_key = Column(String(200))
-    doubao_api_key = Column(String(200))
-    doubao_secret_key = Column(String(200))
-    qwen_api_key = Column(String(200))
+    # 各平台 key/token 在加密后可能明显变长，统一使用 TEXT 避免长度不足
+    deepseek_api_key = Column(Text)
+    doubao_api_key = Column(Text)
+    doubao_secret_key = Column(Text)
+    qwen_api_key = Column(Text)
     # 硅基流动（ChatServer）配置
     chat_server_api_url = Column(String(200))
-    chat_server_api_token = Column(String(200))
+    chat_server_api_token = Column(Text)
     # 更多模型
-    moonshot_api_key = Column(String(200))
-    glm_api_key = Column(String(200))
-    ernie_api_key = Column(String(200))
-    ernie_secret_key = Column(String(200))
-    openrouter_api_key = Column(String(200))
+    moonshot_api_key = Column(Text)
+    glm_api_key = Column(Text)
+    ernie_api_key = Column(Text)
+    ernie_secret_key = Column(Text)
+    openrouter_api_key = Column(Text)
 
 
 class CertificationRequest(Base):
@@ -463,6 +464,33 @@ def migrate_database(engine):
                     logger.info("成功为ai_config添加chat_server_api_token")
                 except Exception as e:
                     logger.warning(f"添加chat_server_api_token失败（可能已存在）: {str(e)}")
+
+            # ai_config 各 key/token：加密后字符串可能较长，MySQL 下统一升级为 TEXT
+            if ai_cfg_cols:
+                try:
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    if dialect == 'mysql':
+                        key_cols_to_text = [
+                            'deepseek_api_key',
+                            'doubao_api_key',
+                            'doubao_secret_key',
+                            'qwen_api_key',
+                            'chat_server_api_token',
+                            'moonshot_api_key',
+                            'glm_api_key',
+                            'ernie_api_key',
+                            'ernie_secret_key',
+                            'openrouter_api_key',
+                        ]
+                        for col_name in key_cols_to_text:
+                            if col_name in ai_cfg_cols:
+                                try:
+                                    conn.execute(text(f"ALTER TABLE ai_config MODIFY COLUMN {col_name} TEXT"))
+                                except Exception:
+                                    pass
+                        logger.info("成功将 ai_config 的 key/token 字段升级为 TEXT")
+                except Exception as e:
+                    logger.warning(f"升级 ai_config key/token 为 TEXT 失败（可能已升级）: {str(e)}")
             
             # task 新增 html_analysis 字段
             if task_cols and 'html_analysis' not in task_cols:
