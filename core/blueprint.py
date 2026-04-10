@@ -1193,9 +1193,11 @@ def register():
 
             db = SessionLocal()
             try:
-                from sqlalchemy import or_
+                from sqlalchemy import or_, func
+                username_norm = username.lower()
                 # 仅对非空手机号/邮箱做唯一性检查，避免 phone 为空时 OR 条件匹配大量用户导致误判或漏判
-                conditions = [User.username == username]
+                # 用户名使用大小写无关查重，避免 A/a 被当成不同账号导致后续异常
+                conditions = [func.lower(User.username) == username_norm]
                 if phone:
                     conditions.append(User.phone == phone)
                 if email:
@@ -1203,7 +1205,7 @@ def register():
                 existing_user = db.query(User).filter(or_(*conditions)).first()
 
                 if existing_user:
-                    if existing_user.username == username:
+                    if (existing_user.username or '').strip().lower() == username_norm:
                         flash('用户名已存在，请更换用户名或直接使用该账号登录', 'danger')
                     elif email and existing_user.email == email:
                         flash('邮箱已存在', 'danger')
@@ -1230,11 +1232,24 @@ def register():
 
                 db.add(user)
                 try:
+                    # 先 flush，提前触发唯一约束异常，避免前端误判“注册成功”
+                    db.flush()
                     db.commit()
                 except IntegrityError:
                     db.rollback()
                     logger.warning("注册唯一约束冲突: username=%s email=%s", username, email_value)
-                    flash('用户名或邮箱已被占用，请更换后重试', 'danger')
+                    # 冲突后再按字段精确提示，便于用户修正
+                    try:
+                        if db.query(User.id).filter(func.lower(User.username) == username_norm).first():
+                            flash('用户名已存在，请更换用户名或直接使用该账号登录', 'danger')
+                        elif email and db.query(User.id).filter(User.email == email).first():
+                            flash('邮箱已存在', 'danger')
+                        elif phone and db.query(User.id).filter(User.phone == phone).first():
+                            flash('手机号已被注册', 'danger')
+                        else:
+                            flash('注册失败：用户名/邮箱/手机号存在冲突，请更换后重试', 'danger')
+                    except Exception:
+                        flash('用户名或邮箱已被占用，请更换后重试', 'danger')
                     return redirect(url_for('quickform.register'))
 
                 flash('注册成功，请登录', 'success')

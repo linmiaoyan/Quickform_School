@@ -470,12 +470,24 @@
                                     <button 
                                         type="button" 
                                         class="btn btn-primary btn-sm" 
-                                        onclick="submitTestData()"
-                                        id="test-submit-btn"
+                                        onclick="submitTestDataPost()"
+                                        id="test-submit-post-btn"
                                         style="font-weight: 500;">
-                                        <i class="bi bi-send-fill"></i> 提交
+                                        <i class="bi bi-send-fill"></i> 测试 POST
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-outline-primary btn-sm ms-2"
+                                        onclick="submitTestDataGet()"
+                                        id="test-submit-get-btn"
+                                        style="font-weight: 500;">
+                                        <i class="bi bi-arrow-repeat"></i> 测试 GET
                                     </button>
                                     <span id="test-submit-status" class="small text-muted ms-2"></span>
+                                </div>
+                                <div class="mt-3">
+                                    <div class="small text-muted mb-1">调试输出（可截图反馈）：</div>
+                                    <pre id="test-debug-output" class="bg-light border rounded p-2 mb-0" style="min-height: 90px; white-space: pre-wrap; word-break: break-word; font-size: 12px;">尚未测试</pre>
                                 </div>
                             </div>
                         </div>
@@ -1215,10 +1227,25 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
         });
     }
     
-    // 测试数据提交功能
-    window.submitTestData = function submitTestData() {
+    function setTestDebugOutput(text, isError) {
+        const out = document.getElementById('test-debug-output');
+        if (!out) return;
+        out.textContent = text || '';
+        out.style.color = isError ? '#b91c1c' : '#111827';
+    }
+
+    async function parseJsonOrText(response) {
+        const text = await response.text();
+        let parsed = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch (e) { parsed = null; }
+        return { text, parsed };
+    }
+
+    // 测试数据提交（POST）功能
+    window.submitTestDataPost = function submitTestDataPost() {
         const input = document.getElementById('test-data-input');
-        const btn = document.getElementById('test-submit-btn');
+        const btn = document.getElementById('test-submit-post-btn');
+        const getBtn = document.getElementById('test-submit-get-btn');
         const status = document.getElementById('test-submit-status');
         
         if (!input || !btn || !status) return;
@@ -1242,7 +1269,8 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
         
         // 禁用按钮，显示提交中
         btn.disabled = true;
-        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> {{ translate("task_detail.debug_submitting") }}';
+        if (getBtn) getBtn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> POST中...';
         status.textContent = '';
         
         // 获取API URL
@@ -1257,17 +1285,22 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
             body: JSON.stringify(data)
         })
         .then(async response => {
-            const text = await response.text();
-            let result = {};
-            try {
-                result = text ? JSON.parse(text) : {};
-            } catch (e) {
-                result = { raw: text };
-            }
+            const body = await parseJsonOrText(response);
+            let result = body.parsed || {};
             
             if (!response.ok) {
-                throw new Error(result.error || result.message || `HTTP ${response.status}`);
+                const msg = result.error || result.message || `HTTP ${response.status}`;
+                const detail = result.detail ? `\nDetail: ${result.detail}` : '';
+                setTestDebugOutput(
+                    `[POST] ${apiUrl}\n状态码: ${response.status}\n结果: 失败\n错误: ${msg}${detail}\n响应: ${body.text || '(空)'}`,
+                    true
+                );
+                throw new Error(msg);
             }
+            setTestDebugOutput(
+                `[POST] ${apiUrl}\n状态码: ${response.status}\n结果: 成功\n响应: ${body.text || '(空)'}`,
+                false
+            );
             return result;
         })
         .then(result => {
@@ -1287,7 +1320,59 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
         })
         .finally(() => {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-send"></i> {{ translate("task_detail.debug_submit") }}';
+            if (getBtn) getBtn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-send-fill"></i> 测试 POST';
+        });
+    };
+
+    // 测试读取（GET）功能
+    window.submitTestDataGet = function submitTestDataGet() {
+        const postBtn = document.getElementById('test-submit-post-btn');
+        const btn = document.getElementById('test-submit-get-btn');
+        const status = document.getElementById('test-submit-status');
+        if (!btn || !status) return;
+
+        const apiUrl = '{{ url_for("quickform.submit_form", task_id=task.task_id) }}';
+        btn.disabled = true;
+        if (postBtn) postBtn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> GET中...';
+        status.textContent = '';
+
+        fetch(apiUrl, {
+            method: 'GET',
+            cache: 'no-store'
+        })
+        .then(async response => {
+            const body = await parseJsonOrText(response);
+            const result = body.parsed || {};
+            if (!response.ok) {
+                const msg = result.error || result.message || `HTTP ${response.status}`;
+                const detail = result.detail ? `\nDetail: ${result.detail}` : '';
+                setTestDebugOutput(
+                    `[GET] ${apiUrl}\n状态码: ${response.status}\n结果: 失败\n错误: ${msg}${detail}\n响应: ${body.text || '(空)'}`,
+                    true
+                );
+                throw new Error(msg);
+            }
+            setTestDebugOutput(
+                `[GET] ${apiUrl}\n状态码: ${response.status}\n结果: 成功\n响应: ${body.text || '(空)'}`,
+                false
+            );
+            return result;
+        })
+        .then(() => {
+            status.textContent = 'GET 测试成功';
+            status.style.color = '#28a745';
+        })
+        .catch(error => {
+            status.textContent = 'GET 测试失败：' + error.message;
+            status.style.color = '#dc3545';
+            console.error('GET 测试失败:', error);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            if (postBtn) postBtn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> 测试 GET';
         });
     };
     // 公开任务点赞
