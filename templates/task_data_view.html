@@ -84,7 +84,12 @@ Body: {"submission_id": <提交ID>, "data": <新的数据(字符串或JSON对象
                                 </td>
                                 <td>
                                     {% if can_edit_task %}
-                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openEditSubmission({{ sub.id }}, {{ sub.data|tojson|safe }})">✎ 修改</button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-outline-primary"
+                                        data-sub-id="{{ sub.id }}"
+                                        data-sub-data="{{ sub.data|tojson|forceescape }}"
+                                        onclick="openEditSubmissionFromBtn(this)">✎ 修改</button>
                                     <button type="button" class="btn btn-sm btn-danger" onclick="deleteSingleData({{ sub.id }}, this)">🗑 {{ translate('task_detail.delete') }}</button>
                                     {% else %}
                                     <span class="text-muted small">—</span>
@@ -266,6 +271,19 @@ function deleteByDateRange(btn) {
 }
 
 {% if can_edit_task %}
+function openEditSubmissionFromBtn(btn) {
+    if (!btn) return;
+    var subId = parseInt(btn.getAttribute('data-sub-id') || '0', 10);
+    var raw = btn.getAttribute('data-sub-data') || '""';
+    var text = '';
+    try {
+        text = JSON.parse(raw);
+    } catch (e) {
+        text = raw;
+    }
+    openEditSubmission(subId, text);
+}
+
 function openEditSubmission(subId, dataText) {
     var idEl = document.getElementById('editSubmissionId');
     var ta = document.getElementById('editSubmissionTextarea');
