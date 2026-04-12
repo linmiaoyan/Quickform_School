@@ -2,6 +2,8 @@
 
 {% block title %}{{ translate('nav.home') }} - QuickForm{% endblock %}
 
+{% block body_class %}qf-page-home{% endblock %}
+
 {% block content %}
 <style>
 /* 首页主面板：与 body 底纹区分，避免区块之间露出背景“断层” */
@@ -18,6 +20,14 @@
     box-sizing: border-box;
 }
 
+/* 首页手机端：正文 .container 在 ≤576px 时仅 10px 边距易显局促，与导航区对齐为更舒适留白 */
+@media (max-width: 575.98px) {
+    body.qf-page-home > .container.mt-5 {
+        padding-left: max(1rem, env(safe-area-inset-left, 0px));
+        padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    }
+}
+
 /* 大区块之间的分隔线（避免「拼贴」感） */
 .qf-home-inner > .hero-section + .feature-showcase,
 .qf-home-inner > .feature-showcase + .faq-section,
@@ -26,7 +36,7 @@
     border-top: 1px solid rgba(226, 232, 240, 0.95);
 }
 
-/* 统一的区块主标题（随机发现 / 常见问题 / 关于 等同尺度） */
+/* 统一的区块主标题（灵感广场 / 常见问题 / 关于 等同尺度） */
 .qf-home-section-title {
     font-size: 1.75rem;
     font-weight: 700;
@@ -297,7 +307,7 @@
     }
 }
 
-/* 介绍视频：固定悬浮层（不占栅格），可拖动、可收起 */
+/* 新手入门（视频）：固定悬浮层（不占栅格），可拖动、可收起 */
 .qf-video-float {
     position: fixed;
     z-index: 1040;
@@ -538,7 +548,7 @@
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
 }
 
-/* 首页「随机发现」（原项目交流区块迁移，样式与社区预览一致） */
+/* 首页「灵感广场」（随机公开项目预览；外框用低饱和色，避免与全站主色冲突） */
 .home-random-inner {
     max-width: 100%;
     margin: 0;
@@ -563,20 +573,22 @@
     gap: 1.25rem;
     align-items: stretch;
 }
-.community-spot-card {
-    border-radius: 16px;
-    overflow: hidden;
-    background: linear-gradient(145deg, #6366f1 0%, #4f46e5 35%, #2563eb 70%, #0ea5e9 100%);
-    padding: 10px;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.15);
-}
-.community-spot-card-inner {
-    background: #fff;
+.home-random-inner .community-spot-card {
     border-radius: 12px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #eef2f7 0%, #e2e8f0 100%);
+    padding: 1px;
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+    border: 1px solid #e2e8f0;
+}
+.home-random-inner .community-spot-card-inner {
+    background: #fff;
+    border-radius: 11px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     min-height: 0;
+    border: 1px solid rgba(226, 232, 240, 0.9);
 }
 .community-spot-title {
     padding: 0.65rem 0.85rem;
@@ -597,19 +609,38 @@
     text-overflow: ellipsis;
 }
 .community-spot-title a:hover { text-decoration: underline; }
-.community-preview-frame {
+.home-random-inner .community-preview-frame {
     position: relative;
     height: 300px;
-    background: #f1f5f9;
+    background: #f8fafc;
+    isolation: isolate;
+    /* 预览页若色彩很花，整体略降饱和，更接近首页蓝灰主调 */
+    filter: saturate(0.88) contrast(0.98);
 }
-.community-preview-frame iframe {
+.home-random-inner .community-preview-frame iframe {
     width: 100%;
     height: 100%;
     border: 0;
     display: block;
     background: #fff;
+    position: relative;
+    z-index: 0;
 }
-.community-preview-placeholder {
+/* 半透明遮罩：压低预览页色彩冲击；pointer-events:none 以便滚动/点击穿透到 iframe */
+.home-random-inner .qf-preview-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.38) 0%,
+        rgba(241, 245, 249, 0.52) 45%,
+        rgba(226, 232, 240, 0.48) 100%
+    );
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.home-random-inner .community-preview-placeholder {
     height: 300px;
     display: flex;
     align-items: center;
@@ -618,7 +649,7 @@
     font-size: 0.9rem;
     padding: 1rem;
     text-align: center;
-    background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 /* 常见问题区域样式 */
@@ -719,7 +750,7 @@
 
 <div class="qf-home-main">
 <div class="qf-home-inner">
-<!-- Hero：主标题 + 弱化说明 + 四步流程；介绍视频为可拖动固定悬浮窗（见页末） -->
+<!-- Hero：主标题 + 弱化说明 + 四步流程；新手入门为可拖动固定悬浮窗（见页末） -->
 <div class="hero-section">
     <div class="position-relative">
                 <div class="hero-content text-center text-md-start w-100">
@@ -819,17 +850,17 @@
     </div>
 </div>
 
-    <!-- 随机发现（由项目交流页迁移；数据与 _get_cached_community_random 缓存一致） -->
+    <!-- 灵感广场（随机公开项目；数据与 _get_cached_community_random 缓存一致） -->
     <div class="feature-showcase">
         <div class="home-random-inner">
-        <section class="community-random-section" id="qf-home-random">
+        <section class="community-random-section" id="qf-home-random" aria-label="灵感广场">
             <div class="community-random-head">
                 <div>
-                    <h2 class="qf-home-section-title"><i class="bi bi-shuffle text-primary me-1" aria-hidden="true"></i>随机发现</h2>
-                    <p class="qf-home-section-lead">从已通过审核的公开项目中随机展示 3 个；可预览任务页面效果与对方提供的教程。</p>
+                    <h2 class="qf-home-section-title">灵感广场</h2>
+                    <p class="qf-home-section-lead">从已通过审核的公开项目中随机呈现 3 个案例；可预览页面效果与对方提供的教程。</p>
                 </div>
                 <div class="community-random-actions d-flex flex-wrap gap-2">
-                    <a href="{{ url_for('quickform.index', refresh='1') }}#qf-home-random" class="btn btn-outline-primary btn-sm">
+                    <a href="{{ url_for('quickform.index', refresh='1') }}#qf-home-random" class="btn btn-outline-primary btn-sm qf-inspiration-reshuffle">
                         <i class="bi bi-arrow-repeat"></i> 随机抽取
                     </a>
                     <a href="{{ url_for('quickform.community', hot='1') }}" class="btn btn-primary btn-sm">
@@ -848,6 +879,7 @@
                         {% if item.preview_url %}
                         <div class="community-preview-frame">
                             <iframe src="{{ item.preview_url }}" title="{{ item.title }} 预览" loading="lazy" referrerpolicy="no-referrer-when-downgrade" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+                            <div class="qf-preview-veil" aria-hidden="true"></div>
                         </div>
                         {% else %}
                         <div class="community-preview-placeholder">该项目暂无 HTML 页面预览</div>
@@ -990,34 +1022,34 @@
 </div><!-- /.qf-home-inner -->
 </div><!-- /.qf-home-main -->
 
-<!-- 介绍视频：可拖动悬浮入口 + 收起后的小药丸 -->
-<div id="qfHomeVideoFloat" class="qf-video-float" role="complementary" aria-label="介绍视频">
+<!-- 新手入门（视频）：可拖动悬浮入口 + 收起后的小药丸 -->
+<div id="qfHomeVideoFloat" class="qf-video-float" role="complementary" aria-label="新手入门">
     <div class="qf-video-float-hd">
         <div class="qf-video-float-drag" title="按住拖动，避免挡住内容">
             <i class="bi bi-grip-vertical" aria-hidden="true"></i>
-            <span>介绍视频</span>
+            <span>新手入门</span>
         </div>
         <button type="button" class="qf-video-float-close" id="qfHomeVideoFloatClose" aria-label="收起" title="收起">
             <i class="bi bi-x-lg" aria-hidden="true"></i>
         </button>
     </div>
-    <button type="button" class="qf-video-float-play" data-bs-toggle="modal" data-bs-target="#homeIntroVideoModal" aria-label="播放介绍视频">
+    <button type="button" class="qf-video-float-play" data-bs-toggle="modal" data-bs-target="#homeIntroVideoModal" aria-label="播放新手入门视频">
         <div class="qf-video-thumb">
             <i class="bi bi-play-circle-fill" aria-hidden="true"></i>
         </div>
     </button>
 </div>
-<button type="button" id="qfHomeVideoPeek" class="qf-video-float-peek" aria-label="展开介绍视频入口">
+<button type="button" id="qfHomeVideoPeek" class="qf-video-float-peek" aria-label="展开新手入门入口">
     <i class="bi bi-play-circle-fill" aria-hidden="true"></i>
-    介绍视频
+    新手入门
 </button>
 
-<!-- 介绍视频：弹窗内嵌 B 站（关闭时卸载 iframe 以停止播放） -->
+<!-- 新手入门（视频）：弹窗内嵌 B 站（关闭时卸载 iframe 以停止播放） -->
 <div class="modal fade" id="homeIntroVideoModal" tabindex="-1" aria-labelledby="homeIntroVideoModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 class="modal-title fs-5" id="homeIntroVideoModalLabel">QuickForm 介绍视频</h2>
+                <h2 class="modal-title fs-5" id="homeIntroVideoModalLabel">QuickForm 新手入门</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
             </div>
             <div class="modal-body p-0">
@@ -1025,7 +1057,7 @@
                     <iframe
                         id="homeIntroVideoIframe"
                         class="w-100 h-100"
-                        title="QuickForm 介绍视频"
+                        title="QuickForm 新手入门"
                         data-bilibili-src="//player.bilibili.com/player.html?isOutside=true&aid=116215053812928&bvid=BV1hsc6zHEoN&cid=36643342242&p=1"
                         scrolling="no"
                         allowfullscreen
@@ -1167,6 +1199,33 @@
     peek.addEventListener('click', function () {
         panel.classList.remove('is-collapsed');
         peek.classList.remove('is-visible');
+    });
+})();
+</script>
+<script>
+/* 灵感广场「随机抽取」：同 URL（?refresh=1#…）连点不会触发导航，需每次追加 _= 时间戳强制整页刷新 */
+(function () {
+    document.querySelectorAll('a.qf-inspiration-reshuffle').forEach(function (a) {
+        a.addEventListener('click', function (e) {
+            if (e.defaultPrevented) return;
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            var raw = a.getAttribute('href') || '';
+            var hashIdx = raw.indexOf('#');
+            var pathAndQuery = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
+            var hash = hashIdx >= 0 ? raw.slice(hashIdx) : '#qf-home-random';
+            var next;
+            try {
+                var u = new URL(pathAndQuery, window.location.href);
+                u.searchParams.set('refresh', '1');
+                u.searchParams.set('_', String(Date.now()));
+                next = u.pathname + u.search + hash;
+            } catch (err) {
+                var sep = pathAndQuery.indexOf('?') >= 0 ? '&' : '?';
+                next = pathAndQuery + sep + '_=' + Date.now() + hash;
+            }
+            window.location.assign(next);
+        });
     });
 })();
 </script>
