@@ -906,8 +906,21 @@ def index():
             if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 partner_logos.append(filename)
         partner_logos.sort()  # 按文件名排序
-    
-    return render_template('home.html', video_files=video_files, partner_logos=partner_logos)
+
+    community_random = []
+    db = SessionLocal()
+    try:
+        force_random_refresh = (request.args.get('refresh') or '').strip() == '1'
+        community_random = _get_cached_community_random(db, force_refresh=force_random_refresh)
+    finally:
+        db.close()
+
+    return render_template(
+        'home.html',
+        video_files=video_files,
+        partner_logos=partner_logos,
+        community_random=community_random,
+    )
 
 @quickform_bp.route('/switch_lang/<lang>')
 def switch_lang(lang):
@@ -951,7 +964,7 @@ def cases():
 
 @quickform_bp.route('/community')
 def community():
-    """项目交流：默认随机展示 3 个公开项目（含 HTML 预览）；「热榜」需带 hot=1；留言板分页。"""
+    """项目交流：热榜需带 hot=1；留言板分页。随机公开项目预览在首页「随机发现」。"""
     db = SessionLocal()
     try:
         show_hot = (request.args.get("hot") or "").strip() == "1"
@@ -962,8 +975,6 @@ def community():
         page_posts = max(1, request.args.get("post_page", 1, type=int))
 
         base_public = db.query(Task).filter(Task.sharing_type == "public", Task.public_approved == 1)
-        force_random_refresh = (request.args.get('refresh') or '').strip() == '1'
-        community_random = _get_cached_community_random(db, force_refresh=force_random_refresh)
 
         public_tasks_latest = []
         public_tasks_liked = []
@@ -1010,7 +1021,6 @@ def community():
         return render_template(
             "community.html",
             posts=posts,
-            community_random=community_random,
             show_hot=show_hot,
             public_tasks_latest=public_tasks_latest,
             public_tasks_liked=public_tasks_liked,
@@ -1375,12 +1385,37 @@ def login():
     return render_template('login.html')
 
 
+def _forgot_password_render_verify():
+    """找回密码第二步：根据会话中的用户 ID 渲染验证页；无会话则回第一步。"""
+    from flask import session
+
+    user_id = session.get('pw_reset_user_id')
+    if not user_id:
+        return render_template('forgot_password.html', mode='start', user=None)
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            session.pop('pw_reset_user_id', None)
+            session.pop('pw_reset_code_email', None)
+            return render_template('forgot_password.html', mode='start', user=None)
+        email_is_placeholder = _is_placeholder_or_empty_email(user.email)
+        return render_template(
+            'forgot_password.html',
+            mode='verify',
+            user=user,
+            email_is_placeholder=email_is_placeholder,
+        )
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     """
     通过手机号确认身份，再向绑定邮箱发送验证码以重置密码。
     第一步：输入手机号，查找账户并展示用户名；
-    第二步：发送验证码并重置密码（仅使用服务器端查到的邮箱）。
+    第二步：发送验证码并重置密码（绑定真实邮箱的账户使用库中邮箱；占位邮箱须先填写新邮箱再收码）。
     """
     from flask import session
 
@@ -1405,8 +1440,15 @@ def forgot_password():
                 user = users[0]
                 # 在会话中记录当前正在进行密码重置的用户ID
                 session['pw_reset_user_id'] = user.id
+                session.pop('pw_reset_code_email', None)
                 # 跳转到第二步页面，展示用户名并允许发送验证码与重置密码
-                return render_template('forgot_password.html', mode='verify', user=user)
+                email_is_placeholder = _is_placeholder_or_empty_email(user.email)
+                return render_template(
+                    'forgot_password.html',
+                    mode='verify',
+                    user=user,
+                    email_is_placeholder=email_is_placeholder,
+                )
             finally:
                 db.close()
         else:
@@ -1417,15 +1459,15 @@ def forgot_password():
 
             if not email_code or not new_password or not confirm_password:
                 flash('请填写所有必填项', 'danger')
-                return redirect(url_for('quickform.forgot_password'))
+                return _forgot_password_render_verify()
 
             if new_password != confirm_password:
                 flash('两次输入的密码不一致', 'danger')
-                return redirect(url_for('quickform.forgot_password'))
+                return _forgot_password_render_verify()
 
             if len(new_password) < 6:
                 flash('新密码长度至少为6个字符', 'danger')
-                return redirect(url_for('quickform.forgot_password'))
+                return _forgot_password_render_verify()
 
             user_id = session.get('pw_reset_user_id')
             if not user_id:
@@ -1439,22 +1481,44 @@ def forgot_password():
                     flash('账户信息异常，请联系管理员', 'danger')
                     return redirect(url_for('quickform.forgot_password'))
 
-                # 校验邮箱验证码（只使用服务器端查到的邮箱）
-                if not verify_email_code(user.email, email_code):
-                    flash('邮箱验证码错误或已过期，请重新获取', 'danger')
-                    return redirect(url_for('quickform.forgot_password'))
+                # 占位邮箱：验证码发往 session 中记录的「待绑定邮箱」
+                code_email = (session.get('pw_reset_code_email') or '').strip()
+                if _is_placeholder_or_empty_email(user.email):
+                    if not code_email:
+                        flash('请先填写真实邮箱并点击「发送验证码」', 'danger')
+                        return _forgot_password_render_verify()
+                    if not _USER_EMAIL_FORMAT_RE.match(code_email):
+                        flash('邮箱格式不正确', 'danger')
+                        return _forgot_password_render_verify()
+                    if not verify_email_code(code_email, email_code):
+                        flash('邮箱验证码错误或已过期，请重新获取', 'danger')
+                        return _forgot_password_render_verify()
+                    if db.query(User).filter(User.email == code_email, User.id != user.id).first():
+                        flash('该邮箱已被其他账号使用，请更换', 'danger')
+                        return _forgot_password_render_verify()
+                    user.email = code_email
+                    user.email_verified = True
+                else:
+                    if code_email and code_email != user.email:
+                        session.pop('pw_reset_code_email', None)
+                    if not verify_email_code(user.email, email_code):
+                        flash('邮箱验证码错误或已过期，请重新获取', 'danger')
+                        return _forgot_password_render_verify()
 
                 hashed = bcrypt.generate_password_hash(new_password).decode('utf-8')
                 user.password = hashed
                 db.commit()
                 # 完成后清理会话标记
                 session.pop('pw_reset_user_id', None)
+                session.pop('pw_reset_code_email', None)
                 flash('密码重置成功，请使用新密码登录', 'success')
                 return redirect(url_for('quickform.login'))
             finally:
                 db.close()
 
-    # GET 或表单校验失败后默认回到第一步手机号输入页面
+    # GET：若会话中仍有重置中的用户，直接回到第二步（避免误刷新退回第一步）
+    if session.get('pw_reset_user_id'):
+        return _forgot_password_render_verify()
     return render_template('forgot_password.html', mode='start', user=None)
 
 
@@ -1462,7 +1526,8 @@ def forgot_password():
 def forgot_password_send_code():
     """
     第二步中点击“发送验证码”时调用。
-    只根据会话中的用户ID查找邮箱，避免前端伪造邮箱。
+    已绑定真实邮箱：验证码发往库中邮箱（前端不可伪造目标地址）。
+    占位邮箱：须通过 JSON 提交 new_email，校验格式与唯一后发往该邮箱，并在 session 中记录待校验地址。
     """
     from flask import session
 
@@ -1476,9 +1541,29 @@ def forgot_password_send_code():
         if not user or not user.email:
             return jsonify({'success': False, 'message': '账户信息异常，请联系管理员'}), 400
 
+        payload = request.get_json(silent=True) or {}
+        new_email = (payload.get('new_email') or '').strip()
+
+        if _is_placeholder_or_empty_email(user.email):
+            if not new_email:
+                return jsonify({'success': False, 'message': '请先填写您的真实邮箱'}), 400
+            if not _USER_EMAIL_FORMAT_RE.match(new_email):
+                return jsonify({'success': False, 'message': '邮箱格式不正确'}), 400
+            if new_email.endswith('@noreply.local'):
+                return jsonify({'success': False, 'message': '请填写可收信的真实邮箱，不能使用系统占位域名'}), 400
+            if db.query(User).filter(User.email == new_email, User.id != user.id).first():
+                return jsonify({'success': False, 'message': '该邮箱已被其他账号使用，请更换'}), 400
+            target = new_email
+            session['pw_reset_code_email'] = new_email
+        else:
+            session.pop('pw_reset_code_email', None)
+            target = (user.email or '').strip()
+            if not target:
+                return jsonify({'success': False, 'message': '账户信息异常，请联系管理员'}), 400
+
         code = f"{random.randint(0, 999999):06d}"
-        set_email_code(user.email, code, ttl_seconds=600)
-        send_email_code(user.email, code)
+        set_email_code(target, code, ttl_seconds=600)
+        send_email_code(target, code)
         return jsonify({'success': True, 'message': '验证码已发送'})
     except RuntimeError as e:
         # send_email_code 对配置错误、认证失败、地址异常等抛出可读中文说明
@@ -1764,10 +1849,7 @@ ONECLICK_PROMPT_OPTIONS = DEFAULT_ONECLICK_PROMPT_OPTIONS
 @quickform_bp.route('/oneclick_create_task', methods=['GET', 'POST'])
 @login_required
 def oneclick_create_task():
-    """一键生成新任务（内测）：仅认证教师可用，根据描述生成 HTML 并自动上传到新任务"""
-    if not (current_user.is_admin() or getattr(current_user, 'is_certified', False)):
-        flash('一键生成新任务仅对认证教师开放，请先完成教师认证。', 'warning')
-        return redirect(url_for('quickform.dashboard'))
+    """一键生成新任务：登录用户可用，根据描述生成 HTML 并自动上传到新任务（需在个人中心配置 AI）。"""
     if request.method == 'GET':
         db = SessionLocal()
         try:

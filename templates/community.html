@@ -220,93 +220,6 @@
     margin-right: 0.5rem;
 }
 
-/* 社区：随机发现 + HTML 预览 */
-.community-random-section {
-    margin-bottom: 2rem;
-}
-.community-random-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-}
-.community-random-actions .btn {
-    font-weight: 500;
-}
-.community-random-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1.25rem;
-}
-@media (max-width: 1200px) {
-    .community-random-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-@media (max-width: 768px) {
-    .community-random-grid {
-        grid-template-columns: 1fr;
-    }
-}
-.community-spot-card {
-    border-radius: 16px;
-    overflow: hidden;
-    background: linear-gradient(145deg, #6366f1 0%, #4f46e5 35%, #2563eb 70%, #0ea5e9 100%);
-    padding: 10px;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.15);
-}
-.community-spot-card-inner {
-    background: #fff;
-    border-radius: 12px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
-.community-spot-title {
-    padding: 0.65rem 0.85rem;
-    border-bottom: 1px solid #e2e8f0;
-    font-weight: 600;
-    color: #0f172a;
-    font-size: 0.95rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 0;
-}
-.community-spot-title a {
-    color: #1d4ed8;
-    text-decoration: none;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.community-spot-title a:hover { text-decoration: underline; }
-.community-preview-frame {
-    position: relative;
-    height: 300px;
-    background: #f1f5f9;
-}
-.community-preview-frame iframe {
-    width: 100%;
-    height: 100%;
-    border: 0;
-    display: block;
-    background: #fff;
-}
-.community-preview-placeholder {
-    height: 300px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #64748b;
-    font-size: 0.9rem;
-    padding: 1rem;
-    text-align: center;
-    background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
-}
 .community-hot-panel {
     display: none;
 }
@@ -389,60 +302,10 @@
         <div class="col-12 mx-auto">
             <h1 class="mb-4">{{ translate('nav.community') if translate('nav.community') != 'nav.community' else '项目交流' }}</h1>
 
-            <!-- 随机发现：每次进入随机 3 个公开项目 + 页面内预览 -->
-            <section class="community-random-section">
-                <div class="community-random-head">
-                    <div>
-                        <h3 class="mb-1"><i class="bi bi-shuffle text-primary"></i> 随机发现</h3>
-                        <p class="text-muted small mb-0">从已通过审核的公开项目中随机展示 3 个；可预览任务页面效果。</p>
-                    </div>
-                    <div class="community-random-actions d-flex flex-wrap gap-2">
-                        {% if show_hot %}
-                        <a href="{{ url_for('quickform.community', hot='1', post_page=pagination_posts.page, per_post=pagination_posts.per_page, refresh='1') }}" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-arrow-repeat"></i> 随机抽取
-                        </a>
-                        {% else %}
-                        <a href="{{ url_for('quickform.community', post_page=pagination_posts.page, per_post=pagination_posts.per_page, refresh='1') }}" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-arrow-repeat"></i> 随机抽取
-                        </a>
-                        {% endif %}
-                        {% if show_hot %}
-                        <a href="{{ url_for('quickform.community', post_page=pagination_posts.page, per_post=pagination_posts.per_page) }}" class="btn btn-outline-secondary btn-sm">返回随机推荐</a>
-                        {% else %}
-                        <a href="{{ url_for('quickform.community', hot='1', post_page=pagination_posts.page, per_post=pagination_posts.per_page) }}" class="btn btn-primary btn-sm">
-                            <i class="bi bi-fire"></i> 查看热榜
-                        </a>
-                        {% endif %}
-                    </div>
-                </div>
-                {% if community_random and community_random|length > 0 %}
-                <div class="community-random-grid">
-                    {% for item in community_random %}
-                    <article class="community-spot-card">
-                        <div class="community-spot-card-inner">
-                            <div class="community-spot-title">
-                                <a href="{{ url_for('quickform.task_detail', task_id=item.task_id) }}" target="_blank" rel="noopener">{{ item.title }}</a>
-                            </div>
-                            {% if item.preview_url %}
-                            <div class="community-preview-frame">
-                                <iframe src="{{ item.preview_url }}" title="{{ item.title }} 预览" loading="lazy" referrerpolicy="no-referrer-when-downgrade" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
-                            </div>
-                            {% else %}
-                            <div class="community-preview-placeholder">该项目暂无 HTML 页面预览</div>
-                            {% endif %}
-                        </div>
-                    </article>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <p class="text-muted mb-0">暂无公开项目，欢迎老师发布并申请公开审核。</p>
-                {% endif %}
-            </section>
-
-            <!-- 热榜：仅 hot=1 或前端展开后显示（与随机推荐可同时存在） -->
+            <!-- 热榜：仅 hot=1 时显示 -->
             <section class="mb-5 community-hot-panel {% if show_hot %}is-visible{% endif %}" id="communityHotPanel">
                 <h3 class="mb-2"><i class="bi bi-trophy"></i> 项目热榜</h3>
-                <p class="text-muted small mb-3">最新发布与最高点赞；点击上方「返回随机推荐」可收起本区。</p>
+                <p class="text-muted small mb-3">最新发布与最高点赞。</p>
                 <div class="row g-4">
                     <div class="col-md-6">
                         <div class="community-projects-section">

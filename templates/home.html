@@ -4,109 +4,444 @@
 
 {% block content %}
 <style>
-/* Hero区域 - 参考 Cursor 设计：白色背景，深色文字，模糊产品界面背景 */
+/* 首页主面板：与 body 底纹区分，避免区块之间露出背景“断层” */
+.qf-home-main {
+    background-color: #ffffff;
+}
+
+/* 首页主内容轨：统一最大宽度与水平居中，子区块不再各自 max-width + auto margin */
+.qf-home-inner {
+    width: 100%;
+    max-width: min(72rem, 100%);
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+}
+
+/* 大区块之间的分隔线（避免「拼贴」感） */
+.qf-home-inner > .hero-section + .feature-showcase,
+.qf-home-inner > .feature-showcase + .faq-section,
+.qf-home-inner > .faq-section + .feature-showcase,
+.qf-home-inner > .feature-showcase + .social-proof {
+    border-top: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+/* 统一的区块主标题（随机发现 / 常见问题 / 关于 等同尺度） */
+.qf-home-section-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.35rem;
+}
+
+.qf-home-section-lead {
+    font-size: 0.875rem;
+    color: #64748b;
+    line-height: 1.55;
+    margin-bottom: 0;
+    max-width: 42rem;
+}
+
+/* 双栏布局：FAQ 左侧标题 + 右侧内容（与栅格 gutter 脱钩，左右缘与整页内容轨对齐） */
+.qf-home-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 1.5rem 2.5rem;
+    align-items: start;
+}
+
+@media (max-width: 767.98px) {
+    .qf-home-split {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Hero区域：与首页白底一致，无叠层染色 */
 .hero-section {
     background: #ffffff;
     color: #111827;
-    padding: 6rem 0 5rem;
+    padding: 4rem 0 2rem;
     margin: 0;
-    text-align: center;
     position: relative;
-    overflow: hidden;
-}
-
-.hero-section::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-    opacity: 0.5;
-    z-index: 0;
+    overflow: visible;
 }
 
 .hero-content {
     position: relative;
     z-index: 1;
-    max-width: 900px;
-    margin: 0 auto;
 }
 
-.hero-title {
-    font-size: 3.5rem;
+.hero-title-line1 {
+    font-size: 2.5rem;
     font-weight: 700;
-    margin-bottom: 1.5rem;
-    line-height: 1.1;
+    margin-bottom: 0.5rem;
+    line-height: 1.15;
     color: #111827;
     letter-spacing: -0.02em;
 }
 
-.hero-subtitle {
-    font-size: 1.375rem;
+.hero-title-line2 {
+    font-size: 1.05rem;
+    font-weight: 500;
+    margin-bottom: 0.35rem;
+    color: #64748b;
+    line-height: 1.5;
+}
+
+.hero-tagline {
+    font-size: 0.9rem;
     font-weight: 400;
-    margin-bottom: 2.5rem;
-    color: #6b7280;
-    line-height: 1.6;
+    margin-bottom: 1.5rem;
+    color: #94a3b8;
+    line-height: 1.65;
+    max-width: 100%;
 }
 
 .hero-buttons {
     display: flex;
-    gap: 1rem;
-    justify-content: center;
+    gap: 0.75rem;
     flex-wrap: wrap;
 }
 
 .hero-buttons .btn {
-    padding: 0.875rem 2rem;
-    font-size: 1.125rem;
+    padding: 0.65rem 1.35rem;
+    font-size: 1rem;
     border-radius: 8px;
     font-weight: 500;
 }
 
-/* 产品界面展示区域 - 模拟界面卡片 */
-.product-showcase {
-    background: #ffffff;
-    border-radius: 12px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-    overflow: hidden;
-    margin: -4rem auto 4rem;
-    max-width: 1200px;
-    position: relative;
-    z-index: 2;
+/* 首页：四步流程（横向卡片） */
+.qf-steps-section {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.35);
 }
 
-.product-showcase-header {
-    background: #f9fafb;
-    border-bottom: 1px solid #e5e7eb;
-    padding: 1rem 1.5rem;
+.qf-steps-heading {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 1rem;
+    letter-spacing: 0.02em;
+}
+
+.qf-steps-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.qf-step-card {
+    flex: 1 1 0;
+    min-width: 200px;
+    max-width: 260px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* 第 3 步（AI 链接 + 示例提示词）内容多：加宽并提高 flex 占比，随视口上限自适应 */
+.qf-step-card--wide {
+    flex: 2.15 1 260px;
+    min-width: clamp(220px, 34vw, 280px);
+    max-width: min(26rem, calc(100vw - 2rem));
+}
+
+.qf-step-card-hd {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 0.85rem;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.qf-step-num {
+    flex: 0 0 auto;
+    width: 1.65rem;
+    height: 1.65rem;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 700;
     display: flex;
     align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.qf-step-title {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.35;
+}
+
+.qf-step-card-bd {
+    padding: 0.75rem 0.85rem 0.85rem;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    color: #475569;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
     gap: 0.5rem;
 }
 
-.product-showcase-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: #e5e7eb;
+.qf-step-card-bd p {
+    margin: 0;
 }
 
-.product-showcase-dot:nth-child(1) { background: #ef4444; }
-.product-showcase-dot:nth-child(2) { background: #f59e0b; }
-.product-showcase-dot:nth-child(3) { background: #10b981; }
+.qf-step-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.15rem;
+}
 
-.product-showcase-content {
-    padding: 2rem;
-    background: #ffffff;
+.qf-step-actions a {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.45rem;
+    border-radius: 6px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    text-decoration: none;
+    font-weight: 500;
+    border: 1px solid #bfdbfe;
+    white-space: nowrap;
+}
+
+.qf-step-actions a:hover {
+    background: #dbeafe;
+    color: #1e3a8a;
+}
+
+.qf-step-ai-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.qf-step-ai-row a {
+    font-size: 0.68rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #334155;
+    text-decoration: none;
+    border: 1px solid #e2e8f0;
+}
+
+.qf-step-ai-row a:hover {
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    background: #eff6ff;
+}
+
+.qf-step-prompt {
+    margin: 0;
+    padding: 0.45rem 0.5rem;
+    font-size: 0.65rem;
+    line-height: 1.45;
+    color: #475569;
+    background: #f1f5f9;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.qf-step-prompt-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+/* 第 2 步：专属提交入口一行示例（比真实地址更短，仅示意） */
+.qf-step-prompt--short {
+    white-space: normal;
+    font-size: 0.64rem;
+    padding: 0.35rem 0.45rem;
+    line-height: 1.4;
+}
+
+.qf-step-arrow {
+    flex: 0 0 auto;
+    align-self: center;
+    color: #cbd5e1;
+    font-size: 1.1rem;
+    padding: 0 0.15rem;
+    user-select: none;
+}
+
+@media (min-width: 992px) {
+    .qf-step-card--wide {
+        max-width: min(28rem, 48vw);
+        flex-basis: 300px;
+    }
+}
+
+/* 介绍视频：固定悬浮层（不占栅格），可拖动、可收起 */
+.qf-video-float {
+    position: fixed;
+    z-index: 1040;
+    width: 220px;
+    max-width: calc(100vw - 1.5rem);
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 10px 40px rgba(15, 23, 42, 0.15);
+    overflow: hidden;
+    right: 1rem;
+    bottom: 5.5rem;
+    left: auto;
+    top: auto;
+}
+
+.qf-video-float.is-dragging {
+    box-shadow: 0 14px 48px rgba(15, 23, 42, 0.22);
+    cursor: grabbing;
+    touch-action: none;
+}
+
+.qf-video-float-hd {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.4rem 0.35rem 0.55rem;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 1px solid #e2e8f0;
+    min-height: 2.25rem;
+}
+
+.qf-video-float-drag {
+    flex: 1 1 auto;
+    cursor: grab;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #334155;
+    padding: 0.15rem 0;
+}
+
+.qf-video-float-drag:active {
+    cursor: grabbing;
+}
+
+.qf-video-float-drag .bi-grip-vertical {
+    color: #94a3b8;
+    font-size: 1rem;
+}
+
+.qf-video-float-close {
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.qf-video-float-close:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+.qf-video-float-play {
+    display: block;
+    width: 100%;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: #fff;
+    text-align: left;
+    cursor: pointer;
+}
+
+.qf-video-float-play:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: -2px;
+}
+
+.qf-video-thumb {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qf-video-thumb .bi-play-circle-fill {
+    font-size: 2.25rem;
+    color: rgba(255, 255, 255, 0.95);
+    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.25));
+}
+
+.qf-video-float-peek {
+    position: fixed;
+    z-index: 1040;
+    right: 1rem;
+    bottom: 5.5rem;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(29, 78, 216, 0.4);
+    display: none;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.qf-video-float-peek.is-visible {
+    display: inline-flex;
+}
+
+.qf-video-float.is-collapsed {
+    display: none !important;
 }
 
 /* 社会认同区域 */
 .social-proof {
     text-align: center;
-    padding: 3rem 2rem;
+    padding: 2rem 0 3rem;
+    margin-top: 0;
     background: #ffffff;
+}
+
+.social-proof--home-bottom {
+    margin-top: 0;
+    padding: 3rem 0 3.5rem;
+    border-top: none;
 }
 
 .social-proof-text {
@@ -139,35 +474,46 @@
     filter: grayscale(0%);
 }
 
-/* 功能展示区域 */
+/* 功能展示区域（水平留白交给内容轨，避免与首屏错位） */
 .feature-showcase {
-    padding: 4rem 2rem;
+    padding: 3.25rem 0;
     background: #ffffff;
 }
 
 .feature-showcase-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 4rem;
-    max-width: 1200px;
-    margin: 0 auto;
-    align-items: center;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 2rem 2.5rem;
+    max-width: 100%;
+    margin: 0;
+    align-items: start;
 }
 
 .feature-showcase-content h2 {
-    font-size: 2.5rem;
+    font-size: 1.75rem;
     font-weight: 700;
     color: #111827;
-    margin-bottom: 1.5rem;
-    line-height: 1.2;
+    margin-bottom: 1rem;
+    line-height: 1.25;
     letter-spacing: -0.02em;
 }
 
 .feature-showcase-content p {
-    font-size: 1.125rem;
+    font-size: 0.95rem;
     color: #6b7280;
     line-height: 1.7;
-    margin-bottom: 2rem;
+    margin-bottom: 1.25rem;
+}
+
+.qf-home-about-text {
+    margin-bottom: 1.25rem;
+    color: #6b7280;
+    line-height: 1.7;
+    font-size: 0.95rem;
+}
+
+.qf-home-about-text--last {
+    margin-bottom: 0;
 }
 
 .feature-showcase-link {
@@ -192,22 +538,102 @@
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
 }
 
+/* 首页「随机发现」（原项目交流区块迁移，样式与社区预览一致） */
+.home-random-inner {
+    max-width: 100%;
+    margin: 0;
+}
+.community-random-section {
+    margin-bottom: 0;
+}
+.community-random-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.community-random-actions .btn {
+    font-weight: 500;
+}
+.community-random-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    gap: 1.25rem;
+    align-items: stretch;
+}
+.community-spot-card {
+    border-radius: 16px;
+    overflow: hidden;
+    background: linear-gradient(145deg, #6366f1 0%, #4f46e5 35%, #2563eb 70%, #0ea5e9 100%);
+    padding: 10px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.15);
+}
+.community-spot-card-inner {
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.community-spot-title {
+    padding: 0.65rem 0.85rem;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+    color: #0f172a;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+.community-spot-title a {
+    color: #1d4ed8;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.community-spot-title a:hover { text-decoration: underline; }
+.community-preview-frame {
+    position: relative;
+    height: 300px;
+    background: #f1f5f9;
+}
+.community-preview-frame iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: #fff;
+}
+.community-preview-placeholder {
+    height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    font-size: 0.9rem;
+    padding: 1rem;
+    text-align: center;
+    background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+}
+
 /* 常见问题区域样式 */
 .faq-section {
-    padding: 4rem 2rem 5rem;
+    padding: 3.25rem 0 3.75rem;
     background: #ffffff;
 }
 
 .faq-container {
-    max-width: 1100px;
-    margin: 0 auto;
+    max-width: 100%;
+    margin: 0;
 }
 
-.faq-title {
-    font-size: 2.25rem;
-    font-weight: 700;
-    color: #111827;
-    margin-bottom: 2rem;
+.faq-section .qf-home-section-title {
+    margin-bottom: 0;
 }
 
 .faq-item {
@@ -261,17 +687,16 @@
 
 @media (max-width: 768px) {
     .hero-section {
-        padding: 4rem 1.5rem 6rem;
+        padding: 3rem 0 2.5rem;
     }
-    .hero-title {
-        font-size: 2.25rem;
+    .hero-title-line1 {
+        font-size: 2rem;
     }
-    .hero-subtitle {
-        font-size: 1.125rem;
+    .hero-title-line2 {
+        font-size: 0.98rem;
     }
-    .product-showcase {
-        margin: -3rem auto 3rem;
-        border-radius: 8px;
+    .hero-tagline {
+        font-size: 0.85rem;
     }
     .feature-showcase-grid {
         grid-template-columns: 1fr;
@@ -280,260 +705,172 @@
     .social-proof-logos {
         gap: 2rem;
     }
+    .qf-step-card {
+        min-width: 240px;
+        max-width: 100%;
+    }
+    .qf-step-card--wide {
+        min-width: min(300px, 88vw);
+        max-width: min(24rem, 92vw);
+        flex: 1 1 auto;
+    }
 }
 </style>
 
-<!-- Hero区域 - 参考 Cursor 设计 -->
+<div class="qf-home-main">
+<div class="qf-home-inner">
+<!-- Hero：主标题 + 弱化说明 + 四步流程；介绍视频为可拖动固定悬浮窗（见页末） -->
 <div class="hero-section">
-    <div class="hero-content">
-        <h1 class="hero-title">
-            {{ translate('home.hero_title') if translate('home.hero_title') != 'home.hero_title' else 'QuickForm' }}<br>
-            {{ translate('home.hero_title_sub') if translate('home.hero_title_sub') != 'home.hero_title_sub' else '基于Web的智能表单管理服务' }}
-        </h1>
-        <p class="hero-subtitle">{{ translate('home.hero_subtitle') if translate('home.hero_subtitle') != 'home.hero_subtitle' else '快速构建、智能管理表单数据，是优化 AI 表单设计的最佳方式' }}</p>
-        <div class="hero-buttons">
-            {% if current_user.is_authenticated %}
-                <a href="{{ url_for('quickform.dashboard') }}" class="btn btn-primary btn-lg" style="background-color: rgba(255,255,255,0.22); color: #ffffff; border: 1px solid rgba(255,255,255,0.45);">{{ translate('home.enter_dashboard') }}</a>
-            {% else %}
-                <a href="{{ url_for('quickform.register') }}" class="btn btn-primary btn-lg" style="background-color: rgba(255,255,255,0.22); color: #ffffff; border: 1px solid rgba(255,255,255,0.45);">{{ translate('home.register_now') if translate('home.register_now') != 'home.register_now' else '立即注册' }}</a>
-                <a href="{{ url_for('quickform.login') }}" class="btn btn-outline-primary btn-lg" style="border: 1px solid rgba(255,255,255,0.55); color: #ffffff; background: rgba(255,255,255,0.08);">{{ translate('home.login') if translate('home.login') != 'home.login' else '登录' }}</a>
-            {% endif %}
-        </div>
-    </div>
-</div>
+    <div class="position-relative">
+                <div class="hero-content text-center text-md-start w-100">
+                    <div class="qf-hero-intro mx-auto mx-md-0 w-100">
+                    <h1 class="hero-title-line1 mb-0">{{ translate('home.hero_title') if translate('home.hero_title') != 'home.hero_title' else 'QuickForm' }}</h1>
+                    <p class="hero-title-line2 mb-0">{{ translate('home.hero_title_sub') if translate('home.hero_title_sub') != 'home.hero_title_sub' else '帮你在网上收问卷、报名表和作业反馈，谁交了、交了什么一目了然。' }}</p>
+                    <p class="hero-tagline">{{ translate('home.hero_subtitle') if translate('home.hero_subtitle') != 'home.hero_subtitle' else '几分钟就能建好一次收集；数据可查、可导出，需要时还能让 AI 帮你整理和分析。与多数只能在自己站点里填表的方案不同，你可以把提交接口接到任意网页、AI 生成的页面或第三方活动页，数据仍统一回到同一后台管理与分析。' }}</p>
+                    <div class="hero-buttons justify-content-center justify-content-md-start">
+                        {% if current_user.is_authenticated %}
+                            <a href="{{ url_for('quickform.dashboard') }}" class="btn btn-primary btn-lg">{{ translate('home.enter_dashboard') }}</a>
+                        {% else %}
+                            <a href="{{ url_for('quickform.register') }}" class="btn btn-primary btn-lg">{{ translate('home.register_now') if translate('home.register_now') != 'home.register_now' else '立即注册' }}</a>
+                            <a href="{{ url_for('quickform.login') }}" class="btn btn-outline-primary btn-lg">{{ translate('home.login') if translate('home.login') != 'home.login' else '登录' }}</a>
+                        {% endif %}
+                    </div>
+                    </div>
 
-<style>
-.video-carousel-container {
-    position: relative;
-    width: 100%;
-    max-width: 1200px;
-    margin: 0 auto;
-}
-
-.video-carousel-wrapper {
-    position: relative;
-    border-radius: 10px;
-    overflow: hidden;
-    background: #000;
-}
-
-.video-carousel-wrapper video {
-    width: 100%;
-    max-height: 600px;
-    display: block;
-    object-fit: contain;
-}
-
-.video-carousel-nav {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    background: rgba(37, 99, 235, 0.8);
-    color: white;
-    border: none;
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    z-index: 10;
-    font-size: 1.5rem;
-    font-weight: 600;
-}
-
-.video-carousel-nav:hover {
-    background: rgba(37, 99, 235, 1);
-    transform: translateY(-50%) scale(1.1);
-}
-
-.video-carousel-nav.prev {
-    left: 15px;
-}
-
-.video-carousel-nav.next {
-    right: 15px;
-}
-
-.video-carousel-nav:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-}
-
-.video-carousel-nav:disabled:hover {
-    transform: translateY(-50%);
-    background: rgba(37, 99, 235, 0.8);
-}
-
-.video-indicator {
-    position: absolute;
-    bottom: 15px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 8px;
-    z-index: 10;
-}
-
-.video-indicator-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.5);
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.video-indicator-dot.active {
-    background: #2563eb;
-    width: 24px;
-    border-radius: 5px;
-}
-
-@media (max-width: 768px) {
-    .video-carousel-nav {
-        width: 40px;
-        height: 40px;
-        font-size: 1.2rem;
-    }
-    
-    .video-carousel-nav.prev {
-        left: 10px;
-    }
-    
-    .video-carousel-nav.next {
-        right: 10px;
-    }
-}
-</style>
-
-<!-- 产品界面展示区域 - 参考 Cursor 设计（演示视频） -->
-<div class="container-fluid px-3 px-md-4">
-    <div class="product-showcase">
-        <div class="product-showcase-header">
-            <div class="product-showcase-dot"></div>
-            <div class="product-showcase-dot"></div>
-            <div class="product-showcase-dot"></div>
-        </div>
-        <div class="product-showcase-content">
-            <!-- 教程视频：B 站嵌入（不再使用本地 mp4） -->
-            <div class="video-carousel-container">
-                <div class="video-carousel-wrapper">
-                    <div class="ratio ratio-16x9" style="max-height: 600px;">
-                        <iframe
-                            src="//player.bilibili.com/player.html?isOutside=true&aid=116215053812928&bvid=BV1hsc6zHEoN&cid=36643342242&p=1"
-                            scrolling="no"
-                            frameborder="no"
-                            allowfullscreen="true"
-                            style="border-radius: 8px;"
-                        ></iframe>
+                    <div class="qf-steps-section text-start w-100">
+                        <h2 class="qf-steps-heading text-center text-md-start">{{ translate('home.quick_start') if translate('home.quick_start') != 'home.quick_start' else '快速开始' }}</h2>
+                        <div class="qf-steps-flow" role="list" aria-label="{{ translate('home.quick_start') if translate('home.quick_start') != 'home.quick_start' else '快速开始' }}">
+                            <article class="qf-step-card" role="listitem">
+                                <div class="qf-step-card-hd">
+                                    <span class="qf-step-num" aria-hidden="true">1</span>
+                                    <h3 class="qf-step-title">账号就绪</h3>
+                                </div>
+                                <div class="qf-step-card-bd">
+                                    <p>免费注册后即可创建收集任务；已有账号直接登录控制台。</p>
+                                    <div class="qf-step-actions">
+                                        {% if current_user.is_authenticated %}
+                                        <a href="{{ url_for('quickform.dashboard') }}">进入控制台</a>
+                                        {% else %}
+                                        <a href="{{ url_for('quickform.register') }}">注册</a>
+                                        <a href="{{ url_for('quickform.login') }}">登录</a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </article>
+                            <span class="qf-step-arrow d-none d-sm-inline" aria-hidden="true"><i class="bi bi-chevron-right"></i></span>
+                            <article class="qf-step-card" role="listitem">
+                                <div class="qf-step-card-hd">
+                                    <span class="qf-step-num" aria-hidden="true">2</span>
+                                    <h3 class="qf-step-title">新建收集任务</h3>
+                                </div>
+                                <div class="qf-step-card-bd">
+                                    <p>给活动起个名字（如「XX课导学案」），系统会为该任务生成<strong>专属提交入口</strong>与数据结构。</p>
+                                    <div class="qf-step-prompt-label">示例：专属提交入口长什么样</div>
+                                    <pre class="qf-step-prompt qf-step-prompt--short" tabindex="0">POST https://quickform.cn/…/submit/kjjb</pre>
+                                    <div class="qf-step-actions">
+                                        {% if current_user.is_authenticated %}
+                                        <a href="{{ url_for('quickform.create_task') }}">创建任务</a>
+                                        {% else %}
+                                        <a href="{{ url_for('quickform.register') }}">注册后创建</a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </article>
+                            <span class="qf-step-arrow d-none d-sm-inline" aria-hidden="true"><i class="bi bi-chevron-right"></i></span>
+                            <article class="qf-step-card qf-step-card--wide" role="listitem">
+                                <div class="qf-step-card-hd">
+                                    <span class="qf-step-num" aria-hidden="true">3</span>
+                                    <h3 class="qf-step-title">页面里提交到 QuickForm</h3>
+                                </div>
+                                <div class="qf-step-card-bd">
+                                    <p>在 AI 生成的网页或现有页面中，把表单的<strong>提交地址</strong>改成任务提供的 URL（与文档字段名对齐即可）。</p>
+                                    <div class="qf-step-ai-row" aria-label="常见 AI 助手">
+                                        <a href="https://www.doubao.com/" target="_blank" rel="noopener noreferrer">豆包</a>
+                                        <a href="https://tongyi.aliyun.com/" target="_blank" rel="noopener noreferrer">通义</a>
+                                        <a href="https://kimi.moonshot.cn/" target="_blank" rel="noopener noreferrer">Kimi</a>
+                                        <a href="https://yiyan.baidu.com/" target="_blank" rel="noopener noreferrer">文心</a>
+                                        <a href="https://xinghuo.xfyun.cn/" target="_blank" rel="noopener noreferrer">讯飞星火</a>
+                                        <a href="https://yuanbao.tencent.com/" target="_blank" rel="noopener noreferrer">腾讯元宝</a>
+                                        <a href="https://www.coze.cn/" target="_blank" rel="noopener noreferrer">扣子</a>
+                                    </div>
+                                    <div class="qf-step-prompt-label">示例提示词（演示用，请替换为你的真实任务地址）</div>
+                                    <pre class="qf-step-prompt" tabindex="0">请生成一个单页 HTML：班级读书打卡表单，含姓名、学号、书名、一句感想；创建完应用后，将数据以POST方式发送到「https://quickform.cn/api/xxxxxx」（控制台里复制）。样式简洁、手机端好用。</pre>
+                                </div>
+                            </article>
+                            <span class="qf-step-arrow d-none d-sm-inline" aria-hidden="true"><i class="bi bi-chevron-right"></i></span>
+                            <article class="qf-step-card" role="listitem">
+                                <div class="qf-step-card-hd">
+                                    <span class="qf-step-num" aria-hidden="true">4</span>
+                                    <h3 class="qf-step-title">查看与导出</h3>
+                                </div>
+                                <div class="qf-step-card-bd">
+                                    <p>在任务后台浏览提交记录、筛选字段、导出表格；也可配合简单统计与图表做教学反馈。</p>
+                                    <div class="qf-step-actions">
+                                        {% if current_user.is_authenticated %}
+                                        <a href="{{ url_for('quickform.dashboard') }}">我的任务</a>
+                                        {% endif %}
+                                        <a href="https://quickform.readthedocs.io/zh-cn/latest/" target="_blank" rel="noopener noreferrer">文档</a>
+                                    </div>
+                                </div>
+                            </article>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 社会认同区域 - 参考 Cursor 设计 -->
-    <div class="social-proof">
-        <p class="social-proof-text">每天被数千名专业用户信赖使用</p>
-        <div class="social-proof-logos">
-            {% if partner_logos and partner_logos|length > 0 %}
-                {% for logo_file in partner_logos %}
-                <img src="{{ url_for('static', filename='partners/' + logo_file) }}" alt="合作伙伴" class="social-proof-logo" loading="lazy">
-                {% endfor %}
-            {% else %}
-                <!-- 如果没有logo，显示占位符 -->
-                <div style="width: 120px; height: 40px; background: #e5e7eb; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 0.875rem;">合作伙伴</div>
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- 功能展示区域 - 参考 Cursor 设计 -->
-    <div class="feature-showcase">
-        <div class="feature-showcase-grid">
-            <div class="feature-showcase-content">
-                <h2>AI 将想法转化为表单</h2>
-                <p>人机协作的智能表单系统，效率比传统方式高出数个数量级。通过 AI 助手，您可以快速创建、优化和管理表单，让数据收集变得简单高效。</p>
-            </div>
-            <div class="feature-showcase-visual">
-                <!-- 表单创建界面预览 -->
-                <div style="background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0; min-height: 300px; overflow: hidden;">
-                    <iframe 
-                        src="{{ url_for('static', filename='previews/form-preview.html') }}" 
-                        style="width: 100%; height: 400px; border: none; display: block;"
-                        title="表单创建界面预览">
-                    </iframe>
-                </div>
-            </div>
-        </div>
-    </div>
-
-<!-- 快速开始和关于QuickForm区域 - 使用feature-showcase样式 -->
-<div class="feature-showcase">
-    <!-- 快速开始 -->
-    <div class="feature-showcase-grid" style="margin-bottom: 4rem;">
-        <div class="feature-showcase-content">
-            <h2>{{ translate('home.quick_start') if translate('home.quick_start') != 'home.quick_start' else '快速开始' }}</h2>
-            <p style="margin-bottom: 1rem;">{{ translate('home.step1') if translate('home.step1') != 'home.step1' else '1. 注册账号并登录系统' }}</p>
-            <p style="margin-bottom: 1rem;">{{ translate('home.step2') if translate('home.step2') != 'home.step2' else '2. 创建数据收集任务' }}</p>
-            <p style="margin-bottom: 1rem;">{{ translate('home.step3') if translate('home.step3') != 'home.step3' else '3. 获取数据提交URL并嵌入表单' }}</p>
-            <p style="margin-bottom: 2rem;">{{ translate('home.step4') if translate('home.step4') != 'home.step4' else '4. 查看和分析收集的数据' }}</p>
-            <a href="{{ url_for('quickform.register') if not current_user.is_authenticated else url_for('quickform.create_task') }}" class="feature-showcase-link">
-                立即开始 →
-            </a>
-        </div>
-        <div class="feature-showcase-visual">
-            <div style="background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 2rem; min-height: 300px; display: flex; align-items: center; justify-content: center; color: #9ca3af;">
-                <div style="text-align: center;">
-                    <i class="bi bi-rocket-takeoff" style="font-size: 3rem; margin-bottom: 1rem; display: block; color: #2563eb;"></i>
-                    <p>
-                        <a href="https://quickform.readthedocs.io/zh-cn/latest/guide/start.html"
-                           target="_blank"
-                           rel="noopener"
-                           style="color: #2563eb; text-decoration: none;">
-                            快速开始指南
-                        </a>
-                    </p>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- 关于QuickForm -->
-    <div class="feature-showcase-grid" id="about">
-        <div class="feature-showcase-visual">
-            <div style="background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 2rem; min-height: 300px; display: flex; align-items: center; justify-content: center; color: #9ca3af;">
-                <div style="text-align: center;">
-                    <img src="{{ url_for('static', filename='us/us.jpg') }}"
-                         alt="关于 QuickForm"
-                         loading="lazy"
-                         style="max-width: 100%; max-height: 260px; border-radius: 8px; object-fit: cover; margin-bottom: 1rem;">
-                    <p style="color: #4b5563;">关于QuickForm</p>
-                </div>
-            </div>
-        </div>
-        <div class="feature-showcase-content">
-            <h2>{{ translate('home.about') if translate('home.about') != 'home.about' else '关于QuickForm' }}</h2>
-            <p style="margin-bottom: 1.5rem; color: #6b7280; line-height: 1.7;">
-                <strong style="color: #2563eb;">QuickForm</strong>是一款基于Web的智能表单管理服务，由温州科技高中AI科创中心团队与温州大学联合开发。其主要功能是简化数据收集、分析和报告生成的全流程。
-            </p>
-            <p style="margin-bottom: 2rem; color: #6b7280; line-height: 1.7;">
-                系统支持表单管理、数据收集、智能分析、报告生成和AI集成等功能，能够自动识别数据趋势、生成可视化图表和详细报告，辅助教师优化教学策略。
-            </p>
-        </div>
     </div>
 </div>
+
+    <!-- 随机发现（由项目交流页迁移；数据与 _get_cached_community_random 缓存一致） -->
+    <div class="feature-showcase">
+        <div class="home-random-inner">
+        <section class="community-random-section" id="qf-home-random">
+            <div class="community-random-head">
+                <div>
+                    <h2 class="qf-home-section-title"><i class="bi bi-shuffle text-primary me-1" aria-hidden="true"></i>随机发现</h2>
+                    <p class="qf-home-section-lead">从已通过审核的公开项目中随机展示 3 个；可预览任务页面效果与对方提供的教程。</p>
+                </div>
+                <div class="community-random-actions d-flex flex-wrap gap-2">
+                    <a href="{{ url_for('quickform.index', refresh='1') }}#qf-home-random" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-arrow-repeat"></i> 随机抽取
+                    </a>
+                    <a href="{{ url_for('quickform.community', hot='1') }}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-fire"></i> 查看热榜
+                    </a>
+                </div>
+            </div>
+            {% if community_random and community_random|length > 0 %}
+            <div class="community-random-grid">
+                {% for item in community_random %}
+                <article class="community-spot-card">
+                    <div class="community-spot-card-inner">
+                        <div class="community-spot-title">
+                            <a href="{{ url_for('quickform.task_detail', task_id=item.task_id) }}" target="_blank" rel="noopener">{{ item.title }}</a>
+                        </div>
+                        {% if item.preview_url %}
+                        <div class="community-preview-frame">
+                            <iframe src="{{ item.preview_url }}" title="{{ item.title }} 预览" loading="lazy" referrerpolicy="no-referrer-when-downgrade" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+                        </div>
+                        {% else %}
+                        <div class="community-preview-placeholder">该项目暂无 HTML 页面预览</div>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-muted mb-0">暂无公开项目，欢迎老师发布并申请公开审核。</p>
+            {% endif %}
+        </section>
+        </div>
+    </div>
 
 <!-- 常见问题区域：左侧标题说明，右侧折叠内容 -->
 <div class="faq-section">
     <div class="faq-container">
-        <div class="row">
-            <div class="col-md-4 mb-4 mb-md-0">
-                <h2 class="faq-title">常见问题</h2>
+        <div class="qf-home-split">
+            <div class="qf-home-split__side">
+                <h2 class="qf-home-section-title">常见问题</h2>
             </div>
-            <div class="col-md-8">
+            <div class="qf-home-split__main">
                 <div class="accordion" id="homeFaq">
                     <div class="faq-item accordion-item">
                         <h2 class="accordion-header" id="faqHeadingOne">
@@ -609,6 +946,230 @@
         </div>
     </div>
 </div>
+
+<!-- 关于 QuickForm（快速开始已上移至首屏流程卡片） -->
+<div class="feature-showcase">
+    <!-- 关于QuickForm -->
+    <div class="feature-showcase-grid" id="about">
+        <div class="feature-showcase-visual">
+            <div style="background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 2rem; min-height: 300px; display: flex; align-items: center; justify-content: center; color: #9ca3af;">
+                <div style="text-align: center;">
+                    <img src="{{ url_for('static', filename='us/us.jpg') }}"
+                         alt="关于 QuickForm"
+                         loading="lazy"
+                         style="max-width: 100%; max-height: 260px; border-radius: 8px; object-fit: cover; margin-bottom: 1rem;">
+                    <p style="color: #4b5563;">关于QuickForm</p>
+                </div>
+            </div>
+        </div>
+        <div class="feature-showcase-content">
+            <h2 class="qf-home-section-title">{{ translate('home.about') if translate('home.about') != 'home.about' else '关于QuickForm' }}</h2>
+            <p class="qf-home-about-text">
+                <strong style="color: #2563eb;">QuickForm</strong>是一款基于 Web 的智能表单管理服务，由温州科技高中 AI 科创中心团队与温州大学联合开发。与多数只能在自己站点里填表的方案不同，你可以把<strong style="color: #1e40af;">提交接口接到任意网页、AI 生成的页面或第三方活动页</strong>，数据仍统一回到同一后台管理与分析。
+            </p>
+            <p class="qf-home-about-text qf-home-about-text--last">
+                系统支持表单管理、数据收集、智能分析、报告生成和AI集成等功能，能够自动识别数据趋势、生成可视化图表和详细报告，辅助教师优化教学策略。
+            </p>
+        </div>
+    </div>
+</div>
+
+    <!-- 社会认同区域（页底：信赖说明 + 合作伙伴） -->
+    <div class="social-proof social-proof--home-bottom">
+        <p class="social-proof-text">每天被数千名专业用户信赖使用</p>
+        <div class="social-proof-logos">
+            {% if partner_logos and partner_logos|length > 0 %}
+                {% for logo_file in partner_logos %}
+                <img src="{{ url_for('static', filename='partners/' + logo_file) }}" alt="合作伙伴" class="social-proof-logo" loading="lazy">
+                {% endfor %}
+            {% else %}
+                <div style="width: 120px; height: 40px; background: #e5e7eb; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 0.875rem;">合作伙伴</div>
+            {% endif %}
+        </div>
+    </div>
+</div><!-- /.qf-home-inner -->
+</div><!-- /.qf-home-main -->
+
+<!-- 介绍视频：可拖动悬浮入口 + 收起后的小药丸 -->
+<div id="qfHomeVideoFloat" class="qf-video-float" role="complementary" aria-label="介绍视频">
+    <div class="qf-video-float-hd">
+        <div class="qf-video-float-drag" title="按住拖动，避免挡住内容">
+            <i class="bi bi-grip-vertical" aria-hidden="true"></i>
+            <span>介绍视频</span>
+        </div>
+        <button type="button" class="qf-video-float-close" id="qfHomeVideoFloatClose" aria-label="收起" title="收起">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+        </button>
+    </div>
+    <button type="button" class="qf-video-float-play" data-bs-toggle="modal" data-bs-target="#homeIntroVideoModal" aria-label="播放介绍视频">
+        <div class="qf-video-thumb">
+            <i class="bi bi-play-circle-fill" aria-hidden="true"></i>
+        </div>
+    </button>
+</div>
+<button type="button" id="qfHomeVideoPeek" class="qf-video-float-peek" aria-label="展开介绍视频入口">
+    <i class="bi bi-play-circle-fill" aria-hidden="true"></i>
+    介绍视频
+</button>
+
+<!-- 介绍视频：弹窗内嵌 B 站（关闭时卸载 iframe 以停止播放） -->
+<div class="modal fade" id="homeIntroVideoModal" tabindex="-1" aria-labelledby="homeIntroVideoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="homeIntroVideoModalLabel">QuickForm 介绍视频</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="ratio ratio-16x9 bg-dark">
+                    <iframe
+                        id="homeIntroVideoIframe"
+                        class="w-100 h-100"
+                        title="QuickForm 介绍视频"
+                        data-bilibili-src="//player.bilibili.com/player.html?isOutside=true&aid=116215053812928&bvid=BV1hsc6zHEoN&cid=36643342242&p=1"
+                        scrolling="no"
+                        allowfullscreen
+                        style="border:0;"
+                    ></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    var modal = document.getElementById('homeIntroVideoModal');
+    var iframe = document.getElementById('homeIntroVideoIframe');
+    if (modal && iframe) {
+        var src = iframe.getAttribute('data-bilibili-src');
+        modal.addEventListener('shown.bs.modal', function () {
+            if (src) iframe.setAttribute('src', src);
+        });
+        modal.addEventListener('hidden.bs.modal', function () {
+            iframe.removeAttribute('src');
+        });
+    }
+
+    var panel = document.getElementById('qfHomeVideoFloat');
+    var dragHandle = panel && panel.querySelector('.qf-video-float-drag');
+    var closeBtn = document.getElementById('qfHomeVideoFloatClose');
+    var peek = document.getElementById('qfHomeVideoPeek');
+    if (!panel || !dragHandle || !peek) return;
+
+    function clamp(n, a, b) {
+        return Math.max(a, Math.min(b, n));
+    }
+
+    function applySavedPos() {
+        try {
+            var raw = localStorage.getItem('qfHomeVideoPos');
+            if (!raw) return;
+            var pos = JSON.parse(raw);
+            if (!pos || typeof pos.left !== 'number' || typeof pos.top !== 'number') return;
+            var w = panel.offsetWidth || 220;
+            var h = panel.offsetHeight || 120;
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+            panel.style.left = clamp(pos.left, 8, window.innerWidth - w - 8) + 'px';
+            panel.style.top = clamp(pos.top, 8, window.innerHeight - h - 8) + 'px';
+        } catch (e) {}
+    }
+
+    requestAnimationFrame(applySavedPos);
+
+    var dragging = false;
+    var startX = 0;
+    var startY = 0;
+    var origLeft = 0;
+    var origTop = 0;
+
+    function clientPoint(e) {
+        if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        return { x: e.clientX, y: e.clientY };
+    }
+
+    function onDragStart(e) {
+        if (e.type === 'mousedown' && e.button !== 0) return;
+        var p = clientPoint(e);
+        var rect = panel.getBoundingClientRect();
+        origLeft = rect.left;
+        origTop = rect.top;
+        startX = p.x;
+        startY = p.y;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+        panel.style.left = origLeft + 'px';
+        panel.style.top = origTop + 'px';
+        dragging = true;
+        panel.classList.add('is-dragging');
+        e.preventDefault();
+    }
+
+    function onDragMove(e) {
+        if (!dragging) return;
+        var p = clientPoint(e);
+        var dx = p.x - startX;
+        var dy = p.y - startY;
+        var nl = origLeft + dx;
+        var nt = origTop + dy;
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        var w = panel.offsetWidth;
+        var h = panel.offsetHeight;
+        nl = clamp(nl, 8, vw - w - 8);
+        nt = clamp(nt, 8, vh - h - 8);
+        panel.style.left = nl + 'px';
+        panel.style.top = nt + 'px';
+        e.preventDefault();
+    }
+
+    function onDragEnd() {
+        if (!dragging) return;
+        dragging = false;
+        panel.classList.remove('is-dragging');
+        try {
+            localStorage.setItem('qfHomeVideoPos', JSON.stringify({
+                left: panel.getBoundingClientRect().left,
+                top: panel.getBoundingClientRect().top
+            }));
+        } catch (err) {}
+    }
+
+    dragHandle.addEventListener('mousedown', onDragStart);
+    dragHandle.addEventListener('touchstart', onDragStart, { passive: false });
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('touchmove', onDragMove, { passive: false });
+    document.addEventListener('mouseup', onDragEnd);
+    document.addEventListener('touchend', onDragEnd);
+    document.addEventListener('touchcancel', onDragEnd);
+
+    window.addEventListener('resize', function () {
+        if (panel.classList.contains('is-collapsed')) return;
+        var rect = panel.getBoundingClientRect();
+        var nl = clamp(rect.left, 8, window.innerWidth - panel.offsetWidth - 8);
+        var nt = clamp(rect.top, 8, window.innerHeight - panel.offsetHeight - 8);
+        if (nl !== rect.left || nt !== rect.top) {
+            panel.style.left = nl + 'px';
+            panel.style.top = nt + 'px';
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+        }
+    });
+
+    if (closeBtn) {
+        closeBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            panel.classList.add('is-collapsed');
+            peek.classList.add('is-visible');
+        });
+    }
+
+    peek.addEventListener('click', function () {
+        panel.classList.remove('is-collapsed');
+        peek.classList.remove('is-visible');
+    });
+})();
+</script>
 
 {% if video_files and video_files|length > 1 %}
 <script>

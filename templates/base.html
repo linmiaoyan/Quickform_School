@@ -457,6 +457,22 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.15);
             border: 1px solid #e5e7eb;
         }
+
+        /* 页脚 slogan：短文案 + 悬浮长说明 */
+        .qf-footer-slogan {
+            cursor: help;
+            border-bottom: 1px dotted currentColor;
+        }
+        .qf-footer-slogan:focus {
+            outline: 2px solid rgba(37, 99, 235, 0.35);
+            outline-offset: 2px;
+        }
+        /* Tooltip 默认挂到 footer（与 BS5.1 兼容，避免依赖 customClass） */
+        footer.footer .tooltip .tooltip-inner {
+            max-width: min(28rem, 92vw);
+            text-align: left;
+            line-height: 1.55;
+        }
         
         .container {
             margin-bottom: 2rem;
@@ -564,10 +580,10 @@
                     </li>
                     {% else %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('quickform.login') }}">{{ translate('nav.login') }}</a>
+                        <a class="nav-link" href="{{ url_for('quickform.register') }}">{{ translate('nav.register') }}</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('quickform.register') }}">{{ translate('nav.register') }}</a>
+                        <a class="nav-link" href="{{ url_for('quickform.login') }}">{{ translate('nav.login') }}</a>
                     </li>
                     {% endif %}
                 </ul>
@@ -597,7 +613,9 @@
     <!-- 页脚 -->
     <footer class="footer">
         <div class="container text-center">
-            <p class="mb-2">QuickForm：打通AI赋能教育的"最后一公里"</p>
+            <p class="mb-2 small text-muted" style="max-width: 42rem; margin-left: auto; margin-right: auto; line-height: 1.6;">
+                <span class="qf-footer-slogan" tabindex="0" role="note" data-bs-toggle="tooltip" data-bs-placement="top" title="不锁死在自家编辑器里——任意网页、大模型生成的 HTML、扣子/豆包等页面，只要改一行提交地址，就能把数据收进同一后台；开放接口、自由组合，这是多数「封闭式表单工具」做不到的。">QuickForm：打通AI赋能教育的最后一公里</span>
+            </p>
             <p class="mb-2 small">
                 <a href="https://quickform.readthedocs.io/" target="_blank" rel="noopener" class="text-decoration-none me-3">官方文档</a>
                 <a href="https://quickform.readthedocs.io/zh-cn/latest/guide/deploy.html" target="_blank" rel="noopener" class="text-decoration-none me-3">本地部署</a>
@@ -616,6 +634,19 @@
     <!-- Bootstrap JS -->
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script>
+        (function initFooterSloganTooltip() {
+            try {
+                var el = document.querySelector('.qf-footer-slogan[data-bs-toggle="tooltip"]');
+                if (!el || !window.bootstrap || !bootstrap.Tooltip) return;
+                new bootstrap.Tooltip(el, {
+                    trigger: 'hover focus',
+                    html: false,
+                    delay: { show: 150, hide: 80 },
+                    container: document.querySelector('footer.footer') || document.body
+                });
+            } catch (e) {}
+        })();
+
         // ========== 全局 Toast / 非阻塞提示 ==========
         (function initQuickFormToast() {
             function _escapeHtml(s) {
