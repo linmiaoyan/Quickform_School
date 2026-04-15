@@ -199,8 +199,8 @@
                                         style="font-weight: 500;">
                                         <i class="bi bi-qr-code"></i>
                                     </button>
-                                    <div class="alert alert-success mb-2 qr-code-container" style="display: none; position: absolute; z-index: 1060; padding: 12px; margin-top: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); min-width: 220px;">
-                                        <div id="qrcode-{{ task.id }}-{{ loop.index0 }}" style="width: 220px; height: 220px;"></div>
+                                    <div class="alert alert-success mb-2 qr-code-container" style="display: none; position: absolute; z-index: 1060; padding: 12px; margin-top: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); min-width: 384px;">
+                                        <div id="qrcode-{{ task.id }}-{{ loop.index0 }}" style="width: 360px; height: 360px;"></div>
                                     </div>
                                 </div>
                                 {% endif %}
@@ -746,6 +746,60 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
         if (form) form.submit();
     }
 
+    var QF_QR_LOGO_URL = {{ url_for('static', filename='quickform.png') | tojson }};
+
+    /** 在已生成的 QR canvas 上叠 D 款：中心白圆 + quickform.png（与 demo_d_small_round 一致的小比例） */
+    function applyQuickformQrLogoOverlay(qrcodeDiv, logoUrl) {
+        if (!qrcodeDiv || !logoUrl) return;
+        var canvas = qrcodeDiv.querySelector('canvas');
+        if (!canvas) return;
+        var imgOut = qrcodeDiv.querySelector('img');
+        var w = canvas.width;
+        var h = canvas.height;
+        var cx = w / 2;
+        var cy = h / 2;
+        var r = Math.min(w, h) * 0.10;
+        var logo = new Image();
+        logo.onload = function () {
+            var ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.restore();
+            var lr = r * 0.72;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, lr, 0, Math.PI * 2);
+            ctx.clip();
+            var iw = logo.naturalWidth;
+            var ih = logo.naturalHeight;
+            if (!iw || !ih) {
+                ctx.restore();
+                return;
+            }
+            var scale = Math.min((2 * lr) / iw, (2 * lr) / ih);
+            var dw = iw * scale;
+            var dh = ih * scale;
+            ctx.drawImage(logo, cx - dw / 2, cy - dh / 2, dw, dh);
+            ctx.restore();
+            if (imgOut) {
+                try {
+                    imgOut.src = canvas.toDataURL('image/png');
+                } catch (e) {
+                    canvas.style.display = 'block';
+                    imgOut.style.display = 'none';
+                }
+            } else {
+                canvas.style.display = 'block';
+            }
+        };
+        logo.onerror = function () { /* 保持无 Logo 的纯二维码 */ };
+        logo.src = logoUrl;
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         var disclaimerModal = document.getElementById('manageCodeDisclaimerModal');
         var disclaimerAgree = document.getElementById('manageCodeDisclaimerAgree');
@@ -816,10 +870,11 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
                         text: url,
                         width: 360,
                         height: 360,
-                        colorDark: '#000000',
+                        colorDark: '#0f172a',
                         colorLight: '#ffffff',
                         correctLevel: QRCode.CorrectLevel.H
                     });
+                    applyQuickformQrLogoOverlay(qrcodeDiv, QF_QR_LOGO_URL);
                     qrcodeDiv.setAttribute('data-generated', 'true');
                 } catch (error) {
                     console.error('生成二维码失败:', error);

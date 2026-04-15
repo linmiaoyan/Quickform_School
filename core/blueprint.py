@@ -5915,7 +5915,62 @@ def admin_panel():
                 .all()
             )
 
-        elif current_tab in ('html-review', 'other-review'):
+        elif current_tab == 'other-review':
+            # other-review 页面会同时展示：公开项目审核 / 团队入驻审核 / HTML 页面审核
+            # 因此需要一次性加载三类数据；避免 elif 链路提前命中导致其它审核列表为空
+            html_review_page = request.args.get('html_review_page', 1, type=int) or 1
+            html_review_page = max(1, html_review_page)
+            html_tasks_query = db.query(Task).filter(
+                Task.file_path.isnot(None),
+                Task.file_name.isnot(None),
+                (Task.file_name.like('%.html') | Task.file_name.like('%.htm'))
+            )
+            total_html_tasks = html_tasks_query.count()
+            html_review_total_pages = max(math.ceil(total_html_tasks / html_review_per_page), 1) if total_html_tasks else 1
+            html_review_page = min(html_review_page, html_review_total_pages)
+            html_tasks = (
+                html_tasks_query
+                .order_by(Task.created_at.desc())
+                .offset((html_review_page - 1) * html_review_per_page)
+                .limit(html_review_per_page)
+                .all()
+            )
+            user_ids = {t.user_id for t in html_tasks} | {t.html_approved_by for t in html_tasks if t.html_approved_by}
+            user_ids.discard(None)
+            authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
+            for task in html_tasks:
+                html_tasks_with_review.append({
+                    'task': task,
+                    'author': authors_map.get(task.user_id),
+                    'approver': authors_map.get(task.html_approved_by) if task.html_approved_by else None
+                })
+                if task.html_approved != 1:
+                    pending_html_count += 1
+
+            public_pending_tasks = (
+                db.query(Task)
+                .filter(Task.sharing_type == 'public', Task.public_approved == 0)
+                .order_by(Task.created_at.desc())
+                .all()
+            )
+            author_ids = {t.user_id for t in public_pending_tasks}
+            authors_map2 = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
+            public_pending_with_author = [{'task': t, 'author': authors_map2.get(t.user_id)} for t in public_pending_tasks]
+
+            org_pending = (
+                db.query(Organization)
+                .filter(
+                    Organization.teams_public_requested == True,
+                    Organization.teams_public_approved == 0,
+                )
+                .order_by(Organization.created_at.desc())
+                .all()
+            )
+            creator_ids = {o.creator_id for o in org_pending}
+            creators_map = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
+            org_pending_with_creator = [{'org': o, 'creator': creators_map.get(o.creator_id)} for o in org_pending]
+
+        elif current_tab == 'html-review':
             html_review_page = request.args.get('html_review_page', 1, type=int) or 1
             html_review_page = max(1, html_review_page)
             html_tasks_query = db.query(Task).filter(
@@ -5967,7 +6022,7 @@ def admin_panel():
         elif current_tab == 'data':
             pass  # stats 在下方按 tab 计算
 
-        elif current_tab in ('public-review', 'other-review'):
+        elif current_tab == 'public-review':
             public_pending_tasks = (
                 db.query(Task)
                 .filter(Task.sharing_type == 'public', Task.public_approved == 0)
@@ -5978,7 +6033,7 @@ def admin_panel():
             authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
             public_pending_with_author = [{'task': t, 'author': authors_map.get(t.user_id)} for t in public_pending_tasks]
 
-        elif current_tab in ('org-review', 'other-review'):
+        elif current_tab == 'org-review':
             org_pending = (
                 db.query(Organization)
                 .filter(

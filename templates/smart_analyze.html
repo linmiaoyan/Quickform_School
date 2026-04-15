@@ -149,13 +149,14 @@
                     </div>
                 {% else %}
                     {% if report %}
-                    <div class="alert alert-info mb-4">
-                        <p>ℹ️ {{ translate('smart_analyze.generated_report_tip') }}</p>
-                    </div>
-                    
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                            <h5 class="mb-0">{{ translate('smart_analyze.current_report') }}</h5>
+                            <h5 class="mb-0">
+                                {{ translate('smart_analyze.current_report') }}
+                                {% if task and task.report_generated_at %}
+                                <span class="text-muted ms-2" style="font-size: 0.8rem;">生成于 {{ task.report_generated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                {% endif %}
+                            </h5>
                             <div class="btn-group btn-group-sm">
                                 <a href="{{ url_for('quickform.download_report', task_id=task.id) }}" class="btn btn-light btn-sm" title="{{ translate('smart_analyze.download_pic') }}">
                                     <i class="bi bi-image"></i> 图片
@@ -263,12 +264,6 @@
                     {% if not report %}
                     <div class="alert alert-info mb-4">
                         <strong>💡</strong> {{ translate('smart_analyze.upload_html_tip') }}
-                    </div>
-                    {% endif %}
-                    
-                    {% if task and task.report_generated_at %}
-                    <div class="alert alert-info mt-3">
-                        <p>ℹ️ {{ translate('smart_analyze.report_generated_at') }}{{ task.report_generated_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
                     </div>
                     {% endif %}
                 {% endif %}
