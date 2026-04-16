@@ -338,6 +338,13 @@
                         <h5 class="mb-0">所有任务列表</h5>
                     </div>
                     <div class="card-body">
+                        {% set sbc = submit_quota_base_c if submit_quota_base_c is not none else 0 %}
+                        {% set sbb = submit_quota_base_b if submit_quota_base_b is not none else (500 * 1024 * 1024) %}
+                        <p class="text-muted small mb-3">
+                            <strong>单任务提交限额（防刷库）</strong>：全站默认约 <strong>{{ sbc }}</strong> 条、累计约 <strong>{{ (sbb / 1024 / 1024) | round(0) | int }} MB</strong>（在「全局限额参数」中可调）。
+                            单任务可在此表设置<strong>额外加额</strong>；<strong>有效上限 ≈ 默认 + 加额</strong>。
+                            粗略存储预估：单任务提交数据表约占用「累计字节」量级（另含索引/元数据；单条 JSON 受 MySQL TEXT 约 64KB 限制）。
+                        </p>
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="text-muted small">
                                 共 {{ task_total }} 个任务，当前第 {{ task_page|int }} / {{ task_pages|int }} 页
@@ -359,17 +366,37 @@
                                         <th>标题</th>
                                         <th>创建者</th>
                                         <th>{{ translate('common.submit') }}数</th>
+                                        <th>提交用量（条）</th>
+                                        <th>提交累计（MB）</th>
+                                        <th>提交加额（条 / MB）</th>
                                         <th>创建时间</th>
                                         <th>{{ translate('admin.actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for task in all_tasks %}
+                                    {% set lim_c = sbc + (task.quota_extra_submit_count or 0) %}
+                                    {% set lim_b = sbb + (task.quota_extra_submit_bytes or 0) %}
+                                    {% set used_c = task.submission_count_total if task.submission_count_total is not none else 0 %}
+                                    {% set used_b = task.submission_bytes_total if task.submission_bytes_total is not none else 0 %}
                                     <tr>
                                         <td>{{ task.id }}</td>
                                         <td>{{ task.title }}</td>
                                         <td>{{ task.author.username }}</td>
                                         <td>{{ task.submission|length }}</td>
+                                        <td>
+                                            <span class="text-nowrap">{{ used_c }} / {% if lim_c <= 0 %}不限{% else %}{{ lim_c }}{% endif %}</span>
+                                        </td>
+                                        <td>
+                                            <span class="text-nowrap">{{ (used_b / 1024 / 1024) | round(2) }} / {{ (lim_b / 1024 / 1024) | round(0) | int }}</span>
+                                        </td>
+                                        <td style="min-width: 220px;">
+                                            <form method="post" action="{{ url_for('quickform.admin_save_task_submit_quota', task_id=task.id) }}" class="d-flex flex-wrap gap-1 align-items-center">
+                                                <input type="number" name="quota_extra_submit_count" min="0" max="50000000" class="form-control form-control-sm" style="width:5.5rem;" value="{{ task.quota_extra_submit_count or 0 }}" title="在全局默认基础上额外增加的条数">
+                                                <input type="number" name="quota_extra_submit_mb" min="0" max="1048576" class="form-control form-control-sm" style="width:5.5rem;" value="{{ ((task.quota_extra_submit_bytes or 0) / 1024 / 1024) | round(0) | int }}" title="在全局默认基础上额外增加的累计体积（MB）">
+                                                <button type="submit" class="btn btn-sm btn-outline-primary">保存</button>
+                                            </form>
+                                        </td>
                                         <td>{{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                                         <td>
                                             <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" 
@@ -1322,10 +1349,12 @@
                         </p>
                         {% set q_reads = site_quota_default_row.default_all_read_limit if site_quota_default_row else 2000 %}
                         {% set q_mb = ((site_quota_default_row.default_all_bytes_limit / 1024 / 1024) | round(0) | int) if site_quota_default_row else 100 %}
+                        {% set q_submit_c = site_quota_default_row.default_submit_count_limit if site_quota_default_row and site_quota_default_row.default_submit_count_limit is not none else 100000 %}
+                        {% set q_submit_mb = ((site_quota_default_row.default_submit_bytes_limit / 1024 / 1024) | round(0) | int) if site_quota_default_row and site_quota_default_row.default_submit_bytes_limit is not none else 500 %}
                         {% set q_auto_on = (site_quota_default_row.auto_quota_approve_enabled if site_quota_default_row else 0) %}
                         {% set q_auto_reads = (site_quota_default_row.auto_quota_approve_max_reads if site_quota_default_row else 0) %}
                         {% set q_auto_mb = (site_quota_default_row.auto_quota_approve_max_mb if site_quota_default_row else 0) %}
-                        <form method="post" action="{{ url_for('quickform.admin_save_site_quota_defaults') }}" class="row g-3" style="max-width: 520px;">
+                        <form method="post" action="{{ url_for('quickform.admin_save_site_quota_defaults') }}" class="row g-3" style="max-width: 560px;">
                             <div class="col-12">
                                 <label class="form-label" for="default_all_read_limit">每任务 <code>/all</code> 访问次数上限（次）</label>
                                 <input type="number" class="form-control" id="default_all_read_limit" name="default_all_read_limit" min="1" max="50000000" required value="{{ q_reads }}">
@@ -1335,6 +1364,17 @@
                                 <label class="form-label" for="default_all_bytes_mb">每任务 <code>/all</code> 流量上限（MB）</label>
                                 <input type="number" class="form-control" id="default_all_bytes_mb" name="default_all_bytes_mb" min="1" max="1048576" required value="{{ q_mb }}">
                                 <div class="form-text">按接口实际下发的 JSON 字节累计；默认 100 MB。</div>
+                            </div>
+                            <div class="col-12"><hr class="my-2"></div>
+                            <div class="col-12">
+                                <label class="form-label" for="default_submit_count_limit">每任务提交条数上限（条）</label>
+                                <input type="number" class="form-control" id="default_submit_count_limit" name="default_submit_count_limit" min="0" max="50000000" required value="{{ q_submit_c }}">
+                                <div class="form-text">用于防刷库/防存爆：达到上限后拒绝新提交。填 <strong>0</strong> 表示<strong>不限提交次数</strong>（仅按累计体积控制）。</div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="default_submit_bytes_mb">每任务提交累计体积上限（MB）</label>
+                                <input type="number" class="form-control" id="default_submit_bytes_mb" name="default_submit_bytes_mb" min="1" max="1048576" required value="{{ q_submit_mb }}">
+                                <div class="form-text">按每次提交的 JSON 文本 UTF-8 字节数累计；默认 50 MB。</div>
                             </div>
                             <div class="col-12">
                                 <button type="submit" class="btn btn-primary">保存</button>

@@ -11,6 +11,8 @@ import threading
 import time
 from collections import deque
 
+from .client_ip import get_request_client_ip
+
 # ---------- 防撞库 / 暴力破解参数（固定写在代码中，可按需改数值后部署）----------
 # 统计窗口（秒）：滑动窗口内统计失败次数
 FAIL_WINDOW_SEC = 900  # 15 分钟
@@ -35,10 +37,8 @@ _pair_lockout_until: dict[str, float] = {}
 
 
 def _client_ip(request) -> str:
-    xff = (request.headers.get('X-Forwarded-For') or '').strip()
-    if xff:
-        return xff.split(',')[0].strip() or 'unknown'
-    return (request.remote_addr or '').strip() or 'unknown'
+    # 与其它限流/审计逻辑保持一致：统一走 core.client_ip 的可信解析策略
+    return get_request_client_ip(request)
 
 
 def _pair_key(ip: str, username: str) -> str:

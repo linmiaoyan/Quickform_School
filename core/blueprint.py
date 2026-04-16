@@ -3206,6 +3206,10 @@ def _manage_rate_limit_check(task_id: int) -> bool:
 _TASK_ALL_READ_FALLBACK = 2000
 _TASK_ALL_BYTES_FALLBACK = 100 * 1024 * 1024
 
+# 单任务“提交写入”默认限额兜底（防刷库/防存爆）
+_TASK_SUBMIT_COUNT_FALLBACK = 100000
+_TASK_SUBMIT_BYTES_FALLBACK = 500 * 1024 * 1024  # 500MB
+
 
 def _get_site_all_quota_defaults(db):
     """读取全站默认：每任务 /all 基础次数与字节上限。有效限额 = 此处返回值 + task.quota_extra_*。"""
@@ -3219,6 +3223,21 @@ def _get_site_all_quota_defaults(db):
     except Exception as ex:
         logger.warning("读取全站 /all 默认限额失败: %s", ex)
     return _TASK_ALL_READ_FALLBACK, _TASK_ALL_BYTES_FALLBACK
+
+
+def _get_site_submit_quota_defaults(db):
+    """读取全站默认：每任务提交写入的基础条数与字节上限。有效限额 = 此处返回值 + task.quota_extra_submit_*。"""
+    try:
+        row = db.get(SiteQuotaDefault, 1)
+        if row is not None:
+            c = int(getattr(row, 'default_submit_count_limit', 0) or 0)
+            b = int(getattr(row, 'default_submit_bytes_limit', 0) or 0)
+            # c==0 表示不限次数；b 仍要求至少 1MB
+            if c >= 0 and b >= 1024 * 1024:
+                return c, b
+    except Exception as ex:
+        logger.warning("读取全站提交默认限额失败: %s", ex)
+    return _TASK_SUBMIT_COUNT_FALLBACK, _TASK_SUBMIT_BYTES_FALLBACK
 
 
 # ---------- 接口 GET 次数统计（管理员流量预估）----------
@@ -4024,7 +4043,50 @@ def submit_form(task_id):
         
         # 将数据转换为JSON字符串存储
         try:
-            submission = Submission(task_id=task.id, data=json.dumps(form_data, ensure_ascii=False))
+            data_text = json.dumps(form_data, ensure_ascii=False)
+            payload_bytes = len((data_text or '').encode('utf-8', errors='ignore'))
+
+            # 单任务提交写入限额（防刷库/防存爆）：原子判断 + 计数累加
+            base_c, base_b = _get_site_submit_quota_defaults(db)
+            lim_c = int(base_c) + int(getattr(task, 'quota_extra_submit_count', 0) or 0)
+            lim_b = int(base_b) + int(getattr(task, 'quota_extra_submit_bytes', 0) or 0)
+            # lim_c <= 0 表示「不限提交次数」（只校验累计体积）
+            if lim_c <= 0:
+                upd = db.execute(
+                    text("""
+                        UPDATE task SET
+                            submission_count_total = COALESCE(submission_count_total, 0) + 1,
+                            submission_bytes_total = COALESCE(submission_bytes_total, 0) + :pb
+                        WHERE id = :tid
+                          AND COALESCE(submission_bytes_total, 0) + :pb <= :lim_b
+                    """),
+                    {"tid": task.id, "pb": payload_bytes, "lim_b": lim_b},
+                )
+            else:
+                upd = db.execute(
+                    text("""
+                        UPDATE task SET
+                            submission_count_total = COALESCE(submission_count_total, 0) + 1,
+                            submission_bytes_total = COALESCE(submission_bytes_total, 0) + :pb
+                        WHERE id = :tid
+                          AND COALESCE(submission_count_total, 0) < :lim_c
+                          AND COALESCE(submission_bytes_total, 0) + :pb <= :lim_b
+                    """),
+                    {"tid": task.id, "pb": payload_bytes, "lim_c": lim_c, "lim_b": lim_b},
+                )
+            if not upd.rowcount:
+                db.rollback()
+                lim_c_text = '不限' if lim_c <= 0 else f'{lim_c} 条'
+                response = jsonify({
+                    'error': 'quota_exceeded',
+                    'message': f'提交失败：该任务已达到提交限额（上限：{lim_c_text} / {int(lim_b/1024/1024)} MB）。请联系管理员提高阈值或创建新任务。'
+                })
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                return response, 429
+
+            submission = Submission(task_id=task.id, data=data_text)
             db.add(submission)
             db.commit()
             _invalidate_task_read_cache(task_id)
@@ -5874,6 +5936,8 @@ def admin_panel():
         quota_requests_recent = []
         site_quota_default_row = None
         oneclick_prompt_rows = []
+        submit_quota_base_c = None
+        submit_quota_base_b = None
 
         # ---------- 仅当前 tab 才执行对应查询 ----------
         if current_tab == 'users':
@@ -5906,6 +5970,7 @@ def admin_panel():
             task_page = max(1, task_page)
             task_total_pages = max(math.ceil(total_tasks / task_per_page), 1) if total_tasks else 1
             task_page = min(task_page, task_total_pages)
+            submit_quota_base_c, submit_quota_base_b = _get_site_submit_quota_defaults(db)
             all_tasks = (
                 db.query(Task)
                 .options(joinedload(Task.author))
@@ -6192,6 +6257,8 @@ def admin_panel():
             quota_requests_recent=quota_requests_recent,
             site_quota_default_row=site_quota_default_row,
             oneclick_prompt_rows=oneclick_prompt_rows,
+            submit_quota_base_c=submit_quota_base_c,
+            submit_quota_base_b=submit_quota_base_b,
             pending_cert_sidebar=pending_cert_sidebar,
             pending_other_sidebar=pending_other_sidebar,
         )
@@ -6236,15 +6303,19 @@ def admin_save_oneclick_prompt_options():
 @quickform_bp.route('/admin/site_quota_defaults', methods=['POST'])
 @admin_required
 def admin_save_site_quota_defaults():
-    """保存全站 /all 默认次数与流量（每任务基础值，不含单任务加额）"""
+    """保存全站默认限额：/all 读取 + 提交写入（每任务基础值，不含单任务加额）"""
     raw_r = (request.form.get('default_all_read_limit') or '').strip()
     raw_mb = (request.form.get('default_all_bytes_mb') or '').strip()
+    raw_submit_c = (request.form.get('default_submit_count_limit') or '').strip()
+    raw_submit_mb = (request.form.get('default_submit_bytes_mb') or '').strip()
     auto_enabled_raw = (request.form.get('auto_quota_approve_enabled') or '').strip()
     auto_reads_raw = (request.form.get('auto_quota_approve_max_reads') or '0').strip()
     auto_mb_raw = (request.form.get('auto_quota_approve_max_mb') or '0').strip()
     try:
         r = int(raw_r)
         mb = int(raw_mb)
+        submit_c = int(raw_submit_c)
+        submit_mb = int(raw_submit_mb)
         auto_reads = max(0, int(auto_reads_raw or 0))
         auto_mb = max(0, int(auto_mb_raw or 0))
     except ValueError:
@@ -6257,6 +6328,13 @@ def admin_save_site_quota_defaults():
     if mb < 1 or mb > 1_048_576:
         flash('「每任务流量」以 MB 为单位，须在 1～1048576（约 1TB）之间', 'warning')
         return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
+    # submit_c=0 表示不限次数
+    if submit_c < 0 or submit_c > 50_000_000:
+        flash('「每任务提交条数」须在 0～50000000 之间（0 表示不限）', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
+    if submit_mb < 1 or submit_mb > 1_048_576:
+        flash('「每任务提交累计字节」以 MB 为单位，须在 1～1048576（约 1TB）之间', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
     db = SessionLocal()
     try:
         row = db.get(SiteQuotaDefault, 1)
@@ -6265,6 +6343,8 @@ def admin_save_site_quota_defaults():
                 id=1,
                 default_all_read_limit=r,
                 default_all_bytes_limit=mb * 1024 * 1024,
+                default_submit_count_limit=submit_c,
+                default_submit_bytes_limit=submit_mb * 1024 * 1024,
                 auto_quota_approve_enabled=auto_enabled,
                 auto_quota_approve_max_reads=auto_reads,
                 auto_quota_approve_max_mb=auto_mb,
@@ -6273,12 +6353,14 @@ def admin_save_site_quota_defaults():
         else:
             row.default_all_read_limit = r
             row.default_all_bytes_limit = mb * 1024 * 1024
+            row.default_submit_count_limit = submit_c
+            row.default_submit_bytes_limit = submit_mb * 1024 * 1024
             row.auto_quota_approve_enabled = auto_enabled
             row.auto_quota_approve_max_reads = auto_reads
             row.auto_quota_approve_max_mb = auto_mb
             row.updated_at = datetime.now()
         db.commit()
-        flash('已保存全站默认限额，对新产生的 /all 校验与任务详情展示立即生效。', 'success')
+        flash('已保存全站默认限额（/all 读取 + 提交写入），立即生效。', 'success')
     except Exception as e:
         db.rollback()
         logger.exception('admin_save_site_quota_defaults: %s', e)
@@ -6286,6 +6368,43 @@ def admin_save_site_quota_defaults():
     finally:
         db.close()
     return redirect(url_for('quickform.admin_panel', tab='quota-settings'))
+
+
+@quickform_bp.route('/admin/task_submit_quota/<int:task_id>', methods=['POST'])
+@admin_required
+def admin_save_task_submit_quota(task_id):
+    """管理员调整单任务的「提交写入」加额（在全局默认基础上累加）。"""
+    extra_c_raw = (request.form.get('quota_extra_submit_count') or '0').strip()
+    extra_mb_raw = (request.form.get('quota_extra_submit_mb') or '0').strip()
+    try:
+        extra_c = max(0, int(extra_c_raw or 0))
+        extra_mb = max(0, int(extra_mb_raw or 0))
+    except ValueError:
+        flash('提交加额请输入非负整数', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='tasks'))
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            flash('任务不存在', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='tasks'))
+        task.quota_extra_submit_count = extra_c
+        task.quota_extra_submit_bytes = int(extra_mb) * 1024 * 1024
+        db.commit()
+        bc, bb = _get_site_submit_quota_defaults(db)
+        lim_c = int(bc) + int(task.quota_extra_submit_count or 0)
+        lim_b = int(bb) + int(task.quota_extra_submit_bytes or 0)
+        flash(
+            f'已保存任务 {task_id} 的提交加额：额外 {extra_c} 条、额外 {extra_mb} MB（有效上限约 {lim_c} 条 / {lim_b // (1024 * 1024)} MB）。',
+            'success',
+        )
+    except Exception as e:
+        db.rollback()
+        logger.exception('admin_save_task_submit_quota: %s', e)
+        flash('保存失败', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='tasks'))
 
 
 @quickform_bp.route('/admin/task_quota_approve/<int:req_id>', methods=['POST'])
@@ -7768,6 +7887,84 @@ def remove_submission(task_id):
         db.close()
 
 
+@quickform_bp.route('/task/<int:task_id>/submissions/remove_batch', methods=['POST'])
+def remove_submissions_batch(task_id):
+    """批量删除提交数据（用于页面多选删除）。"""
+    db = SessionLocal()
+    client_ip = get_request_client_ip(request)
+    auth_code = _extract_submission_manage_code()
+
+    def make_response(payload, status_code=200):
+        resp = jsonify(payload)
+        resp.status_code = status_code
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+
+    try:
+        if not _manage_rate_limit_check(task_id):
+            return make_response({'success': False, 'message': '操作过于频繁，请稍后再试。', 'detail': '请避免重复点击；等待数秒后再重试。'}, 429)
+        task = db.get(Task, task_id)
+        if not task:
+            return make_response({'success': False, 'message': '任务不存在'}, 404)
+
+        can_edit = _can_manage_task_submissions(db, task, auth_code)
+        if not can_edit:
+            logger.warning(
+                f"[remove_submissions_batch] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
+            )
+            return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
+
+        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
+        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+
+        submission_ids = []
+        if request.is_json:
+            payload = request.get_json(silent=True) or {}
+            raw_ids = payload.get('submission_ids') or payload.get('ids') or []
+            if isinstance(raw_ids, list):
+                submission_ids = raw_ids
+        if not submission_ids:
+            raw_text = (request.form.get('submission_ids') or request.form.get('ids') or '').strip()
+            if raw_text:
+                submission_ids = [x.strip() for x in raw_text.split(',') if x.strip()]
+
+        ids = []
+        for x in submission_ids:
+            try:
+                v = int(x)
+                if v > 0:
+                    ids.append(v)
+            except Exception:
+                continue
+        ids = sorted(set(ids))
+        if not ids:
+            return make_response({'success': False, 'message': '请选择要删除的提交记录。'}, 400)
+        if len(ids) > 500:
+            return make_response({'success': False, 'message': '一次最多删除 500 条，请分批操作。'}, 400)
+
+        q = db.query(Submission).filter(Submission.task_id == task_id, Submission.id.in_(ids))
+        to_del = q.all()
+        if not to_del:
+            return make_response({'success': False, 'message': '未找到可删除的提交记录。'}, 404)
+        for s in to_del:
+            db.delete(s)
+        db.commit()
+        _invalidate_task_read_cache(task.task_id)
+        _invalidate_task_data_cache(task.id)
+        logger.info(
+            "[remove_submissions_batch] success user=%s task=%s count=%s ip=%s code=%s",
+            getattr(current_user, 'id', None), task_id, len(to_del), client_ip, 'yes' if auth_code else 'no'
+        )
+        return make_response({'success': True, 'message': f'已删除 {len(to_del)} 条提交记录', 'deleted': len(to_del)})
+    except Exception as e:
+        db.rollback()
+        logger.exception("[remove_submissions_batch] error task=%s ip=%s", task_id, client_ip)
+        return make_response({'success': False, 'message': MSG_GENERIC}, 500)
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/task/<int:task_id>/submission/update', methods=['POST'])
 def update_submission(task_id):
     """修改单条提交数据（允许编辑权限账号或携带任务删改认证码）。"""
@@ -8131,6 +8328,26 @@ def teams_list():
     """入驻团队：展示全部团队列表，支持搜索与分页；无需登录可访问；点击加入需填写组织代码（需登录）"""
     db = SessionLocal()
     try:
+        def _org_desc_preview(md_text: str | None, max_len: int = 140) -> str:
+            """组织简介（Markdown）转为适合列表展示的短摘要（纯文本）。"""
+            raw = (md_text or "").strip()
+            if not raw:
+                return ""
+            try:
+                import markdown as _md
+                html_text = _md.markdown(raw, extensions=['extra', 'nl2br'])
+                # 去掉 HTML 标签，保留可读文本（避免把 Markdown 直接塞到卡片里撑开布局）
+                text = re.sub(r"<[^>]+>", "", html_text)
+                text = html.unescape(text)
+                text = re.sub(r"\s+", " ", text).strip()
+            except Exception:
+                # 兜底：简易去符号，避免异常导致页面 500
+                text = re.sub(r"[`*_>#-]+", " ", raw)
+                text = re.sub(r"\s+", " ", text).strip()
+            if max_len > 0 and len(text) > max_len:
+                return text[:max_len].rstrip() + "…"
+            return text
+
         q = request.args.get('q', '').strip()
         page = max(1, request.args.get('page', 1, type=int))
         per_page = 10
@@ -8162,6 +8379,7 @@ def teams_list():
                 'creator_name': creator.username if creator else '-',
                 'member_count': member_count,
                 'task_count': task_count,
+                'desc_preview': _org_desc_preview(getattr(org, 'description', None)),
             })
         return render_template('teams_list.html',
                              team_rows=team_rows,

@@ -123,6 +123,11 @@ class Task(Base):
     api_task_all_bytes_total = Column(BigInteger, default=0)  # /all 已下发响应体累计字节
     quota_extra_all_reads = Column(Integer, default=0)  # 管理员批复的额外「/all 读取次数」
     quota_extra_all_bytes = Column(BigInteger, default=0)  # 管理员批复的额外流量额度（字节）
+    # 单任务“提交写入”用量与限额（用于防刷库/防存爆；限额 = SiteQuotaDefault 默认值 + quota_extra_submit_*）
+    submission_count_total = Column(Integer, default=0)  # 已接收提交条数（累计）
+    submission_bytes_total = Column(BigInteger, default=0)  # 已接收提交 data 的累计字节（UTF-8）
+    quota_extra_submit_count = Column(Integer, default=0)  # 管理员批复的额外「提交条数」额度
+    quota_extra_submit_bytes = Column(BigInteger, default=0)  # 管理员批复的额外「提交字节」额度（字节）
     approver = relationship('User', foreign_keys=[html_approved_by], backref='approved_tasks')
     organization = relationship('Organization', back_populates='tasks')
     shares = relationship('TaskShare', back_populates='task', cascade='all, delete-orphan')
@@ -298,6 +303,11 @@ class SiteQuotaDefault(Base):
     id = Column(Integer, primary_key=True)
     default_all_read_limit = Column(Integer, nullable=False, default=2000)
     default_all_bytes_limit = Column(BigInteger, nullable=False, default=100 * 1024 * 1024)
+    # 单任务提交写入默认限额（防刷库/防存爆）
+    # - default_submit_count_limit = 0 表示「不限提交次数」（仅按累计体积/单条大小等限制）。
+    default_submit_count_limit = Column(Integer, nullable=False, default=100000)
+    # 默认把累计体积上限调高一些（仍建议结合 Nginx/WAF 做全站限速）
+    default_submit_bytes_limit = Column(BigInteger, nullable=False, default=500 * 1024 * 1024)  # 默认 500MB
     auto_quota_approve_enabled = Column(Integer, nullable=False, default=0)  # 0=关闭 1=开启
     auto_quota_approve_max_reads = Column(Integer, nullable=False, default=0)  # 自动审批：次数阈值
     auto_quota_approve_max_mb = Column(Integer, nullable=False, default=0)  # 自动审批：流量阈值(MB)
@@ -809,6 +819,77 @@ def migrate_database(engine):
                 except Exception as e:
                     logger.warning(f"添加quota_extra_all_bytes失败（可能已存在）: {str(e)}")
 
+            # task：提交写入限额与计数（防刷库/防存爆）
+            if task_cols and 'submission_count_total' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN submission_count_total INTEGER DEFAULT 0"))
+                    conn.execute(text("UPDATE task SET submission_count_total = 0 WHERE submission_count_total IS NULL"))
+                    logger.info("成功为task添加submission_count_total")
+                except Exception as e:
+                    logger.warning(f"添加submission_count_total失败（可能已存在）: {str(e)}")
+            if task_cols and 'submission_bytes_total' not in task_cols:
+                try:
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE task ADD COLUMN submission_bytes_total BIGINT DEFAULT 0"))
+                    else:
+                        conn.execute(text("ALTER TABLE task ADD COLUMN submission_bytes_total INTEGER DEFAULT 0"))
+                    conn.execute(text("UPDATE task SET submission_bytes_total = 0 WHERE submission_bytes_total IS NULL"))
+                    logger.info("成功为task添加submission_bytes_total")
+                except Exception as e:
+                    logger.warning(f"添加submission_bytes_total失败（可能已存在）: {str(e)}")
+            if task_cols and 'quota_extra_submit_count' not in task_cols:
+                try:
+                    conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_submit_count INTEGER DEFAULT 0"))
+                    conn.execute(text("UPDATE task SET quota_extra_submit_count = 0 WHERE quota_extra_submit_count IS NULL"))
+                    logger.info("成功为task添加quota_extra_submit_count")
+                except Exception as e:
+                    logger.warning(f"添加quota_extra_submit_count失败（可能已存在）: {str(e)}")
+            if task_cols and 'quota_extra_submit_bytes' not in task_cols:
+                try:
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_submit_bytes BIGINT DEFAULT 0"))
+                    else:
+                        conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_submit_bytes INTEGER DEFAULT 0"))
+                    conn.execute(text("UPDATE task SET quota_extra_submit_bytes = 0 WHERE quota_extra_submit_bytes IS NULL"))
+                    logger.info("成功为task添加quota_extra_submit_bytes")
+                except Exception as e:
+                    logger.warning(f"添加quota_extra_submit_bytes失败（可能已存在）: {str(e)}")
+
+            # 从 submission 聚合回填「提交条数 / 累计字节」（升级后首次对齐；后续由接口累加维护）
+            if task_cols and 'submission' in inspector.get_table_names():
+                try:
+                    if dialect == 'mysql':
+                        conn.execute(text("""
+                            UPDATE task AS t
+                            LEFT JOIN (
+                                SELECT task_id AS tid,
+                                       COUNT(*) AS c,
+                                       COALESCE(SUM(LENGTH(data)), 0) AS b
+                                FROM submission
+                                GROUP BY task_id
+                            ) AS s ON s.tid = t.id
+                            SET
+                                t.submission_count_total = COALESCE(s.c, 0),
+                                t.submission_bytes_total = COALESCE(s.b, 0)
+                            WHERE COALESCE(t.submission_count_total, 0) = 0
+                              AND COALESCE(t.submission_bytes_total, 0) = 0
+                        """))
+                    else:
+                        conn.execute(text("""
+                            UPDATE task SET
+                                submission_count_total = COALESCE((
+                                    SELECT COUNT(*) FROM submission WHERE submission.task_id = task.id
+                                ), 0),
+                                submission_bytes_total = COALESCE((
+                                    SELECT SUM(LENGTH(data)) FROM submission WHERE submission.task_id = task.id
+                                ), 0)
+                            WHERE COALESCE(submission_count_total, 0) = 0
+                              AND COALESCE(submission_bytes_total, 0) = 0
+                        """))
+                    logger.info("已回填 task 的提交用量计数（submission_count_total / submission_bytes_total）")
+                except Exception as e:
+                    logger.warning(f"回填 task 提交用量失败（可忽略）: {str(e)}")
+
             if backfill_task_api_from_log and 'api_access_log' in inspector.get_table_names():
                 try:
                     if dialect == 'mysql':
@@ -862,23 +943,25 @@ def migrate_database(engine):
                     SiteQuotaDefault.__table__.create(bind=engine)
                     dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
                     seed_bytes = 100 * 1024 * 1024
+                    seed_submit_count = 100000
+                    seed_submit_bytes = 500 * 1024 * 1024
                     if dialect == 'mysql':
                         conn.execute(
                             text(
                                 "INSERT INTO site_quota_default "
-                                "(id, default_all_read_limit, default_all_bytes_limit, updated_at) "
-                                "VALUES (1, 2000, :b, NOW())"
+                                "(id, default_all_read_limit, default_all_bytes_limit, default_submit_count_limit, default_submit_bytes_limit, updated_at) "
+                                "VALUES (1, 2000, :b, :sc, :sb, NOW())"
                             ),
-                            {"b": seed_bytes},
+                            {"b": seed_bytes, "sc": seed_submit_count, "sb": seed_submit_bytes},
                         )
                     else:
                         conn.execute(
                             text(
                                 "INSERT INTO site_quota_default "
-                                "(id, default_all_read_limit, default_all_bytes_limit, updated_at) "
-                                "VALUES (1, 2000, :b, CURRENT_TIMESTAMP)"
+                                "(id, default_all_read_limit, default_all_bytes_limit, default_submit_count_limit, default_submit_bytes_limit, updated_at) "
+                                "VALUES (1, 2000, :b, :sc, :sb, CURRENT_TIMESTAMP)"
                             ),
-                            {"b": seed_bytes},
+                            {"b": seed_bytes, "sc": seed_submit_count, "sb": seed_submit_bytes},
                         )
                     logger.info("成功创建 site_quota_default 表并写入默认限额")
                 except Exception as e:
@@ -886,6 +969,14 @@ def migrate_database(engine):
             else:
                 try:
                     site_quota_cols = [col['name'] for col in inspector.get_columns('site_quota_default')]
+                    if 'default_submit_count_limit' not in site_quota_cols:
+                        conn.execute(text("ALTER TABLE site_quota_default ADD COLUMN default_submit_count_limit INTEGER DEFAULT 100000"))
+                    if 'default_submit_bytes_limit' not in site_quota_cols:
+                        # SQLite 统一 INTEGER；MySQL 用 BIGINT
+                        if dialect == 'mysql':
+                            conn.execute(text("ALTER TABLE site_quota_default ADD COLUMN default_submit_bytes_limit BIGINT DEFAULT 524288000"))
+                        else:
+                            conn.execute(text("ALTER TABLE site_quota_default ADD COLUMN default_submit_bytes_limit INTEGER DEFAULT 524288000"))
                     if 'auto_quota_approve_enabled' not in site_quota_cols:
                         conn.execute(text("ALTER TABLE site_quota_default ADD COLUMN auto_quota_approve_enabled INTEGER DEFAULT 0"))
                     if 'auto_quota_approve_max_reads' not in site_quota_cols:

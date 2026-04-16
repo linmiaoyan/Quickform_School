@@ -797,7 +797,7 @@
                                 <div class="qf-step-card-bd">
                                     <p>给活动起个名字（如「XX课导学案」），系统会为该任务生成<strong>专属提交入口</strong>与数据结构。</p>
                                     <div class="qf-step-prompt-label">示例：专属提交入口长什么样</div>
-                                    <pre class="qf-step-prompt qf-step-prompt--short" tabindex="0">POST https://quickform.cn/…/submit/kjjb</pre>
+                                    <pre class="qf-step-prompt qf-step-prompt--short" tabindex="0">POST https://quickform.cn/…/submit/…</pre>
                                     <div class="qf-step-actions">
                                         {% if current_user.is_authenticated %}
                                         <a href="{{ url_for('quickform.create_task') }}">创建任务</a>
