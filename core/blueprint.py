@@ -14,7 +14,7 @@ import threading
 import html
 import base64
 import uuid
-from urllib.parse import unquote_plus, quote as url_quote
+from urllib.parse import unquote_plus, quote as url_quote, urlsplit, urlunsplit, parse_qsl, urlencode
 import zipfile
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app, abort
 from werkzeug.datastructures import FileStorage
@@ -838,6 +838,29 @@ def get_upload_file_url(saved_name, task_file_path=None):
     except RuntimeError:
         pass
     return url_for('quickform.uploaded_file', filename=saved_name)
+
+
+def _append_query_param(url: str, key: str, value: str) -> str:
+    """给 URL 安全追加 query 参数（保留原有 query/fragment；相同 key 则覆盖）。"""
+    try:
+        parts = urlsplit(url or '')
+        q = dict(parse_qsl(parts.query, keep_blank_values=True))
+        q[key] = value
+        new_query = urlencode(q, doseq=True)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
+    except Exception:
+        joiner = '&' if ('?' in (url or '')) else '?'
+        return f"{url}{joiner}{key}={url_quote(value or '')}"
+
+
+def _html_public_url_with_taskid(file_url: str, task_public_id: str, saved_name: str) -> str:
+    """老师上传 HTML 的公网链接需要带 taskid（仅新生成链接；旧链接不追溯处理）。"""
+    name = (saved_name or '').lower()
+    if not (name.endswith('.html') or name.endswith('.htm')):
+        return file_url
+    if not task_public_id:
+        return file_url
+    return _append_query_param(file_url, 'taskid', task_public_id)
 
 
 def _task_first_html_preview_url(task):
@@ -2147,7 +2170,8 @@ def task_detail(task_id):
             }]
         for f in html_files:
             if isinstance(f, dict) and 'saved_name' in f:
-                f['url'] = get_upload_file_url(f['saved_name'], task.file_path)
+                _u = get_upload_file_url(f['saved_name'], task.file_path)
+                f['url'] = _html_public_url_with_taskid(_u, getattr(task, 'task_id', None), f.get('saved_name'))
 
         # 任务详情页不展示分页列表，pagination 仅用于模板兼容（见上方已赋初值）
         
@@ -2902,7 +2926,8 @@ def edit_task(task_id):
             }]
         for f in html_files:
             if isinstance(f, dict) and 'saved_name' in f:
-                f['url'] = get_upload_file_url(f['saved_name'], task.file_path)
+                _u = get_upload_file_url(f['saved_name'], task.file_path)
+                f['url'] = _html_public_url_with_taskid(_u, getattr(task, 'task_id', None), f.get('saved_name'))
         
         task_ai_generated = getattr(task, 'ai_generated', False)
         task_html_ai_edit_remaining = getattr(task, 'html_ai_edit_remaining', None)

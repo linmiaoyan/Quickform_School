@@ -258,7 +258,7 @@ def get_chat_server_model_light():
     """硅基流动：轻量路径（上传后 HTML 摘要分析、智能分析页「仅润色提示词」步骤）。"""
     return _chat_server_model_resolve(
         'CHAT_SERVER_MODEL_LIGHT', 'CHAT_SERVER_MODEL_LIGHT',
-        'deepseek-ai/DeepSeek-V2.5',
+        'deepseek-ai/DeepSeek-V3.2',
     )
 
 

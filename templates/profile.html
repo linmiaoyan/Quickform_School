@@ -278,7 +278,20 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td>硅基流动</td><td><a href="https://www.siliconflow.cn/" target="_blank">https://www.siliconflow.cn/</a></td><td>登陆后即可看到「API 密钥」</td><td>提供大量免费模型</td></tr>
+                            <tr>
+                                <td>硅基流动</td>
+                                <td><a href="https://www.siliconflow.cn/" target="_blank" rel="noopener">https://www.siliconflow.cn/</a></td>
+                                <td>登陆后即可看到「API 密钥」</td>
+                                <td>
+                                    <button type="button"
+                                            class="btn btn-sm btn-primary text-nowrap"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#sfSupportModal"
+                                            style="font-weight: 600; white-space: nowrap;">
+                                        <i class="bi bi-heart-fill me-1"></i>支持我们
+                                    </button>
+                                </td>
+                            </tr>
                             <tr><td>deepseek(深度求索)</td><td><a href="https://platform.deepseek.com/api_keys" target="_blank">https://platform.deepseek.com/api_keys</a></td><td>左侧 API keys - 创建 API key</td><td>500万 tokens（注意要去首页认证领取）</td></tr>
                             <tr><td>阿里云百炼</td><td><a href="https://dashscope.console.aliyun.com/apiKey" target="_blank">https://dashscope.console.aliyun.com/apiKey</a></td><td>API-KEY 管理 - 创建新的 API-KEY Key</td><td>无</td></tr>
                             <tr><td>豆包（火山引擎）</td><td><a href="https://console.volcengine.com/home" target="_blank">https://console.volcengine.com/home</a></td><td>在「火山方舟」中选「API Key 管理」</td><td>50万 tokens</td></tr>
@@ -289,6 +302,41 @@
                         </tbody>
                     </table>
                 </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 硅基流动「支持我们」弹窗（放在页面外层，避免与容器滚动/层叠上下文抢占导致闪动） -->
+<div class="modal fade" id="sfSupportModal" tabindex="-1" aria-labelledby="sfSupportModalLabel" aria-hidden="true" data-bs-focus="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sfSupportModalLabel">支持我们</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small" style="line-height: 1.7; color: #111827;">
+                    <div class="mb-3">
+                        目前平台为大家免费提供使用的是硅基流动的接口，以下为 QuickForm 平台所用账号的邀请码，您的注册会为我们提供一定额度的代金券，用于为刚入门的老师提供免费帮助。
+                    </div>
+                    <div class="alert alert-light border mb-2">
+                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                            <div><strong>邀请码：</strong><code id="sfInviteCode">1TxoO4tB</code></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="qfCopyText('1TxoO4tB', this)">复制</button>
+                        </div>
+                    </div>
+                    <div class="alert alert-light border mb-0">
+                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                            <div class="me-2"><strong>邀请链接：</strong><a href="https://cloud.siliconflow.cn/i/1TxoO4tB" target="_blank" rel="noopener">https://cloud.siliconflow.cn/i/1TxoO4tB</a></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="qfCopyText('https://cloud.siliconflow.cn/i/1TxoO4tB', this)">复制</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
             </div>
         </div>
     </div>
@@ -297,6 +345,41 @@
 
 {% block scripts %}
 <script>
+function qfCopyText(text, btnEl) {
+    var t = (text || '').toString();
+    function flash(ok) {
+        if (!btnEl) return;
+        var old = btnEl.textContent;
+        btnEl.textContent = ok ? '已复制' : '复制失败';
+        btnEl.disabled = true;
+        setTimeout(function () {
+            btnEl.textContent = old || '复制';
+            btnEl.disabled = false;
+        }, 900);
+    }
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(t).then(function(){ flash(true); }).catch(function(){ flash(false); });
+            return;
+        }
+    } catch (e) {}
+    try {
+        var ta = document.createElement('textarea');
+        ta.value = t;
+        ta.setAttribute('readonly', 'readonly');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        flash(!!ok);
+    } catch (e) {
+        flash(false);
+    }
+}
+
 // 由于上面已用style控制display，重复JS会与style或初始状态冲突，这里统一下逻辑：
 document.addEventListener('DOMContentLoaded', function(){
     // 保存/恢复 AI 配置后跳转到 profile#config 时，自动切换到 AI 配置标签页
