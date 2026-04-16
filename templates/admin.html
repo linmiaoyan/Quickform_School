@@ -83,6 +83,12 @@
                     <div class="stat-label text-muted" style="font-size: 0.7rem; margin-top: 0.25rem;">{% if stats.total_submissions is none %}进入「数据报表」后加载{% endif %}</div>
                 </div>
             </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="stat-card" style="border-left: 4px solid #8b5cf6;">
+                    <div class="stat-label">已认证教师数</div>
+                    <div class="stat-number">{{ stats.certified_users }}</div>
+                </div>
+            </div>
         </div>
 
         <!-- 标签页导航（保留用于兼容性，但隐藏） -->
@@ -1077,46 +1083,11 @@
                         <h5 class="mb-0">{{ translate('admin.export_data') }}报表</h5>
                     </div>
                     <div class="card-body">
-                        <div class="row mb-4">
-                            <div class="col-md-6">
-                                <h6>用户统计</h6>
-                                <ul class="list-group">
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.admin_users') }}：</span>
-                                        <strong>{{ stats.admin_users }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.normal_users') }}：</span>
-                                        <strong>{{ stats.normal_users }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.today_registers') }}：</span>
-                                        <strong>{{ stats.new_users_today }}</strong>
-                                    </li>
-                                </ul>
-                            </div>
-                            <div class="col-md-6">
-                                <h6>任务统计</h6>
-                                <ul class="list-group">
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.total_tasks') }}：</span>
-                                        <strong>{{ stats.total_tasks }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.today_tasks') }}：</span>
-                                        <strong>{{ stats.new_tasks_today }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.avg_user_tasks') }}：</span>
-                                        <strong>{{ "%.2f"|format(stats.avg_tasks_per_user) }}</strong>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
                         <!-- 每日注册人数可视化（可选时间范围） -->
                         <div class="card mb-4">
                             <div class="card-header d-flex flex-wrap align-items-center gap-2">
                                 <h6 class="mb-0"><i class="bi bi-graph-up"></i> 每日注册人数</h6>
+                                <span class="badge bg-primary">今日：{{ stats.new_users_today }}</span>
                                 <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
                                     <label class="mb-0 small">开始</label>
                                     <input type="date" id="reg-chart-start" class="form-control form-control-sm" style="width: auto;">
@@ -1129,91 +1100,62 @@
                                 <div id="daily-registrations-chart" style="width: 100%; height: 320px;"></div>
                             </div>
                         </div>
-                        <div class="row mb-4">
+
+                        <div class="row g-3">
                             <div class="col-md-6">
-                                <h6>{{ translate('common.submit') }}统计</h6>
-                                <ul class="list-group">
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.total_submissions') }}：</span>
-                                        <strong>{{ stats.total_submissions }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.today_submissions') }}：</span>
-                                        <strong>{{ stats.new_submissions_today }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.avg_task_submissions') }}：</span>
-                                        <strong>{{ "%.2f"|format(stats.avg_submissions_per_task) }}</strong>
-                                    </li>
-                                </ul>
+                                <div class="border rounded p-3 bg-light">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <h6 class="mb-0">用户统计</h6>
+                                        <button class="btn btn-sm btn-outline-primary" type="button" onclick="loadDataStats('users', this)">加载</button>
+                                    </div>
+                                    <ul class="list-group mt-2" id="stats-users">
+                                        <li class="list-group-item text-muted small">点击“加载”后查询</li>
+                                    </ul>
+                                </div>
                             </div>
                             <div class="col-md-6">
-                                <h6>组织统计</h6>
-                                <ul class="list-group">
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.total_organizations') }}：</span>
-                                        <strong>{{ stats.total_organizations }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.total_org_members') }}：</span>
-                                        <strong>{{ stats.total_org_members }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.org_tasks') }}：</span>
-                                        <strong>{{ stats.tasks_in_organizations }}</strong>
-                                    </li>
-                                </ul>
+                                <div class="border rounded p-3 bg-light">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <h6 class="mb-0">任务统计</h6>
+                                        <button class="btn btn-sm btn-outline-primary" type="button" onclick="loadDataStats('tasks', this)">加载</button>
+                                    </div>
+                                    <ul class="list-group mt-2" id="stats-tasks">
+                                        <li class="list-group-item text-muted small">点击“加载”后查询</li>
+                                    </ul>
+                                </div>
                             </div>
-                        </div>
-                        <div class="row">
                             <div class="col-md-6">
-                                <h6>其他统计</h6>
-                                <ul class="list-group">
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.generated_reports') }}：</span>
-                                        <strong>{{ stats.tasks_with_reports }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.report_gen_rate') }}：</span>
-                                        <strong>{{ "%.1f"|format(stats.report_generation_rate) }}%</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.certified_teachers') }}：</span>
-                                        <strong>{{ stats.certified_users }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.public_tasks') }}：</span>
-                                        <strong>{{ stats.public_tasks }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>已审核{{ translate('admin.public_tasks') }}：</span>
-                                        <strong>{{ stats.public_approved_tasks }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>任务共享记录数：</span>
-                                        <strong>{{ stats.total_task_shares }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>任务点赞总数：</span>
-                                        <strong>{{ stats.total_task_likes }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>一键生成任务数：</span>
-                                        <strong>{{ stats.ai_generated_tasks }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.pending') }}认证申请：</span>
-                                        <strong>{{ stats.cert_requests_pending }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.forum_posts') }}：</span>
-                                        <strong>{{ stats.total_posts }}</strong>
-                                    </li>
-                                    <li class="list-group-item d-flex justify-content-between">
-                                        <span>{{ translate('admin.forum_replies') }}：</span>
-                                        <strong>{{ stats.total_post_replies }}</strong>
-                                    </li>
-                                </ul>
+                                <div class="border rounded p-3 bg-light">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <h6 class="mb-0">{{ translate('common.submit') }}统计</h6>
+                                        <button class="btn btn-sm btn-outline-primary" type="button" onclick="loadDataStats('submissions', this)">加载</button>
+                                    </div>
+                                    <ul class="list-group mt-2" id="stats-submissions">
+                                        <li class="list-group-item text-muted small">点击“加载”后查询</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="border rounded p-3 bg-light">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <h6 class="mb-0">组织统计</h6>
+                                        <button class="btn btn-sm btn-outline-primary" type="button" onclick="loadDataStats('organizations', this)">加载</button>
+                                    </div>
+                                    <ul class="list-group mt-2" id="stats-organizations">
+                                        <li class="list-group-item text-muted small">点击“加载”后查询</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="col-md-12">
+                                <div class="border rounded p-3 bg-light">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <h6 class="mb-0">其他统计</h6>
+                                        <button class="btn btn-sm btn-outline-primary" type="button" onclick="loadDataStats('others', this)">加载</button>
+                                    </div>
+                                    <ul class="list-group mt-2" id="stats-others">
+                                        <li class="list-group-item text-muted small">点击“加载”后查询</li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2083,6 +2025,81 @@
         });
         if (window.location.search.indexOf('tab=data') !== -1) setTimeout(loadRegChart, 300);
     })();
+
+    // 数据报表：按需加载各分区统计（避免默认全表扫描）
+    function loadDataStats(section, btn) {
+        if (!section) return;
+        var map = {
+            'users': 'stats-users',
+            'tasks': 'stats-tasks',
+            'submissions': 'stats-submissions',
+            'organizations': 'stats-organizations',
+            'others': 'stats-others'
+        };
+        var targetId = map[section];
+        var target = targetId ? document.getElementById(targetId) : null;
+        if (!target) return;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '加载中…';
+        }
+        var url = '{{ url_for("quickform.admin_api_data_stats", section="__SEC__") }}'.replace('__SEC__', encodeURIComponent(section));
+        fetch(url, { credentials: 'same-origin' })
+            .then(function(r){ return r.json().catch(function(){ return {}; }); })
+            .then(function(res){
+                if (!res || !res.success) {
+                    throw new Error((res && res.message) ? res.message : '加载失败');
+                }
+                var d = res.data || {};
+                var items = [];
+                function li(label, value) {
+                    items.push(
+                        '<li class="list-group-item d-flex justify-content-between"><span>' +
+                        label + '：</span><strong>' + value + '</strong></li>'
+                    );
+                }
+                if (section === 'users') {
+                    li('总用户数', d.total_users ?? '—');
+                    li('管理员数', d.admin_users ?? '—');
+                    li('普通用户数', d.normal_users ?? '—');
+                    li('今日注册', d.new_users_today ?? '—');
+                } else if (section === 'tasks') {
+                    li('任务总数', d.total_tasks ?? '—');
+                    li('今日新建任务', d.new_tasks_today ?? '—');
+                    li('人均任务数', (typeof d.avg_tasks_per_user === 'number') ? d.avg_tasks_per_user.toFixed(2) : (d.avg_tasks_per_user ?? '—'));
+                } else if (section === 'submissions') {
+                    li('提交总数', d.total_submissions ?? '—');
+                    li('今日提交数', d.new_submissions_today ?? '—');
+                    li('任务平均提交数', (typeof d.avg_submissions_per_task === 'number') ? d.avg_submissions_per_task.toFixed(2) : (d.avg_submissions_per_task ?? '—'));
+                } else if (section === 'organizations') {
+                    li('组织总数', d.total_organizations ?? '—');
+                    li('组织成员总数', d.total_org_members ?? '—');
+                    li('组织内任务数', d.tasks_in_organizations ?? '—');
+                } else if (section === 'others') {
+                    li('已生成报告任务数', d.tasks_with_reports ?? '—');
+                    li('报告生成率', (typeof d.report_generation_rate === 'number') ? d.report_generation_rate.toFixed(1) + '%' : (d.report_generation_rate ?? '—'));
+                    li('认证用户数', d.certified_users ?? '—');
+                    li('公开任务数', d.public_tasks ?? '—');
+                    li('已审核公开任务数', d.public_approved_tasks ?? '—');
+                    li('任务共享记录数', d.total_task_shares ?? '—');
+                    li('任务点赞总数', d.total_task_likes ?? '—');
+                    li('一键生成任务数', d.ai_generated_tasks ?? '—');
+                    li('待审核认证申请', d.cert_requests_pending ?? '—');
+                    li('论坛帖子数', d.total_posts ?? '—');
+                    li('论坛回复数', d.total_post_replies ?? '—');
+                }
+                target.innerHTML = items.join('') || '<li class="list-group-item text-muted small">暂无数据</li>';
+            })
+            .catch(function(e){
+                target.innerHTML = '<li class="list-group-item text-danger small">加载失败：' + (e && e.message ? e.message : '未知错误') + '</li>';
+            })
+            .finally(function(){
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '重新加载';
+                }
+            });
+    }
 
     // 手动设置用户学校省份（管理员覆盖，用于统计地区编码）
     function setUserProvincePrompt(trigger) {

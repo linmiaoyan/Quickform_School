@@ -5891,11 +5891,12 @@ def admin_panel():
         html_review_per_page = 20
         cert_review_per_page = 20
 
-        # 顶部统计：用户/管理员/任务始终 count；提交总数仅在「数据报表」tab 查询（避免每次进后台全表扫 submission）
+        # 顶部统计：用户/管理员/任务始终 count；提交总数不在后台首页自动查询（避免全表扫 submission）
         total_users = db.query(User).count()
         admin_users = db.query(User).filter_by(role='admin').count()
+        certified_users_top = db.query(User).filter(User.is_certified == True).count()
         total_tasks = db.query(Task).count()
-        total_submissions = db.query(Submission).count() if current_tab == 'data' else None
+        total_submissions = None
         pending_cert_sidebar = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
         pending_html_sidebar = db.query(Task).filter(Task.html_approved != 1).count()
         pending_public_sidebar = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 0).count()
@@ -6188,6 +6189,7 @@ def admin_panel():
             'admin_users': admin_users,
             'total_tasks': total_tasks,
             'total_submissions': total_submissions,
+            'certified_users': certified_users_top,
             'normal_users': 0,
             'new_users_today': 0,
             'new_tasks_today': 0,
@@ -6199,7 +6201,6 @@ def admin_panel():
             'total_organizations': 0,
             'total_org_members': 0,
             'tasks_in_organizations': 0,
-            'certified_users': 0,
             'public_tasks': 0,
             'public_approved_tasks': 0,
             'total_task_shares': 0,
@@ -6210,16 +6211,11 @@ def admin_panel():
             'total_post_replies': 0,
         }
         if current_tab == 'data':
-            stats.update(
-                _get_admin_data_stats_cached(
-                    db=db,
-                    today_start=today_start,
-                    total_users=total_users,
-                    admin_users=admin_users,
-                    total_tasks=total_tasks,
-                    total_submissions=total_submissions,
-                )
-            )
+            # 默认进入「数据报表」仅展示每日注册人数（避免一次性扫全表统计）
+            try:
+                stats['new_users_today'] = db.query(User).filter(User.created_at >= today_start).count()
+            except Exception:
+                stats['new_users_today'] = 0
 
         return render_template(
             'admin.html',
@@ -7038,6 +7034,95 @@ def admin_api_daily_registrations():
         return jsonify({'success': True, 'data': data, 'start': start_s or start_d.isoformat(), 'end': end_s or end_d.isoformat()})
     except Exception as e:
         logger.exception('daily_registrations: %s', e)
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/admin/api/data_stats/<string:section>', methods=['GET'])
+@admin_required
+def admin_api_data_stats(section: str):
+    """管理员接口：按需加载数据报表各分区统计，避免默认全表扫描。"""
+    sec = (section or '').strip().lower()
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+        today_start = datetime.combine(today, datetime.min.time())
+
+        if sec == 'users':
+            total_users = db.query(User).count()
+            admin_users = db.query(User).filter_by(role='admin').count()
+            normal_users = db.query(User).filter_by(role='user').count()
+            new_users_today = db.query(User).filter(User.created_at >= today_start).count()
+            return jsonify({'success': True, 'section': sec, 'data': {
+                'total_users': int(total_users),
+                'admin_users': int(admin_users),
+                'normal_users': int(normal_users),
+                'new_users_today': int(new_users_today),
+            }})
+
+        if sec == 'tasks':
+            total_users = db.query(User).count()
+            total_tasks = db.query(Task).count()
+            new_tasks_today = db.query(Task).filter(Task.created_at >= today_start).count()
+            avg_tasks_per_user = (total_tasks / total_users) if total_users > 0 else 0
+            return jsonify({'success': True, 'section': sec, 'data': {
+                'total_tasks': int(total_tasks),
+                'new_tasks_today': int(new_tasks_today),
+                'avg_tasks_per_user': float(avg_tasks_per_user),
+            }})
+
+        if sec == 'submissions':
+            total_tasks = db.query(Task).count()
+            total_submissions = db.query(Submission).count()
+            new_submissions_today = db.query(Submission).filter(Submission.submitted_at >= today_start).count()
+            avg_submissions_per_task = (total_submissions / total_tasks) if total_tasks > 0 else 0
+            return jsonify({'success': True, 'section': sec, 'data': {
+                'total_submissions': int(total_submissions),
+                'new_submissions_today': int(new_submissions_today),
+                'avg_submissions_per_task': float(avg_submissions_per_task),
+            }})
+
+        if sec == 'organizations':
+            total_organizations = db.query(Organization).count()
+            total_org_members = db.query(OrganizationMember).count()
+            tasks_in_organizations = db.query(Task).filter(Task.organization_id.isnot(None)).count()
+            return jsonify({'success': True, 'section': sec, 'data': {
+                'total_organizations': int(total_organizations),
+                'total_org_members': int(total_org_members),
+                'tasks_in_organizations': int(tasks_in_organizations),
+            }})
+
+        if sec == 'others':
+            total_tasks = db.query(Task).count()
+            tasks_with_reports = db.query(Task).filter(Task.analysis_report.isnot(None)).count()
+            report_generation_rate = (tasks_with_reports / total_tasks * 100) if total_tasks > 0 else 0
+            certified_users = db.query(User).filter(User.is_certified == True).count()
+            public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
+            public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
+            total_task_shares = db.query(TaskShare).count()
+            total_task_likes = db.query(TaskLike).count()
+            ai_generated_tasks = db.query(Task).filter(Task.ai_generated == True).count()
+            cert_requests_pending = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
+            total_posts = db.query(Post).count()
+            total_post_replies = db.query(PostReply).count()
+            return jsonify({'success': True, 'section': sec, 'data': {
+                'tasks_with_reports': int(tasks_with_reports),
+                'report_generation_rate': float(report_generation_rate),
+                'certified_users': int(certified_users),
+                'public_tasks': int(public_tasks),
+                'public_approved_tasks': int(public_approved_tasks),
+                'total_task_shares': int(total_task_shares),
+                'total_task_likes': int(total_task_likes),
+                'ai_generated_tasks': int(ai_generated_tasks),
+                'cert_requests_pending': int(cert_requests_pending),
+                'total_posts': int(total_posts),
+                'total_post_replies': int(total_post_replies),
+            }})
+
+        return jsonify({'success': False, 'message': '未知统计分区'}), 400
+    except Exception as e:
+        logger.exception('admin_api_data_stats(%s) failed: %s', sec, e)
         return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
