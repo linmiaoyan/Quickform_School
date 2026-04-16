@@ -45,6 +45,13 @@
         gap: 20px;
         margin-bottom: 30px;
     }
+
+    /* 大屏：5 张统计卡片固定同一行 */
+    @media (min-width: 1200px) {
+        .stats-container {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+    }
     
     .stat-card {
         background: white;
@@ -313,17 +320,7 @@
                 <p>涉及省份/地区</p>
             </div>
         </div>
-        
-        <div class="stat-card">
-            <div class="stat-icon stat-3">
-                <i class="bi bi-person-badge"></i>
-            </div>
-            <div class="stat-info">
-                <h3 id="stat-teacher-count">{{ total_users }}</h3>
-                <p>教师数量</p>
-            </div>
-        </div>
-        
+
         <div class="stat-card">
             <div class="stat-icon stat-4">
                 <i class="bi bi-geo"></i>
@@ -331,6 +328,16 @@
             <div class="stat-info">
                 <h3 id="total-cities">{{ total_cities }}</h3>
                 <p>涉及城市</p>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon stat-3">
+                <i class="bi bi-person-badge"></i>
+            </div>
+            <div class="stat-info">
+                <h3 id="stat-teacher-count">{{ total_users }}</h3>
+                <p>教师数量</p>
             </div>
         </div>
 

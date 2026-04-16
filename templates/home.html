@@ -9,6 +9,11 @@
 /* 首页主面板：与 body 底纹区分，避免区块之间露出背景“断层” */
 .qf-home-main {
     background-color: #ffffff;
+    /* 主页在大缩放/窄视口下也保持“内框感” */
+    border: 1px solid rgba(226, 232, 240, 0.95);
+    border-radius: 16px;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
 }
 
 /* 首页主内容轨：统一最大宽度与水平居中，子区块不再各自 max-width + auto margin */
@@ -18,6 +23,9 @@
     margin-left: auto;
     margin-right: auto;
     box-sizing: border-box;
+    /* 关键：无论缩放多大，都至少保留一定左右内边距 */
+    padding-left: clamp(0.9rem, 2.4vw, 1.75rem);
+    padding-right: clamp(0.9rem, 2.4vw, 1.75rem);
 }
 
 /* 首页手机端：正文 .container 在 ≤576px 时仅 10px 边距易显局促，与导航区对齐为更舒适留白 */

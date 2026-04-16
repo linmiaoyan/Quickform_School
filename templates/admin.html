@@ -57,33 +57,33 @@
         </div>
         
         <!-- {{ translate('admin.export_data') }}卡片 -->
-        <div class="row mb-4 g-3">
-            <div class="col-md-3 col-sm-6">
+        <div class="row mb-4 g-3 row-cols-1 row-cols-sm-2 row-cols-lg-5">
+            <div class="col">
                 <div class="stat-card" style="border-left: 4px solid #2563eb;">
                     <div class="stat-label">{{ translate('admin.total_users') }}</div>
                     <div class="stat-number">{{ stats.total_users }}</div>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6">
+            <div class="col">
                 <div class="stat-card" style="border-left: 4px solid #10b981;">
                     <div class="stat-label">{{ translate('admin.admin_users') }}</div>
                     <div class="stat-number">{{ stats.admin_users }}</div>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6">
+            <div class="col">
                 <div class="stat-card" style="border-left: 4px solid #3b82f6;">
                     <div class="stat-label">{{ translate('admin.total_tasks') }}</div>
                     <div class="stat-number">{{ stats.total_tasks }}</div>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6">
+            <div class="col">
                 <div class="stat-card" style="border-left: 4px solid #f59e0b;">
                     <div class="stat-label">{{ translate('admin.total_submissions') }}</div>
                     <div class="stat-number">{% if stats.total_submissions is not none %}{{ stats.total_submissions }}{% else %}—{% endif %}</div>
                     <div class="stat-label text-muted" style="font-size: 0.7rem; margin-top: 0.25rem;">{% if stats.total_submissions is none %}进入「数据报表」后加载{% endif %}</div>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6">
+            <div class="col">
                 <div class="stat-card" style="border-left: 4px solid #8b5cf6;">
                     <div class="stat-label">已认证教师数</div>
                     <div class="stat-number">{{ stats.certified_users }}</div>
