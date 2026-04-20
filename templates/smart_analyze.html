@@ -186,7 +186,7 @@
                                                 </div>
                                             {% endif %}
 
-                                            <div class="small text-muted mb-2">剩余次数：<strong>{{ dashboard_remaining }}</strong></div>
+                                            <div class="small text-muted mb-2">剩余次数：<strong>{{ dashboard_remaining }}</strong> <span class="ms-1" style="color:#f59e0b;">（该功能测试中，不稳定）</span></div>
                                             {% if dashboard_status == 'completed' %}
                                                 <a class="btn btn-outline-primary btn-sm mb-2" href="{{ '/static/uploads/' ~ dashboard_saved_name }}" target="_blank" rel="noopener">
                                                     <i class="bi bi-box-arrow-up-right"></i> 打开当前数据大屏

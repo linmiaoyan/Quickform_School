@@ -6121,6 +6121,8 @@ def smart_analyze(task_id):
                     f"数据来自：{all_url}\n"
                     "要求：每隔 10 秒刷新一次（fetch 获取 JSON），并渲染关键指标与图表。\n"
                     "页面要求：手机端可用、布局清晰、默认浅色主题；不要依赖外部 CDN；所有逻辑写在同一个 HTML 文件里。\n"
+                    "重要约束：不要使用 Chart.js / ECharts 等外部库名（例如 Chart、echarts），因为本页面不允许外部 CDN，且未内置这些库；\n"
+                    "如需图表，请使用原生 Canvas（2D）自行绘制，或用纯 HTML/CSS 的条形/进度条等方式展示，避免出现“Chart is not defined”等运行错误。\n"
                     "数据格式如下（示例，字段可能更多，请自适应）：\n"
                     f"{sample_data_raw or '[暂无示例数据]'}\n"
                 )
