@@ -2578,9 +2578,28 @@ def task_detail(task_id):
                 'original_name': task.file_name,
                 'saved_name': saved_filename
             }]
+
+        # 将「自动生成数据大屏」也作为一个 HTML 文件展示在任务详情里
+        try:
+            dash_status = getattr(task, 'dashboard_generation_status', None)
+            dash_saved = getattr(task, 'dashboard_saved_name', None)
+            if dash_status == 'completed' and dash_saved:
+                already = any(isinstance(x, dict) and x.get('saved_name') == dash_saved for x in (html_files or []))
+                if not already:
+                    html_files.insert(0, {
+                        'original_name': '数据大屏（自动生成）',
+                        'saved_name': dash_saved,
+                        'is_dashboard': True,
+                    })
+        except Exception:
+            pass
+
         for f in html_files:
             if isinstance(f, dict) and 'saved_name' in f:
-                _u = get_upload_file_url(f['saved_name'], task.file_path)
+                if f.get('is_dashboard'):
+                    _u = '/static/uploads/' + str(f['saved_name'])
+                else:
+                    _u = get_upload_file_url(f['saved_name'], task.file_path)
                 f['url'] = _html_public_url_with_taskid(_u, getattr(task, 'task_id', None), f.get('saved_name'))
 
         # 任务详情页不展示分页列表，pagination 仅用于模板兼容（见上方已赋初值）
@@ -6021,10 +6040,31 @@ def smart_analyze(task_id):
         # 数据概览：供「数据分析向导」使用（尽量从数据库取样，避免 /all 压力）
         submission_q = db.query(Submission).filter_by(task_id=task_id)
         current_submission_count = submission_q.count()
-        sample_submission = submission_q.order_by(Submission.id.asc()).first()
-        sample_data_raw = ((sample_submission.data if sample_submission else '') or '').strip()
-        if len(sample_data_raw) > 3000:
-            sample_data_raw = sample_data_raw[:3000] + '...'
+        # 取多条样例数据（默认 3 条），让大屏生成能更好“自适应字段”
+        sample_n = 3
+        try:
+            sample_n_env = int((os.getenv('QF_DASHBOARD_SAMPLE_N') or '').strip() or '3')
+            sample_n = max(1, min(8, sample_n_env))
+        except Exception:
+            sample_n = 3
+        sample_rows = (
+            submission_q.order_by(Submission.id.asc())
+            .limit(sample_n)
+            .all()
+        )
+        samples = []
+        for r in (sample_rows or []):
+            s = ((getattr(r, 'data', '') or '')).strip()
+            if not s:
+                continue
+            samples.append(s)
+        if samples:
+            # 多条样例拼成数组展示（更贴近 /all 的返回结构）
+            sample_data_raw = "[\n" + ",\n".join(samples) + "\n]"
+        else:
+            sample_data_raw = ''
+        if len(sample_data_raw) > 6000:
+            sample_data_raw = sample_data_raw[:6000] + '...'
         api_base_url = _public_site_base_url()
         all_url = f"{api_base_url}/api/{task.task_id}/all"
         stable_dash_saved = f"dash_{task.task_id}.html"
@@ -6055,6 +6095,26 @@ def smart_analyze(task_id):
 
                 user_prompt = (request.form.get('dashboard_user_prompt') or '').strip()
                 revise_ins = (request.form.get('dashboard_revision') or '').strip()
+                base_html_upload = request.files.get('dashboard_base_html')
+                base_html_text = ''
+                if form_action == 'dashboard_generate':
+                    # 要求老师上传自己的学生端 HTML 作为“页面基底”
+                    if not base_html_upload or not getattr(base_html_upload, 'filename', ''):
+                        flash('请先上传你的学生端 HTML 文件（必填）。', 'warning')
+                        return redirect(url_for('quickform.smart_analyze', task_id=task.id))
+                    try:
+                        raw = base_html_upload.read() or b''
+                        # 只取一部分内容，避免 token 过长（保留开头+结尾，利于结构/样式/脚本保持一致）
+                        max_bytes = 24000
+                        head_bytes = raw[:max_bytes]
+                        tail_bytes = raw[-8000:] if len(raw) > (max_bytes + 8000) else b''
+                        base_html_text = head_bytes.decode('utf-8', errors='ignore')
+                        if tail_bytes:
+                            base_html_text += "\n\n<!-- (中间内容省略) -->\n\n" + tail_bytes.decode('utf-8', errors='ignore')
+                        base_html_text = (base_html_text or '').strip()
+                    except Exception:
+                        base_html_text = ''
+
                 base_prompt = (
                     "你是一名资深前端工程师。请生成一个单页 HTML（只输出完整 HTML）。\n"
                     "目标：制作一个可以实时分析统计的数据大屏（数据看板）。\n"
@@ -6064,6 +6124,11 @@ def smart_analyze(task_id):
                     "数据格式如下（示例，字段可能更多，请自适应）：\n"
                     f"{sample_data_raw or '[暂无示例数据]'}\n"
                 )
+                if base_html_text:
+                    base_prompt += (
+                        "\n现有学生端页面（你需要以此为基础进行改造，尽量保留其样式与表单字段一致性；如下为节选）：\n"
+                        + base_html_text + "\n"
+                    )
                 if user_prompt:
                     base_prompt += "\n用户需求补充：\n" + user_prompt + "\n"
                 if form_action == 'dashboard_revise' and revise_ins:
@@ -6098,7 +6163,20 @@ def smart_analyze(task_id):
                         try:
                             tsk = _db.get(Task, task_pk)
                             tsk.dashboard_generation_status = 'failed'
-                            tsk.dashboard_generation_error = _to_user_friendly_ai_error(str(ex))
+                            friendly = _to_user_friendly_ai_error(str(ex))
+                            tsk.dashboard_generation_error = (
+                                "自动生成失败：可能是提示词过长（包含学生端 HTML + 多条数据样例）超过模型上限。\n"
+                                "兜底方案：请改用「方式1：手动生成」，复制提示词模板到 AI 工具生成数据大屏。\n\n"
+                                + friendly
+                            ) if '超过模型可处理上限' in friendly else friendly
+                            # 如果是“上下文/长度超限”，不消耗次数（退回 1 次）
+                            if '超过模型可处理上限' in friendly:
+                                try:
+                                    cur = getattr(tsk, 'dashboard_ai_edit_remaining', None)
+                                    cur = int(cur) if cur is not None else 0
+                                    tsk.dashboard_ai_edit_remaining = min(3, cur + 1)
+                                except Exception:
+                                    pass
                             _db.commit()
                         except Exception:
                             _db.rollback()

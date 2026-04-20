@@ -147,7 +147,7 @@
                                 <div class="mt-3 d-flex gap-2 flex-wrap">
                                     <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#dashWizard">我要制作“数据大屏”</button>
                                     {% if dashboard_status == 'completed' %}
-                                    <a class="btn btn-outline-primary" id="qf-onboard-open-dashboard" href="{{ '/static/uploads/' ~ dashboard_saved_name }}" target="_blank" rel="noopener">打开已生成大屏</a>
+                                        <a class="btn btn-outline-primary" id="qf-onboard-open-dashboard" href="{{ '/static/uploads/' ~ dashboard_saved_name }}" target="_blank" rel="noopener">打开已生成大屏</a>
                                     {% endif %}
                                 </div>
 
@@ -187,8 +187,18 @@
                                             {% endif %}
 
                                             <div class="small text-muted mb-2">剩余次数：<strong>{{ dashboard_remaining }}</strong></div>
-                                            <form action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" class="d-flex flex-column gap-2" onsubmit="startProcessingOverlay()">
+                                            {% if dashboard_status == 'completed' %}
+                                                <a class="btn btn-outline-primary btn-sm mb-2" href="{{ '/static/uploads/' ~ dashboard_saved_name }}" target="_blank" rel="noopener">
+                                                    <i class="bi bi-box-arrow-up-right"></i> 打开当前数据大屏
+                                                </a>
+                                            {% endif %}
+                                            <form action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" enctype="multipart/form-data" class="d-flex flex-column gap-2" onsubmit="startProcessingOverlay()">
                                                 <input type="hidden" name="action" value="dashboard_generate">
+                                                <div class="alert alert-light border small py-2 px-3 mb-0">
+                                                    <div class="fw-semibold">请先上传你的“学生端 HTML”（必填）</div>
+                                                    <div class="text-muted mt-1">自动生成会以你上传的页面为基础进行改造，避免从零开始导致风格/字段不一致。</div>
+                                                    <input type="file" class="form-control form-control-sm mt-2" name="dashboard_base_html" accept=".html,.htm" required>
+                                                </div>
                                                 <textarea class="form-control" name="dashboard_user_prompt" rows="3" placeholder="补充你的需求（可选）：例如 需要哪些指标、按什么维度统计、是否需要折线/柱状/饼图等"></textarea>
                                                 <div class="d-flex gap-2 flex-wrap">
                                                     <button class="btn btn-success" id="qf-onboard-auto-generate-dashboard" type="submit" {% if (not ai_ready) or (submission_count|int <= 0) or (dashboard_remaining|int <= 0) %}disabled{% endif %}>自动生成数据大屏</button>
@@ -398,6 +408,17 @@
             var overlay = document.getElementById('processingOverlay');
             var elapsed = document.getElementById('elapsedSeconds');
             var btns = document.querySelectorAll('form#promptForm button[type="submit"]');
+            var titleEl = document.getElementById('processingTitle');
+            var tipEl = document.getElementById('processingTip');
+            try {
+                var activeForm = (event && event.target && event.target.tagName === 'FORM') ? event.target : null;
+                var actionVal = activeForm ? (activeForm.querySelector('input[name=\"action\"]') ? activeForm.querySelector('input[name=\"action\"]').value : '') : '';
+                if (titleEl) titleEl.textContent = (actionVal && actionVal.indexOf('dashboard_') === 0) ? '正在生成数据大屏…' : '正在处理中…';
+                if (tipEl) tipEl.textContent = '请稍候，不要关闭页面。';
+            } catch (e0) {
+                if (titleEl) titleEl.textContent = '正在处理中…';
+                if (tipEl) tipEl.textContent = '请稍候，不要关闭页面。';
+            }
             if (overlay) {
                 overlay.style.display = 'block';
             }
@@ -416,6 +437,12 @@
         function startPolling(taskId){
             var overlay = document.getElementById('processingOverlay');
             if (overlay) overlay.style.display = 'block';
+            var titleEl = document.getElementById('processingTitle');
+            var tipEl = document.getElementById('processingTip');
+            try {
+                if (titleEl) titleEl.textContent = '正在生成分析结果…';
+                if (tipEl) tipEl.textContent = '请稍候，不要关闭页面。';
+            } catch (e0) {}
             if (overlayTimerId) clearInterval(overlayTimerId);
             seconds = 0;
             var consecutiveFailures = 0;
