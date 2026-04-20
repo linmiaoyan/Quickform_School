@@ -1,4 +1,5 @@
 """数据库模型定义和迁移"""
+import os
 from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, ForeignKey, Boolean, inspect, text, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -116,6 +117,13 @@ class Task(Base):
     # 一键生成异步：pending=后台生成中；failed=失败（见 oneclick_generation_error）；成功后可置 NULL
     oneclick_generation_status = Column(String(20), nullable=True)
     oneclick_generation_error = Column(Text, nullable=True)
+    # 数据大屏（Smart Analyze Step 1）：生成/修改次数与生成文件
+    dashboard_file_name = Column(String(200), nullable=True)  # 原始文件名（用于展示）
+    dashboard_saved_name = Column(String(260), nullable=True)  # static/uploads 下保存名（URL 稳定）
+    dashboard_generated_at = Column(DateTime, nullable=True)
+    dashboard_ai_edit_remaining = Column(Integer, nullable=True)  # 默认 3；每次自动生成/修改消耗 1 次
+    dashboard_generation_status = Column(String(20), nullable=True)  # pending/completed/failed
+    dashboard_generation_error = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)  # 任务状态：True=正常接收/读取数据，False=停用（接口拒绝）
     # 单任务 API 用量（GET /api/<task_id> 与 GET /api/<task_id>/all）；限额由常量 + quota_extra_* 组成
     api_task_get_count = Column(Integer, default=0)  # 轻量 GET（最新 3 条）成功次数
@@ -199,6 +207,9 @@ class Post(Base):
     user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
+    # 管理员置顶：用于在 community 留言列表中置顶显示
+    is_pinned = Column(Boolean, default=False)
+    pinned_at = Column(DateTime, nullable=True)
     
     user = relationship('User', foreign_keys=[user_id])
     replies = relationship('PostReply', back_populates='post', cascade='all, delete-orphan', order_by='PostReply.created_at')
@@ -369,12 +380,16 @@ DEFAULT_ONECLICK_PROMPT_OPTIONS = [
 def migrate_database(engine):
     """数据库迁移函数"""
     try:
+        if (os.getenv('QF_SKIP_DB_MIGRATION') or '').strip() == '1':
+            logger.warning("检测到 QF_SKIP_DB_MIGRATION=1：跳过数据库迁移（仅建议在确认库结构已完整时使用）")
+            return
         inspector = inspect(engine)
         columns = [col['name'] for col in inspector.get_columns('user')]
         ai_cfg_cols = [col['name'] for col in inspector.get_columns('ai_config')] if 'ai_config' in inspector.get_table_names() else []
         task_cols = [col['name'] for col in inspector.get_columns('task')] if 'task' in inspector.get_table_names() else []
         cert_req_cols = [col['name'] for col in inspector.get_columns('certification_request')] if 'certification_request' in inspector.get_table_names() else []
         org_cols = [col['name'] for col in inspector.get_columns('organization')] if 'organization' in inspector.get_table_names() else []
+        post_cols = [col['name'] for col in inspector.get_columns('post')] if 'post' in inspector.get_table_names() else []
         
         with engine.begin() as conn:
             if 'school' not in columns:
@@ -596,6 +611,21 @@ def migrate_database(engine):
                         logger.info("成功为task添加oneclick_generation_error字段")
                     except Exception as e:
                         logger.warning(f"添加oneclick_generation_error失败（可能已存在）: {str(e)}")
+                # 数据大屏相关字段
+                for col_name, ddl in [
+                    ('dashboard_file_name', "ALTER TABLE task ADD COLUMN dashboard_file_name VARCHAR(200)"),
+                    ('dashboard_saved_name', "ALTER TABLE task ADD COLUMN dashboard_saved_name VARCHAR(260)"),
+                    ('dashboard_generated_at', "ALTER TABLE task ADD COLUMN dashboard_generated_at DATETIME"),
+                    ('dashboard_ai_edit_remaining', "ALTER TABLE task ADD COLUMN dashboard_ai_edit_remaining INTEGER"),
+                    ('dashboard_generation_status', "ALTER TABLE task ADD COLUMN dashboard_generation_status VARCHAR(20)"),
+                    ('dashboard_generation_error', "ALTER TABLE task ADD COLUMN dashboard_generation_error TEXT"),
+                ]:
+                    if col_name not in task_cols:
+                        try:
+                            conn.execute(text(ddl))
+                            logger.info(f"成功为task添加{col_name}字段（数据大屏）")
+                        except Exception as e:
+                            logger.warning(f"添加{col_name}失败（可能已存在）: {str(e)}")
             if task_cols and 'is_active' not in task_cols:
                 try:
                     dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
@@ -623,6 +653,25 @@ def migrate_database(engine):
                     logger.info("成功创建post表")
                 except Exception as e:
                     logger.warning(f"创建post表失败: {str(e)}")
+
+            # post：管理员置顶字段
+            if post_cols and 'is_pinned' not in post_cols:
+                try:
+                    dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
+                    if dialect == 'mysql':
+                        conn.execute(text("ALTER TABLE post ADD COLUMN is_pinned TINYINT(1) DEFAULT 0"))
+                    else:
+                        conn.execute(text("ALTER TABLE post ADD COLUMN is_pinned BOOLEAN DEFAULT 0"))
+                    conn.execute(text("UPDATE post SET is_pinned = 0 WHERE is_pinned IS NULL"))
+                    logger.info("成功为post添加is_pinned字段（置顶）")
+                except Exception as e:
+                    logger.warning(f"添加is_pinned失败（可能已存在）: {str(e)}")
+            if post_cols and 'pinned_at' not in post_cols:
+                try:
+                    conn.execute(text("ALTER TABLE post ADD COLUMN pinned_at DATETIME"))
+                    logger.info("成功为post添加pinned_at字段（置顶时间）")
+                except Exception as e:
+                    logger.warning(f"添加pinned_at失败（可能已存在）: {str(e)}")
             
             # 创建留言回复表
             if 'post_reply' not in inspector.get_table_names():
@@ -857,38 +906,43 @@ def migrate_database(engine):
 
             # 从 submission 聚合回填「提交条数 / 累计字节」（升级后首次对齐；后续由接口累加维护）
             if task_cols and 'submission' in inspector.get_table_names():
-                try:
-                    if dialect == 'mysql':
-                        conn.execute(text("""
-                            UPDATE task AS t
-                            LEFT JOIN (
-                                SELECT task_id AS tid,
-                                       COUNT(*) AS c,
-                                       COALESCE(SUM(LENGTH(data)), 0) AS b
-                                FROM submission
-                                GROUP BY task_id
-                            ) AS s ON s.tid = t.id
-                            SET
-                                t.submission_count_total = COALESCE(s.c, 0),
-                                t.submission_bytes_total = COALESCE(s.b, 0)
-                            WHERE COALESCE(t.submission_count_total, 0) = 0
-                              AND COALESCE(t.submission_bytes_total, 0) = 0
-                        """))
-                    else:
-                        conn.execute(text("""
-                            UPDATE task SET
-                                submission_count_total = COALESCE((
-                                    SELECT COUNT(*) FROM submission WHERE submission.task_id = task.id
-                                ), 0),
-                                submission_bytes_total = COALESCE((
-                                    SELECT SUM(LENGTH(data)) FROM submission WHERE submission.task_id = task.id
-                                ), 0)
-                            WHERE COALESCE(submission_count_total, 0) = 0
-                              AND COALESCE(submission_bytes_total, 0) = 0
-                        """))
-                    logger.info("已回填 task 的提交用量计数（submission_count_total / submission_bytes_total）")
-                except Exception as e:
-                    logger.warning(f"回填 task 提交用量失败（可忽略）: {str(e)}")
+                if (os.getenv('QF_SKIP_DB_BACKFILL') or '').strip() == '1':
+                    logger.warning("检测到 QF_SKIP_DB_BACKFILL=1：跳过 task 提交用量回填（submission_count_total / submission_bytes_total）")
+                else:
+                    try:
+                        if dialect == 'mysql':
+                            conn.execute(text("""
+                                UPDATE task AS t
+                                LEFT JOIN (
+                                    SELECT task_id AS tid,
+                                           COUNT(*) AS c,
+                                           COALESCE(SUM(LENGTH(data)), 0) AS b
+                                    FROM submission
+                                    GROUP BY task_id
+                                ) AS s ON s.tid = t.id
+                                SET
+                                    t.submission_count_total = COALESCE(s.c, 0),
+                                    t.submission_bytes_total = COALESCE(s.b, 0)
+                                WHERE COALESCE(t.submission_count_total, 0) = 0
+                                  AND COALESCE(t.submission_bytes_total, 0) = 0
+                                  AND EXISTS (SELECT 1 FROM submission x WHERE x.task_id = t.id LIMIT 1)
+                            """))
+                        else:
+                            conn.execute(text("""
+                                UPDATE task SET
+                                    submission_count_total = COALESCE((
+                                        SELECT COUNT(*) FROM submission WHERE submission.task_id = task.id
+                                    ), 0),
+                                    submission_bytes_total = COALESCE((
+                                        SELECT SUM(LENGTH(data)) FROM submission WHERE submission.task_id = task.id
+                                    ), 0)
+                                WHERE COALESCE(submission_count_total, 0) = 0
+                                  AND COALESCE(submission_bytes_total, 0) = 0
+                                  AND EXISTS (SELECT 1 FROM submission WHERE submission.task_id = task.id)
+                            """))
+                        logger.info("已回填 task 的提交用量计数（submission_count_total / submission_bytes_total）")
+                    except Exception as e:
+                        logger.warning(f"回填 task 提交用量失败（可忽略）: {str(e)}")
 
             if backfill_task_api_from_log and 'api_access_log' in inspector.get_table_names():
                 try:

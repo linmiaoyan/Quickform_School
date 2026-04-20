@@ -185,10 +185,10 @@ else:
 # 导入并注册QuickForm Blueprint
 from core import blueprint as quickform_blueprint
 quickform_bp = quickform_blueprint.quickform_bp
-quickform_blueprint.init_quickform(app, login_manager, database_type=DATABASE_TYPE)
 
-# 注册Blueprint
+# 先注册 Blueprint，让维护页 gate 生效；再后台初始化数据库迁移/管理员等，避免启动期阻塞
 app.register_blueprint(quickform_bp)
+quickform_blueprint.init_quickform_async(app, login_manager, database_type=DATABASE_TYPE)
 
 # 反向代理（Nginx）时信任 X-Forwarded-*，使 request.is_secure 与 url_for 正确
 try:

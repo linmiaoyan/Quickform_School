@@ -2,6 +2,11 @@
 
 {% block title %}{{ translate('smart_analyze.title') }} - {{ task.title }} - QuickForm{% endblock %}
 
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/introjs/introjs.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/introjs-bootstrap.css') }}">
+{% endblock %}
+
 {% block content %}
 <style>
     .smart-analyze-wrapper {
@@ -120,166 +125,275 @@
             </a>
         </div>
         <div class="card-body">
-                <div id="analyzePollError" class="alert alert-danger d-none mb-4" role="alert">
-                    <strong>{{ translate('smart_analyze.generate_failed') }}</strong>
-                    <p class="mb-0 mt-2 small" id="analyzePollErrorText" style="white-space: pre-wrap;"></p>
-                    <a href="{{ url_for('quickform.profile') }}" class="btn btn-sm btn-outline-primary mt-2">{{ translate('smart_analyze.go_to_config') }}</a>
-                </div>
-                <div class="alert alert-warning d-flex justify-content-between align-items-center mb-4" role="alert">
-                    <div class="me-3">
-                        <div>
-                            {{ translate('smart_analyze.current_model') }} <strong>{{ model_label or translate('smart_analyze.model_not_configured') }}</strong>
-                            {{ translate('smart_analyze.change_api_token') }}
-                        </div>
-                        {% if is_large_dataset %}
-                        <div class="mt-1 small text-muted">
-                            {{ translate('smart_analyze.important_tip') }}
-                        </div>
-                        {% endif %}
-                    </div>
-                    <a href="{{ url_for('quickform.profile') }}" class="btn btn-sm btn-outline-primary">
-                        {{ translate('smart_analyze.change_api_token') }}
-                    </a>
-                </div>
-                {% if error %}
-                    <div class="alert alert-danger">
-                        <h5>⚠️ {{ translate('smart_analyze.error') }}</h5>
-                        <p>{{ error }}</p>
-                        <a href="{{ url_for('quickform.profile') }}" class="btn btn-primary">{{ translate('smart_analyze.go_to_config') }}</a>
-                    </div>
-                {% else %}
-                    {% if report %}
-                    <div class="card mb-4">
-                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                            <h5 class="mb-0">
-                                {{ translate('smart_analyze.current_report') }}
-                                {% if task and task.report_generated_at %}
-                                <span class="text-muted ms-2" style="font-size: 0.8rem;">生成于 {{ task.report_generated_at.strftime('%Y-%m-%d %H:%M') }}</span>
-                                {% endif %}
-                            </h5>
-                            <div class="btn-group btn-group-sm">
-                                <a href="{{ url_for('quickform.download_report', task_id=task.id) }}" class="btn btn-light btn-sm" title="{{ translate('smart_analyze.download_pic') }}">
-                                    <i class="bi bi-image"></i> 图片
-                                </a>
-                                <a href="{{ url_for('quickform.download_report', task_id=task.id, format='html') }}" class="btn btn-light btn-sm" title="{{ translate('smart_analyze.download_html') }}">
-                                    <i class="bi bi-file-earmark-code"></i> HTML
-                                </a>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="alert alert-info mb-3">
-                                <strong>💡</strong> {{ translate('smart_analyze.upload_html_tip') }}
-                            </div>
-                            <div class="report-content">
-                                <div id="markdown-content" class="markdown-body"></div>
-                                <div id="report-content" style="display: none;">{{ report }}</div>
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    
-                    <!-- 生成报告: 解读需求（单卡内区块，不再嵌套卡片） -->
-                    <h5 class="mb-2 mt-4">{{ translate('smart_analyze.report_req_title') }}</h5>
-                    <p class="text-muted mb-4">{{ translate('smart_analyze.report_req_desc') }}</p>
-                    
-                    <form id="promptForm" action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" onsubmit="startProcessingOverlay()">
-                                <input type="hidden" name="action" value="generate">
-                                
-                                <!-- 数据范围 -->
-                                <div class="mb-4">
-                                    <label class="form-label fw-semibold">{{ translate('smart_analyze.data_range_label') }}</label>
-                                    <div class="btn-group w-100" role="group">
-                                        <input type="radio" class="btn-check" name="data_range" id="data_range_all" value="all" checked>
-                                        <label class="btn btn-outline-secondary" for="data_range_all">{{ translate('smart_analyze.data_range_all') }}</label>
-                                        <input type="radio" class="btn-check" name="data_range" id="data_range_single" value="single_day">
-                                        <label class="btn btn-outline-secondary" for="data_range_single">{{ translate('smart_analyze.data_range_single') }}</label>
-                                        <input type="radio" class="btn-check" name="data_range" id="data_range_interval" value="date_range">
-                                        <label class="btn btn-outline-secondary" for="data_range_interval">{{ translate('smart_analyze.data_range_interval') }}</label>
-                                    </div>
-                                    <div id="data_range_extras" class="mt-2 d-none">
-                                        <div id="single_day_input" class="d-none">
-                                            <label class="form-label small">{{ translate('smart_analyze.select_date') }}</label>
-                                            <input type="date" name="single_date" class="form-control form-control-sm" style="max-width: 200px;">
-                                        </div>
-                                        <div id="date_range_input" class="d-none row g-2">
-                                            <div class="col-auto">
-                                                <label class="form-label small">{{ translate('smart_analyze.start_date') }}</label>
-                                                <input type="date" name="date_start" class="form-control form-control-sm">
-                                            </div>
-                                            <div class="col-auto">
-                                                <label class="form-label small">{{ translate('smart_analyze.end_date') }}</label>
-                                                <input type="date" name="date_end" class="form-control form-control-sm">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- 接口描述 -->
-                                <div class="mb-4">
-                                    <label for="interface_desc" class="form-label fw-semibold">{{ translate('smart_analyze.interface_desc_label') }}</label>
-                                    <textarea name="interface_desc" id="interface_desc" class="form-control" rows="3" placeholder="(空)">{{ task.description or '' }}</textarea>
-                                </div>
-                                
-                                <!-- 解读类型（润色轮次已去除，默认一轮） -->
-                                <div class="mb-4">
-                                    <label for="interpretation_type" class="form-label fw-semibold">{{ translate('smart_analyze.interpretation_type') }}</label>
-                                    <select name="interpretation_type" id="interpretation_type" class="form-select">
-                                        <option value="data_analysis" selected>{{ translate('smart_analyze.type_data_analysis') }}</option>
-                                        <option value="summary">{{ translate('smart_analyze.type_summary') }}</option>
-                                        <option value="trend">{{ translate('smart_analyze.type_trend') }}</option>
-                                    </select>
-                                </div>
-                                
-                                <!-- 你的补充关注点 -->
-                                <div class="mb-4">
-                                    <label for="user_prompt_template" class="form-label fw-semibold">{{ translate('smart_analyze.focus_points') }}</label>
-                                    <textarea name="user_prompt_template" id="user_prompt_template" class="form-control" rows="4" placeholder="{{ translate('smart_analyze.focus_placeholder') }}">{{ user_prompt_template }}</textarea>
-                                    <small class="form-text text-muted">{{ translate('smart_analyze.focus_hint') }}</small>
-                                </div>
-                                
-                                <!-- 高级：完整提示词（可折叠） -->
-                                <div class="mb-4">
-                                    <button type="button" class="btn btn-link p-0 text-secondary" data-bs-toggle="collapse" data-bs-target="#advancedPromptSection" aria-expanded="false">
-                                        <i class="bi bi-chevron-down"></i> {{ translate('smart_analyze.advanced_edit_full') }}
-                                    </button>
-                                    <div class="collapse mt-2" id="advancedPromptSection">
-                                        <label for="custom_prompt" class="form-label small">{{ translate('smart_analyze.full_prompt_label') }}</label>
-                                        <textarea name="custom_prompt" id="custom_prompt" class="form-control" rows="10" style="font-family: monospace; font-size: 13px;">{{ preview_prompt }}</textarea>
-                                    </div>
-                                </div>
-                                
-                                <!-- 操作按钮：生成报告 / 润色提示词并生成报告（默认一轮，不再选择润色轮次） -->
-                                <div class="d-flex justify-content-end gap-2 flex-wrap">
-                                    <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-secondary">{{ translate('common.cancel') }}</a>
-                                    <button type="submit" name="report_action" value="generate" class="btn btn-primary btn-lg">
-                                        <i class="bi bi-file-earmark-text"></i> 生成报告
-                                    </button>
-                                    <button type="submit" name="report_action" value="polish_and_generate" class="btn btn-success btn-lg">
-                                        <i class="bi bi-magic"></i> 润色提示词并生成报告
-                                    </button>
-                                </div>
-                                <p class="text-center text-muted mt-2 small">{{ translate('smart_analyze.wait_tip') }}</p>
-                            </form>
-                    
-                    {% if not report %}
-                    <div class="alert alert-info mb-4">
-                        <strong>💡</strong> {{ translate('smart_analyze.upload_html_tip') }}
-                    </div>
-                    {% endif %}
-                {% endif %}
+            <div class="text-center rounded-3 py-4 mb-4" style="background:#f1f5ff;">
+                <div style="font-size: 44px; font-weight: 800; color:#1d4ed8;">{{ submission_count or 0 }}</div>
+                <div class="text-muted">已回收数据条数</div>
             </div>
+
+            <div id="analyzePollError" class="alert alert-danger d-none mb-3" role="alert">
+                <strong>{{ translate('smart_analyze.generate_failed') }}</strong>
+                <p class="mb-0 mt-2 small" id="analyzePollErrorText" style="white-space: pre-wrap;"></p>
+                <a href="{{ url_for('quickform.profile') }}" class="btn btn-sm btn-outline-primary mt-2">{{ translate('smart_analyze.go_to_config') }}</a>
+            </div>
+
+            <div class="d-flex flex-column gap-3">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start gap-3">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center text-white" style="width:32px;height:32px;background:#2563eb;flex:0 0 auto;">1</div>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">制作实时数据大屏</div>
+                                <div class="text-muted small mt-1">说明：制作一个可以实时分析统计的数据大屏。<br>提示：你至少需要回收一条数据。</div>
+                                <div class="mt-3 d-flex gap-2 flex-wrap">
+                                    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#dashWizard">我要制作“数据大屏”</button>
+                                    {% if dashboard_status == 'completed' %}
+                                    <a class="btn btn-outline-primary" id="qf-onboard-open-dashboard" href="{{ '/static/uploads/' ~ dashboard_saved_name }}" target="_blank" rel="noopener">打开已生成大屏</a>
+                                    {% endif %}
+                                </div>
+
+                                <div class="collapse mt-3" id="dashWizard">
+                                    <div class="border rounded-3 p-3">
+                                        <div class="fw-semibold mb-2">“数据大屏”制作向导</div>
+
+                                        <div class="mb-3">
+                                            <div class="fw-semibold">1.1 提示词模板</div>
+                                            <div class="text-muted small mb-2">放在文本框中（已自动带上 /all 接口与数据格式示例，优先取数据库样例以降低负荷）。</div>
+                                            <textarea id="dashPromptTemplate" class="form-control" rows="8" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 13px;">提示词：我需要做一个数据大屏（数据看板），数据来自：{{ all_url }}。每隔10秒钟刷新一次。数据格式如下：{{ '\n' }}{{ sample_data_raw or '[暂无示例数据]' }}</textarea>
+                                            <div class="mt-2 d-flex gap-2 flex-wrap">
+                                                <button type="button" id="qf-onboard-copy-dashboard-prompt" class="btn btn-outline-secondary btn-sm" onclick="copyTextById('dashPromptTemplate')">复制提示词</button>
+                                                <a class="btn btn-outline-secondary btn-sm" href="{{ all_url }}" target="_blank" rel="noopener">打开 /all 数据</a>
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <div class="fw-semibold">1.2 方式1：手动生成</div>
+                                            <div class="text-muted small">复制参考提示词到 AI 大模型（如 deepseek、豆包），开启“深度思考”。</div>
+                                        </div>
+
+                                        <div class="mb-2">
+                                            <div class="fw-semibold">1.3 方式2：自动生成</div>
+                                            <div class="text-muted small mb-2">仅允许 3 次修改（包含本次）。</div>
+
+                                            {% if not ai_ready %}
+                                                <div class="alert alert-warning py-2 mb-2">
+                                                    <div class="small">当前不可自动生成：{{ ai_ready_reason }}</div>
+                                                    <a href="{{ url_for('quickform.profile') }}" class="btn btn-sm btn-outline-primary mt-2">去个人设置填写 APIKEY</a>
+                                                </div>
+                                            {% endif %}
+                                            {% if dashboard_status == 'failed' and dashboard_error %}
+                                                <div class="alert alert-danger py-2 mb-2">
+                                                    <div class="small" style="white-space: pre-wrap;">{{ dashboard_error }}</div>
+                                                </div>
+                                            {% endif %}
+
+                                            <div class="small text-muted mb-2">剩余次数：<strong>{{ dashboard_remaining }}</strong></div>
+                                            <form action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" class="d-flex flex-column gap-2" onsubmit="startProcessingOverlay()">
+                                                <input type="hidden" name="action" value="dashboard_generate">
+                                                <textarea class="form-control" name="dashboard_user_prompt" rows="3" placeholder="补充你的需求（可选）：例如 需要哪些指标、按什么维度统计、是否需要折线/柱状/饼图等"></textarea>
+                                                <div class="d-flex gap-2 flex-wrap">
+                                                    <button class="btn btn-success" id="qf-onboard-auto-generate-dashboard" type="submit" {% if (not ai_ready) or (submission_count|int <= 0) or (dashboard_remaining|int <= 0) %}disabled{% endif %}>自动生成数据大屏</button>
+                                                </div>
+                                            </form>
+
+                                            <form action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" class="d-flex flex-column gap-2 mt-3" onsubmit="startProcessingOverlay()">
+                                                <input type="hidden" name="action" value="dashboard_revise">
+                                                <textarea class="form-control" name="dashboard_revision" rows="3" placeholder="继续修改（可选）：例如 改成深色主题、增加某个图表、优化移动端布局..."></textarea>
+                                                <div class="d-flex gap-2 flex-wrap">
+                                                    <button class="btn btn-outline-success" type="submit" {% if (not ai_ready) or (submission_count|int <= 0) or (dashboard_remaining|int <= 0) %}disabled{% endif %}>继续修改（消耗 1 次）</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start gap-3">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center text-white" style="width:32px;height:32px;background:#2563eb;flex:0 0 auto;">2</div>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">自动生成分析报告</div>
+                                <div class="text-muted small mt-1">说明：使用 QuickForm 内置的 AI 分析功能，需要在“个人设置”中填写 APIKEY。<br>提示：你至少需要一条数据，并且需要填写 APIKEY。</div>
+                                <div class="mt-3">
+                                    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#reportWizard">我要自动生成“分析报告”</button>
+                                </div>
+
+                                <div class="collapse mt-3" id="reportWizard">
+                                    {% if report %}
+                                    <div class="card mb-3">
+                                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                            <h6 class="mb-0">
+                                                {{ translate('smart_analyze.current_report') }}
+                                                {% if task and task.report_generated_at %}
+                                                <span class="text-muted ms-2" style="font-size: 0.8rem;">生成于 {{ task.report_generated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                                {% endif %}
+                                            </h6>
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="{{ url_for('quickform.download_report', task_id=task.id) }}" class="btn btn-light btn-sm" title="{{ translate('smart_analyze.download_pic') }}">
+                                                    <i class="bi bi-image"></i> 图片
+                                                </a>
+                                                <a href="{{ url_for('quickform.download_report', task_id=task.id, format='html') }}" class="btn btn-light btn-sm" title="{{ translate('smart_analyze.download_html') }}">
+                                                    <i class="bi bi-file-earmark-code"></i> HTML
+                                                </a>
+                                            </div>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="report-content">
+                                                <div id="markdown-content" class="markdown-body"></div>
+                                                <div id="report-content" style="display: none;">{{ report }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+
+                                    <div class="alert alert-warning d-flex justify-content-between align-items-center mb-3" role="alert">
+                                        <div class="me-3">
+                                            <div>
+                                                {{ translate('smart_analyze.current_model') }} <strong>{{ model_label or translate('smart_analyze.model_not_configured') }}</strong>
+                                            </div>
+                                            {% if is_large_dataset %}
+                                            <div class="mt-1 small text-muted">
+                                                {{ translate('smart_analyze.important_tip') }}
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                        <a href="{{ url_for('quickform.profile') }}" class="btn btn-sm btn-outline-primary">
+                                            {{ translate('smart_analyze.change_api_token') }}
+                                        </a>
+                                    </div>
+
+                                    {% if not ai_ready %}
+                                        <div class="alert alert-warning py-2 mb-3">
+                                            <div class="small">当前不可生成报告：{{ ai_ready_reason }}</div>
+                                        </div>
+                                    {% endif %}
+                                    {% if submission_count|int <= 0 %}
+                                        <div class="alert alert-warning py-2 mb-3">
+                                            <div class="small">你至少需要回收一条数据后才能生成报告。</div>
+                                        </div>
+                                    {% endif %}
+
+                                    <form id="promptForm" action="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" method="POST" onsubmit="startProcessingOverlay()">
+                                        <input type="hidden" name="action" value="generate">
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">{{ translate('smart_analyze.data_range_label') }}</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="data_range" id="data_range_all" value="all" checked>
+                                                <label class="btn btn-outline-secondary" for="data_range_all">{{ translate('smart_analyze.data_range_all') }}</label>
+                                                <input type="radio" class="btn-check" name="data_range" id="data_range_single" value="single_day">
+                                                <label class="btn btn-outline-secondary" for="data_range_single">{{ translate('smart_analyze.data_range_single') }}</label>
+                                                <input type="radio" class="btn-check" name="data_range" id="data_range_interval" value="date_range">
+                                                <label class="btn btn-outline-secondary" for="data_range_interval">{{ translate('smart_analyze.data_range_interval') }}</label>
+                                            </div>
+                                            <div id="data_range_extras" class="mt-2 d-none">
+                                                <div id="single_day_input" class="d-none">
+                                                    <label class="form-label small">{{ translate('smart_analyze.select_date') }}</label>
+                                                    <input type="date" name="single_date" class="form-control form-control-sm" style="max-width: 200px;">
+                                                </div>
+                                                <div id="date_range_input" class="d-none row g-2">
+                                                    <div class="col-auto">
+                                                        <label class="form-label small">{{ translate('smart_analyze.start_date') }}</label>
+                                                        <input type="date" name="date_start" class="form-control form-control-sm">
+                                                    </div>
+                                                    <div class="col-auto">
+                                                        <label class="form-label small">{{ translate('smart_analyze.end_date') }}</label>
+                                                        <input type="date" name="date_end" class="form-control form-control-sm">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="interpretation_type" class="form-label fw-semibold">{{ translate('smart_analyze.interpretation_type') }}</label>
+                                            <select name="interpretation_type" id="interpretation_type" class="form-select">
+                                                <option value="data_analysis" selected>{{ translate('smart_analyze.type_data_analysis') }}</option>
+                                                <option value="summary">{{ translate('smart_analyze.type_summary') }}</option>
+                                                <option value="trend">{{ translate('smart_analyze.type_trend') }}</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="report_context" class="form-label fw-semibold">接口描述与解读关注点（将作为背景信息参与生成）</label>
+                                            <textarea name="report_context" id="report_context" class="form-control" rows="5" placeholder="可写：接口含义、字段解释、你想重点解读的维度/问题等（可选）">{{ user_prompt_template }}</textarea>
+                                            <small class="form-text text-muted">说明：任务简介会自动作为背景信息参与生成；这里用于补充说明与关注点。</small>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <button type="button" class="btn btn-link p-0 text-secondary" data-bs-toggle="collapse" data-bs-target="#advancedPromptSection" aria-expanded="false">
+                                                <i class="bi bi-chevron-down"></i> {{ translate('smart_analyze.advanced_edit_full') }}
+                                            </button>
+                                            <div class="collapse mt-2" id="advancedPromptSection">
+                                                <label for="custom_prompt" class="form-label small">{{ translate('smart_analyze.full_prompt_label') }}</label>
+                                                <textarea name="custom_prompt" id="custom_prompt" class="form-control" rows="10" style="font-family: monospace; font-size: 13px;">{{ preview_prompt }}</textarea>
+                                            </div>
+                                        </div>
+
+                                        <div class="d-flex justify-content-end gap-2 flex-wrap">
+                                            <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-outline-secondary">{{ translate('common.cancel') }}</a>
+                                            <button type="submit" name="report_action" value="generate" class="btn btn-primary btn-lg" {% if (not ai_ready) or (submission_count|int <= 0) %}disabled{% endif %}>
+                                                <i class="bi bi-file-earmark-text"></i> 生成报告
+                                            </button>
+                                            <button type="submit" name="report_action" value="polish_and_generate" class="btn btn-success btn-lg" {% if (not ai_ready) or (submission_count|int <= 0) %}disabled{% endif %}>
+                                                <i class="bi bi-magic"></i> 润色提示词并生成报告
+                                            </button>
+                                        </div>
+                                        <p class="text-center text-muted mt-2 small">{{ translate('smart_analyze.wait_tip') }}</p>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start gap-3">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center text-white" style="width:32px;height:32px;background:#2563eb;flex:0 0 auto;">3</div>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">手动分析数据</div>
+                                <div class="text-muted small mt-1">说明：将回收的数据导出为CSV或者JSON格式，使用你熟悉的AI工具（deepseek、豆包、扣子编程等）进行分析。<br>提示：你至少需要回收一条数据。</div>
+                                <div class="mt-3 d-flex gap-2 flex-wrap">
+                                    <a class="btn btn-outline-primary" href="{{ url_for('quickform.export_data', task_id=task.id, fmt='csv') }}" {% if submission_count|int <= 0 %}aria-disabled="true"{% endif %}>导出CSV格式数据</a>
+                                    <a class="btn btn-outline-primary" href="{{ url_for('quickform.export_data', task_id=task.id, fmt='json') }}" {% if submission_count|int <= 0 %}aria-disabled="true"{% endif %}>导出JSON格式数据</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='vendor/introjs/intro.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/onboarding.js') }}"></script>
 <script src="{{ url_for('static', filename='js/marked.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/highlight.min.js') }}"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/highlightjs-github.min.css') }}">
 <script>
         var overlayTimerId = null;
         var seconds = 0;
+        function copyTextById(id){
+            try{
+                var el = document.getElementById(id);
+                if (!el) return;
+                var text = el.value || el.textContent || '';
+                if (navigator.clipboard && navigator.clipboard.writeText){
+                    navigator.clipboard.writeText(text);
+                } else {
+                    el.focus();
+                    el.select();
+                    document.execCommand('copy');
+                }
+            } catch(e){}
+        }
         function startProcessingOverlay() {
             var overlay = document.getElementById('processingOverlay');
             var elapsed = document.getElementById('elapsedSeconds');
@@ -385,6 +499,42 @@
             }, 2000);
         }
 
+        function startDashboardPolling(){
+            var overlay = document.getElementById('processingOverlay');
+            if (overlay) overlay.style.display = 'block';
+            if (overlayTimerId) clearInterval(overlayTimerId);
+            seconds = 0;
+            var elapsed = document.getElementById('elapsedSeconds');
+            overlayTimerId = setInterval(function(){
+                seconds += 1;
+                if (elapsed) elapsed.textContent = String(seconds);
+            }, 1000);
+
+            var pollId = setInterval(function(){
+                fetch("{{ url_for('quickform.dashboard_status', task_id=task.id) }}")
+                  .then(function(r){ return r.json(); })
+                  .then(function(j){
+                      if (!j || !j.success) return;
+                      if (j.status === 'completed'){
+                          if (overlay){ overlay.style.display = 'none'; }
+                          if (overlayTimerId){ clearInterval(overlayTimerId); overlayTimerId = null; }
+                          clearInterval(pollId);
+                          var cleanUrl = window.location.origin + window.location.pathname;
+                          window.location.replace(cleanUrl);
+                      } else if (j.status === 'failed'){
+                          if (overlay){ overlay.style.display = 'none'; }
+                          if (overlayTimerId){ clearInterval(overlayTimerId); overlayTimerId = null; }
+                          clearInterval(pollId);
+                          var errBanner = document.getElementById('analyzePollError');
+                          var errText = document.getElementById('analyzePollErrorText');
+                          if (errText) errText.textContent = (j.error || '生成失败，请重试');
+                          if (errBanner) errBanner.classList.remove('d-none');
+                      }
+                  })
+                  .catch(function(){});
+            }, 1500);
+        }
+
         // 数据范围选择切换
         document.addEventListener('DOMContentLoaded', function() {
             var dataRangeAll = document.getElementById('data_range_all');
@@ -423,6 +573,8 @@
                 var params = new URLSearchParams(window.location.search);
                 if (params.get('running') === '1'){
                     startPolling(parseInt('{{ task.id }}'));
+                } else if (params.get('dash_running') === '1'){
+                    startDashboardPolling();
                 } else {
                     overlay.style.display = 'none';
                     if (overlayTimerId) { clearInterval(overlayTimerId); overlayTimerId = null; }

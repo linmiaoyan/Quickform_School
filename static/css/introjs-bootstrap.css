@@ -1,0 +1,91 @@
+/* Intro.js 站内卡片风格覆盖：更贴合 QuickForm 现有 UI */
+.introjs-tooltip {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-top: 4px solid #2563eb;
+  border-radius: 0.9rem;
+  box-shadow: 0 1rem 2.2rem rgba(15, 23, 42, 0.16);
+  padding: 0;
+  min-width: 280px;
+}
+
+.introjs-tooltip-header {
+  padding: 0.8rem 1rem 0.35rem 1rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.introjs-tooltip-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.introjs-tooltiptext {
+  padding: 0.65rem 1rem 0.35rem 1rem;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+.introjs-tooltipbuttons {
+  padding: 0.65rem 1rem 1rem 1rem;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.introjs-button {
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: #fff;
+  color: #0f172a;
+  text-shadow: none;
+}
+
+.introjs-button:hover {
+  background: #f8fafc;
+}
+
+.introjs-nextbutton {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.introjs-nextbutton:hover {
+  background: #1d4ed8;
+}
+
+.introjs-prevbutton {
+  background: #fff;
+}
+
+.introjs-skipbutton {
+  color: #64748b;
+  border-color: transparent;
+  background: transparent;
+}
+
+.introjs-skipbutton:hover {
+  background: rgba(100, 116, 139, 0.08);
+  border-color: transparent;
+}
+
+.introjs-progress {
+  margin: 0.25rem 0.9rem 0.6rem 0.9rem;
+  background: rgba(2, 6, 23, 0.08);
+  border-radius: 999px;
+}
+
+.introjs-progressbar {
+  border-radius: 999px;
+  background: #22c55e;
+}
+
+.introjs-arrow {
+  /* 保持默认箭头行为，但让颜色更像卡片 */
+  border-color: rgba(15, 23, 42, 0.12);
+}
+

@@ -39,6 +39,7 @@ import unicodedata
 import smtplib
 from email.mime.text import MIMEText
 from email.utils import formataddr, parseaddr
+import subprocess
 
 # 导入分离的模块
 from .models import (
@@ -77,6 +78,97 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _redirect_back(fallback_endpoint: str = 'quickform.community', **fallback_kwargs):
+    """优先返回来源页，避免操作后回到第一页。"""
+    try:
+        ref = (request.referrer or '').strip()
+        if ref:
+            return redirect(ref)
+    except Exception:
+        pass
+    return redirect(url_for(fallback_endpoint, **(fallback_kwargs or {})))
+
+# ---------- 服务就绪标记（用于维护页兜底）----------
+_QUICKFORM_READY = False
+
+# ---------- 更新日志（git log）缓存 ----------
+_CHANGELOG_CACHE = {
+    'ts': 0.0,
+    'items': [],  # [{hash, date, subject, commit_url}]
+    'error': '',
+}
+
+# ---------- 实时在线（应用层“当前正在处理的网页请求”） ----------
+_ONLINE_LOCK = threading.Lock()
+_ONLINE_INFLIGHT_WEB = 0
+
+
+def _is_web_page_request(req) -> bool:
+    """是否计入“老师端网页在线”：排除 /api/*、静态资源等高频请求。"""
+    try:
+        p = (req.path or '')
+        if p.startswith('/static/') or p.startswith('/favicon') or p.startswith('/uploads/'):
+            return False
+        if p.startswith('/api/') or p.startswith('/cli') or p.startswith('/mcp'):
+            return False
+        # 仅统计 QuickForm blueprint 的页面端 endpoint
+        ep = (req.endpoint or '')
+        if not ep.startswith('quickform.'):
+            return False
+        # 明确排除纯 JSON 状态轮询等
+        if ep in ('quickform.report_status', 'quickform.dashboard_status'):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _read_git_changelog(limit: int = 120):
+    """从 git log 读取更新日志（短哈希+日期+标题）。若运行环境无 .git 则返回空并带 error。"""
+    now_ts = time.time()
+    ttl = 120.0  # 2 min cache
+    try:
+        if _CHANGELOG_CACHE.get('items') and (now_ts - float(_CHANGELOG_CACHE.get('ts') or 0.0) < ttl):
+            return _CHANGELOG_CACHE.get('items') or [], _CHANGELOG_CACHE.get('error') or ''
+    except Exception:
+        pass
+
+    items = []
+    err = ''
+    try:
+        repo_root = _QUICKFORM_APP_ROOT  # core/..，一般即仓库根
+        cmd = ['git', 'log', f'-n{max(1, int(limit))}', '--date=short', '--pretty=format:%h\t%ad\t%s']
+        p = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=2.5)
+        if p.returncode != 0:
+            raise RuntimeError((p.stderr or p.stdout or 'git log failed').strip())
+        out = (p.stdout or '').strip()
+        if out:
+            for line in out.splitlines():
+                parts = line.split('\t', 2)
+                if len(parts) < 3:
+                    continue
+                h, d, s = parts[0].strip(), parts[1].strip(), parts[2].strip()
+                if not h:
+                    continue
+                items.append({
+                    'hash': h,
+                    'date': d,
+                    'subject': s,
+                    'commit_url': f'https://github.com/wstlab/quickform/commit/{h}',
+                })
+    except Exception as ex:
+        err = f'无法读取 git 更新日志：{str(ex)}'
+        items = []
+
+    try:
+        _CHANGELOG_CACHE['ts'] = now_ts
+        _CHANGELOG_CACHE['items'] = items
+        _CHANGELOG_CACHE['error'] = err
+    except Exception:
+        pass
+    return items, err
 
 # 加载环境变量
 load_dotenv()
@@ -360,6 +452,75 @@ def send_email_code(to_email: str, code: str):
         raise RuntimeError("验证码发送失败，请稍后再试。若多次失败请联系管理员。") from e
 
 
+def send_username_reminder_email(to_email: str, usernames: str):
+    """发送用户名提醒邮件（用于找回用户名；页面不直接回显以防枚举）"""
+    try:
+        conf = current_app.config
+        sender = conf.get('MAIL_USERNAME')
+        if not sender or not conf.get('MAIL_PASSWORD'):
+            logger.error("邮件配置不完整，无法发送用户名提醒")
+            raise RuntimeError("邮件配置不完整")
+
+        try:
+            envelope_sender = _smtp_mail_envelope_address(sender)
+            envelope_to = _smtp_mail_envelope_address(to_email)
+        except ValueError as ve:
+            logger.error(
+                "邮箱地址无法用于 SMTP 信封: %s | MAIL_USERNAME=%r to=%r",
+                ve,
+                sender,
+                to_email,
+            )
+            raise RuntimeError(
+                "发信或收件邮箱格式异常（例如含中文域名且未正确编码），无法发送邮件，请检查系统发信邮箱与用户绑定邮箱。"
+            ) from ve
+
+        sender_name = "QuickForm 账号助手"
+        subject = "QuickForm 用户名提醒"
+        body = (
+            "您正在找回 QuickForm 用户名。\n\n"
+            f"对应的用户名：{usernames}\n\n"
+            "如果不是您本人发起的操作，请忽略此邮件。"
+        )
+
+        msg = MIMEText(body, 'plain', 'utf-8')
+        msg['From'] = formataddr((sender_name, envelope_sender))
+        msg['To'] = envelope_to
+        msg['Subject'] = subject
+
+        server = None
+        try:
+            host = conf.get('MAIL_SERVER')
+            port = conf.get('MAIL_PORT')
+            if int(port) == 465:
+                server = smtplib.SMTP_SSL(host, port)
+            else:
+                server = smtplib.SMTP(conf['MAIL_SERVER'], conf['MAIL_PORT'])
+                server.ehlo()
+                if conf.get('MAIL_USE_TLS', True):
+                    server.starttls()
+                    server.ehlo()
+
+            try:
+                server.login(conf['MAIL_USERNAME'], conf['MAIL_PASSWORD'])
+            except smtplib.SMTPAuthenticationError as auth_err:
+                logger.error("邮箱服务器认证失败（用户名提醒）: %s", auth_err)
+                raise RuntimeError("邮箱服务器认证失败，请联系管理员检查邮箱账号或授权码配置。")
+            server.sendmail(envelope_sender, [envelope_to], msg.as_string())
+        finally:
+            if server is not None:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
+        logger.info("用户名提醒邮件已发送至: %s", to_email)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.exception("发送用户名提醒邮件失败: %s", e)
+        raise RuntimeError("邮件发送失败，请稍后再试。若多次失败请联系管理员。") from e
+
+
 # 获取QuickForm目录路径
 QUICKFORM_DIR = os.path.dirname(os.path.abspath(__file__))
 # 独立应用根目录（与 app.py 所在目录一致）：docs/会议通知.pdf 等静态资料
@@ -563,6 +724,16 @@ def _cleanup_scoped_session(_exception=None):
             SessionLocal.remove()
     except Exception:
         # 清理过程不影响主流程
+        pass
+
+    # 在线计数：请求结束时递减（teardown 一定会执行）
+    try:
+        if getattr(request, '_qf_counted_web', False):
+            with _ONLINE_LOCK:
+                global _ONLINE_INFLIGHT_WEB
+                if _ONLINE_INFLIGHT_WEB > 0:
+                    _ONLINE_INFLIGHT_WEB -= 1
+    except Exception:
         pass
 
 # 避免同一任务被并发触发“清空提交数据”导致长时间锁等待
@@ -889,9 +1060,83 @@ def _task_first_html_preview_url(task):
     return None
 
 
+def _task_html_file_links(task):
+    """任务下所有可访问的 HTML 附件（名称 + URL），与详情页多文件逻辑一致。"""
+    if not task:
+        return []
+    saved_filename = None
+    try:
+        if task.file_path:
+            saved_filename = os.path.basename(task.file_path)
+    except Exception:
+        saved_filename = None
+    html_files = []
+    if getattr(task, "html_files", None):
+        try:
+            html_files = json.loads(task.html_files)
+        except Exception:
+            html_files = []
+    if not isinstance(html_files, list):
+        html_files = []
+    if task.file_name and saved_filename and not html_files:
+        html_files = [{"saved_name": saved_filename, "original_name": task.file_name}]
+    out = []
+    seen = set()
+    for f in html_files:
+        if isinstance(f, dict) and f.get("saved_name"):
+            sn = f["saved_name"]
+            if sn in seen:
+                continue
+            seen.add(sn)
+            out.append({
+                "name": (f.get("original_name") or sn),
+                "url": get_upload_file_url(sn, task.file_path),
+            })
+    return out
+
+
 @quickform_bp.context_processor
 def inject_upload_url():
     return dict(get_upload_file_url=get_upload_file_url)
+
+
+@quickform_bp.before_app_request
+def _maintenance_gate():
+    """数据库迁移/初始化期间返回维护页，减少用户焦虑（仅 QuickForm 蓝图相关请求）。"""
+    try:
+        # 只在 QuickForm Blueprint 未就绪时生效
+        if _QUICKFORM_READY:
+            return None
+        # 静态资源与健康检查不拦截
+        p = (request.path or '')
+        if p.startswith('/static/') or p.startswith('/favicon') or p.startswith('/healthz') or p.startswith('/cli'):
+            return None
+        # 只拦截本蓝图的 endpoint（避免影响主应用其它蓝图）
+        ep = (request.endpoint or '')
+        if not ep.startswith('quickform.'):
+            return None
+        return (
+            render_template('maintenance.html'),
+            503,
+            {'Cache-Control': 'no-store'}
+        )
+    except Exception:
+        return None
+
+
+@quickform_bp.before_app_request
+def _online_counter_before():
+    """请求开始：统计当前正在处理的网页请求数（近似“实时在线”）。"""
+    try:
+        if not _is_web_page_request(request):
+            return None
+        setattr(request, '_qf_counted_web', True)
+        with _ONLINE_LOCK:
+            global _ONLINE_INFLIGHT_WEB
+            _ONLINE_INFLIGHT_WEB += 1
+    except Exception:
+        pass
+    return None
 
 # 创建数据库表
 Base.metadata.create_all(engine)
@@ -943,6 +1188,77 @@ def index():
         video_files=video_files,
         partner_logos=partner_logos,
         community_random=community_random,
+    )
+
+
+@quickform_bp.route('/changelog')
+def changelog_page():
+    """更新日志：不依赖部署环境 .git，使用写死的摘要（避免生产环境无 git 时空白/报错）。"""
+    # 说明：此页内容由维护者定期根据 GitHub 提交整理后写入。
+    groups = [
+        {
+            'date': '2026-04-16',
+            'items': [
+                {'subject': 'CLI/接口侧能力更新（api 邀请）。', 'hash': '1f80870', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/1f808700c65901c736f5188e8472248392729fe7'},
+                {'subject': '接口相关调整（interface）。', 'hash': 'f082167', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/f082167a0accbd73250cd234a3173a12d555f490'},
+                {'subject': '管理员面板与统计卡片相关更新（admin dashboard）。', 'hash': 'f5d806c', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/f5d806c8dc163d927391ec1b2b7455030881c641'},
+                {'subject': '任务防护与批量删除相关更新（multi-del taskdefend）。', 'hash': 'fcf0437', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/fcf0437693f0984b77fa038fbc1cf971a2bf9921'},
+            ],
+        },
+        {
+            'date': '2026-04-15',
+            'items': [
+                {'subject': '社区与认证流程相关更新（qfcode community certification）。', 'hash': '2f3068a', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/2f3068aefdb51707b1b7f8893e3f24162f966276'},
+            ],
+        },
+        {
+            'date': '2026-04-12',
+            'items': [
+                {'subject': '首页/入口与展示细节调整（index）。', 'hash': '6ac361c', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/6ac361c54d069321aa0bd8fb96ff664d6049202a'},
+                {'subject': '随机展示与阴影等 UI 细节优化（random shadow）。', 'hash': '5e65b05', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/5e65b054cb08af57b9e432b0b77a10fcc29d2464'},
+            ],
+        },
+        {
+            'date': '2026-04-10',
+            'items': [
+                {'subject': '数据详情页与展示修复（data detail update bug）。', 'hash': '87a9bff', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/87a9bffb1c4af5209ac48383a1d72a1ba955e904'},
+                {'subject': '注册/登录相关测试与修复（sign up）。', 'hash': '47b7b3f', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/47b7b3f5c7cae8a3c4f335ccc29ce30f56323ca8'},
+                {'subject': 'API Key 长度与配置兼容（api key longer）。', 'hash': 'f62147f', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/f62147fdd2515017fb8f9bf4fb61885cc237440a'},
+                {'subject': '免责声明页面/文案更新（disclainer）。', 'hash': '81a608a', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/81a608afb29b8c4cbac3c830710a2ca3ca5517d3'},
+            ],
+        },
+        {
+            'date': '2026-04-09',
+            'items': [
+                {'subject': '全站 https 相关调整与修复。', 'hash': 'de1a52f', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/de1a52fad4af9712b45cf7473ef2400a84736f1c'},
+                {'subject': '用户指纹/风控与异常禁止修复（user fingerprint）。', 'hash': 'fd87ffa', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/fd87ffadccdcc0f89faae13fda5591c3b4a6f8d1'},
+                {'subject': '一键操作与错误修复（one click / error fix）。', 'hash': '71f922b', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/71f922b8bff7190e3a79d00c92be7e6056458999'},
+                {'subject': 'waitress 与按钮灰度等细节修复。', 'hash': '1ac9681', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/1ac9681a7f39ab85dbcf7ebd8861341bc8f5be54'},
+            ],
+        },
+        {
+            'date': '2026-04-08',
+            'items': [
+                {'subject': '主色渐变与 UI 更新（UI gradient / UI update）。', 'hash': 'bb24de2', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/bb24de2632eb0e5288fc26b2d4a994270ff47e45'},
+                {'subject': '服务端运行与 waitress 相关更新。', 'hash': '5750c89', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/5750c899d1eb697b1118d4c407f7b2a8ace6a642'},
+            ],
+        },
+        {
+            'date': '2026-04-07',
+            'items': [
+                {'subject': '页面布局与多处 bugfix；社区选择与懒加载修复。', 'hash': '7cb72d0', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/7cb72d06f6ddb05062af1902a7eba081beba32f2'},
+                {'subject': '任务详情与加载优化（task detail / lazyload）。', 'hash': '3909a73', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/3909a73d9df64706e171c592bd97be9c01ead87e'},
+                {'subject': '管理员 UI 与 SQL 缓存等更新。', 'hash': 'd8d20c8', 'commit_url': 'https://github.com/linmiaoyan/QuickForm/commit/d8d20c86e843186e84af847c7a5d4bd65c4cbea6'},
+            ],
+        },
+    ]
+
+    return render_template(
+        'changelog.html',
+        groups=groups,
+        error='',
+        limit=len(groups),
+        now=datetime.now(),
     )
 
 @quickform_bp.route('/switch_lang/<lang>')
@@ -1031,7 +1347,11 @@ def community():
                 joinedload(Post.user),
                 joinedload(Post.replies).joinedload(PostReply.user),
             )
-            .order_by(Post.created_at.desc())
+            .order_by(
+                func.coalesce(Post.is_pinned, 0).desc(),
+                func.coalesce(Post.pinned_at, Post.created_at).desc(),
+                Post.created_at.desc(),
+            )
         )
         total_posts = posts_query.count()
         posts = posts_query.offset((page_posts - 1) * per_post).limit(per_post).all()
@@ -1054,6 +1374,48 @@ def community():
     finally:
         db.close()
 
+
+@quickform_bp.route('/community/post/<int:post_id>/pin', methods=['POST'])
+@login_required
+def pin_post(post_id):
+    """置顶/取消置顶留言（仅管理员）"""
+    if not current_user.is_admin():
+        flash('无权执行此操作', 'danger')
+        return _redirect_back()
+    db = SessionLocal()
+    try:
+        post = db.get(Post, post_id)
+        if not post:
+            flash('留言不存在', 'danger')
+            return _redirect_back()
+        want_pin = (request.form.get('pin') or '').strip()
+        if want_pin == '1':
+            post.is_pinned = True
+            post.pinned_at = datetime.now()
+            flash('已置顶该留言', 'success')
+        elif want_pin == '0':
+            post.is_pinned = False
+            post.pinned_at = None
+            flash('已取消置顶', 'success')
+        else:
+            # 未传 pin 参数则按当前状态切换
+            if getattr(post, 'is_pinned', False):
+                post.is_pinned = False
+                post.pinned_at = None
+                flash('已取消置顶', 'success')
+            else:
+                post.is_pinned = True
+                post.pinned_at = datetime.now()
+                flash('已置顶该留言', 'success')
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.exception("置顶留言失败: %s", e)
+        flash('操作失败', 'danger')
+    finally:
+        db.close()
+    return _redirect_back()
+
 @quickform_bp.route('/community/post', methods=['POST'])
 @login_required
 def create_post():
@@ -1061,11 +1423,11 @@ def create_post():
     content = request.form.get('content', '').strip()
     if not content:
         flash('留言内容不能为空', 'danger')
-        return redirect(url_for('quickform.community'))
+        return _redirect_back()
     
     if len(content) > 2000:
         flash('留言内容过长，最多2000字符', 'danger')
-        return redirect(url_for('quickform.community'))
+        return _redirect_back()
     
     db = SessionLocal()
     try:
@@ -1084,7 +1446,7 @@ def create_post():
     finally:
         db.close()
     
-    return redirect(url_for('quickform.community'))
+    return _redirect_back()
 
 @quickform_bp.route('/community/post/<int:post_id>/reply', methods=['POST'])
 @login_required
@@ -1093,16 +1455,16 @@ def create_reply(post_id):
     content = request.form.get('content', '').strip()
     if not content:
         flash('回复内容不能为空', 'danger')
-        return redirect(url_for('quickform.community'))
+        return _redirect_back()
     if len(content) > 2000:
         flash('回复内容过长，最多2000字符', 'danger')
-        return redirect(url_for('quickform.community'))
+        return _redirect_back()
     db = SessionLocal()
     try:
         post = db.get(Post, post_id)
         if not post:
             flash('该留言不存在', 'danger')
-            return redirect(url_for('quickform.community'))
+            return _redirect_back()
         reply = PostReply(
             post_id=post_id,
             user_id=current_user.id,
@@ -1118,7 +1480,7 @@ def create_reply(post_id):
         flash('回复发布失败', 'danger')
     finally:
         db.close()
-    return redirect(url_for('quickform.community'))
+    return _redirect_back()
 
 @quickform_bp.route('/community/reply/<int:reply_id>/delete', methods=['POST'])
 @login_required
@@ -1126,7 +1488,7 @@ def delete_reply(reply_id):
     """删除回复（仅管理员）"""
     if not current_user.is_admin():
         flash('无权执行此操作', 'danger')
-        return redirect(url_for('quickform.community'))
+        return _redirect_back()
     db = SessionLocal()
     try:
         reply = db.get(PostReply, reply_id)
@@ -1142,7 +1504,7 @@ def delete_reply(reply_id):
         flash('删除失败', 'danger')
     finally:
         db.close()
-    return redirect(url_for('quickform.community'))
+    return _redirect_back()
 
 @quickform_bp.route('/task/<int:task_id>/like', methods=['POST'])
 @login_required
@@ -1185,7 +1547,7 @@ def delete_post(post_id):
     """删除留言（仅管理员）"""
     if not current_user.is_admin():
         flash('无权执行此操作', 'danger')
-        return redirect(url_for('quickform.community'))
+        return _redirect_back()
     
     db = SessionLocal()
     try:
@@ -1203,7 +1565,7 @@ def delete_post(post_id):
     finally:
         db.close()
     
-    return redirect(url_for('quickform.community'))
+    return _redirect_back()
 
 @quickform_bp.route('/register', methods=['GET', 'POST'])
 def register():
@@ -1601,22 +1963,67 @@ def forgot_password_send_code():
 
 @quickform_bp.route('/forgot_username', methods=['GET', 'POST'])
 def forgot_username():
-    """通过手机号查询用户名"""
+    """通过手机号或邮箱查询用户名（老师更容易记住邮箱）"""
     if request.method == 'POST':
-        phone = (request.form.get('phone') or '').strip()
-        if not phone:
-            flash('请填写手机号', 'danger')
+        from flask import session
+        raw = (request.form.get('account') or request.form.get('phone') or '').strip()
+        if not raw:
+            flash('请填写手机号或邮箱', 'danger')
             return redirect(url_for('quickform.forgot_username'))
 
         db = SessionLocal()
         try:
-            users = db.query(User).filter(User.phone == phone).all()
-            if not users:
-                flash('未找到使用该手机号注册的账户', 'warning')
+            # 安全策略：不在页面回显用户名，避免被枚举；仅当匹配到真实邮箱时发送邮件。
+            now = time.time()
+            cooldown_s = 60
+
+            def _cooldown_key(k: str) -> str:
+                return f'fu_last_{k}'
+
+            # 邮箱查询：若存在则发送用户名到该邮箱；无论是否存在均提示同一句
+            if '@' in raw:
+                email = raw
+                if not _USER_EMAIL_FORMAT_RE.match(email):
+                    flash('邮箱格式不正确', 'danger')
+                    return redirect(url_for('quickform.forgot_username'))
+                if email.endswith('@noreply.local'):
+                    # 占位邮箱无法收信：仍不暴露是否存在，仅提示使用手机号或联系管理员
+                    flash('若您当时未绑定真实邮箱，请改用手机号找回，或联系管理员协助。', 'info')
+                    return redirect(url_for('quickform.forgot_username'))
+
+                last = float(session.get(_cooldown_key('email'), 0) or 0)
+                if now - last < cooldown_s:
+                    flash('操作过于频繁，请稍后再试（约1分钟）', 'warning')
+                    return redirect(url_for('quickform.forgot_username'))
+                session[_cooldown_key('email')] = now
+
+                u = db.query(User).filter(User.email == email).first()
+                if u and (u.email or '').strip() and (not _is_placeholder_or_empty_email(u.email)):
+                    try:
+                        send_username_reminder_email(email, u.username)
+                    except Exception as e:
+                        logger.warning("发送用户名提醒失败（邮箱=%s，已隐藏结果）: %s", email, e)
+                flash('如果该邮箱对应账号存在，我们已发送用户名到您的邮箱（请注意查收垃圾箱）。', 'success')
             else:
-                # 如果多个账户共用手机号，一并提示
-                usernames = ', '.join(u.username for u in users)
-                flash(f'该手机号对应的用户名为：{usernames}', 'info')
+                # 手机号查询：若存在且绑定了真实邮箱则发到绑定邮箱；无论是否存在均提示同一句
+                phone = raw
+                last = float(session.get(_cooldown_key('phone'), 0) or 0)
+                if now - last < cooldown_s:
+                    flash('操作过于频繁，请稍后再试（约1分钟）', 'warning')
+                    return redirect(url_for('quickform.forgot_username'))
+                session[_cooldown_key('phone')] = now
+
+                users = db.query(User).filter(User.phone == phone).all()
+                # 多账号同手机号的情况无法安全确认收件人，避免误发
+                if len(users) == 1:
+                    u = users[0]
+                    target = (u.email or '').strip()
+                    if target and (not _is_placeholder_or_empty_email(target)):
+                        try:
+                            send_username_reminder_email(target, u.username)
+                        except Exception as e:
+                            logger.warning("发送用户名提醒失败（phone=%s，已隐藏结果）: %s", phone, e)
+                flash('如果该手机号对应账号存在且已绑定可收信邮箱，我们已发送用户名到绑定邮箱。', 'success')
         finally:
             db.close()
 
@@ -2059,6 +2466,9 @@ def create_task():
                     logger.error(f"启动HTML文件分析失败: {str(e)}", exc_info=True)
             
             flash('数据任务创建成功', 'success')
+            onboard = (request.form.get('onboard') or '').strip()
+            if onboard == '1':
+                return redirect(url_for('quickform.task_detail', task_id=task.id, onboard=1, flow='quickStart_v1'))
             return redirect(url_for('quickform.task_detail', task_id=task.id))
         
         # GET 渲染创建页面
@@ -2634,6 +3044,98 @@ def edit_task(task_id):
                     daemon=True,
                 ).start()
                 return redirect(url_for('quickform.dashboard'))
+
+            # 替换某个已上传 HTML 文件，但保留 URL（saved_name 不变）
+            if request.form.get('action') == 'replace_html_keep_url':
+                target_saved = (request.form.get('replace_saved_name') or '').strip()
+                f = request.files.get('replace_file')
+                if not target_saved or ('/' in target_saved) or ('\\' in target_saved) or ('..' in target_saved):
+                    flash('替换失败：目标文件名无效。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+                if not f or not getattr(f, 'filename', None) or not (f.filename or '').strip():
+                    flash('请选择要替换上传的 HTML 文件。', 'warning')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+                if not allowed_file(f.filename, ALLOWED_EXTENSIONS):
+                    flash('文件格式不支持：仅允许 HTML/HTM。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+
+                # 必须存在于任务的 html_files 列表中
+                existing_files = []
+                try:
+                    existing_files = json.loads(task.html_files) if task.html_files else []
+                except Exception:
+                    existing_files = []
+                if not isinstance(existing_files, list):
+                    existing_files = []
+                idx = None
+                for i, rec in enumerate(existing_files):
+                    if isinstance(rec, dict) and (rec.get('saved_name') or '').strip() == target_saved:
+                        idx = i
+                        break
+                if idx is None:
+                    flash('替换失败：该文件不属于本任务，或记录已丢失。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+
+                # 找到旧文件所在目录（static/uploads 优先，其次旧 UPLOAD_FOLDER），否则写入 static/uploads
+                static_uploads = _static_uploads_dir()
+                target_path = None
+                for folder in (static_uploads, UPLOAD_FOLDER):
+                    p = os.path.join(folder, target_saved)
+                    if os.path.exists(p):
+                        target_path = p
+                        break
+                if not target_path:
+                    target_path = os.path.join(static_uploads, target_saved)
+
+                # 保存：覆盖写入同名文件，从而 URL 不变
+                try:
+                    # 先写到临时文件，避免中途失败导致原文件被破坏
+                    tmp_saved, tmp_path = save_uploaded_file(f, static_uploads)
+                    if not tmp_saved or not tmp_path:
+                        flash('文件上传失败，请重试。允许的格式：HTML/HTM，最大 4MB。', 'danger')
+                        return redirect(url_for('quickform.edit_task', task_id=task.id))
+                    if tmp_path and os.path.getsize(tmp_path) > MAX_HTML_FILE_SIZE:
+                        try:
+                            os.remove(tmp_path)
+                        except OSError:
+                            pass
+                        flash('单个 HTML 文件不得超过 4MB，请压缩后重试。', 'danger')
+                        return redirect(url_for('quickform.edit_task', task_id=task.id))
+                    # 覆盖目标
+                    os.replace(tmp_path, target_path)
+                    # 清理 tmp_saved 变量指向的文件名（os.replace 已把 tmp_path 移走；若目标路径不同盘符可能失败，但这里同目录）
+                except Exception as e:
+                    logger.error("替换保留URL失败: %s", str(e), exc_info=True)
+                    flash('替换失败，请重试。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
+
+                # 更新 DB：原始名更新；如果替换的是第一个文件，同步 file_name/file_path
+                existing_files[idx]['original_name'] = f.filename
+                task.html_files = json.dumps(existing_files) if existing_files else None
+                if idx == 0:
+                    task.file_name = f.filename
+                    task.file_path = target_path
+
+                # 审核/分析与普通上传保持一致
+                if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                    task.html_approved = 1
+                    task.html_approved_by = current_user.id
+                    task.html_approved_at = datetime.now()
+                    task.html_review_note = None
+                else:
+                    task.html_approved = 0
+                    task.html_approved_by = None
+                    task.html_approved_at = None
+                    task.html_review_note = None
+                task.html_analysis = None
+                try:
+                    analyze_html_file(task.id, current_user.id, target_path, SessionLocal, Task, AIConfig, read_file_content, call_ai_model)
+                except Exception as e2:
+                    logger.error("启动HTML文件分析失败(替换保留URL): %s", str(e2), exc_info=True)
+
+                db.commit()
+                flash('已替换文件，URL 保持不变。', 'success')
+                return redirect(url_for('quickform.edit_task', task_id=task.id))
 
             title = request.form.get('title')
             description = request.form.get('description')
@@ -3829,6 +4331,97 @@ def cli_list_tasks():
         tasks = db.query(Task).filter_by(user_id=user.id).order_by(Task.created_at.desc()).all()
         out = [{'apiid': t.task_id, 'name': t.title or ''} for t in tasks]
         return jsonify({'success': True, 'tasks': out}), 200
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/cli/show', methods=['POST'])
+@quickform_bp.route('/mcp/show', methods=['POST'])
+def cli_show_task():
+    """
+    查看单个任务详情（CLI，无 Cookie）。
+    参数：username, password, apiid（或 task_id / taskid；也支持 id=数据库自增ID）。
+    返回：任务名称、简介、url、教程、附件地址等。
+    """
+    data = _mcp_parse_body()
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    apiid = (data.get('apiid') or data.get('task_id') or data.get('taskid') or '').strip()
+    db_id = data.get('id')
+
+    if not username or not password:
+        return jsonify({'success': False, 'message': '缺少 username 或 password'}), 400
+    if not apiid and db_id is None:
+        return jsonify({'success': False, 'message': '缺少 apiid（任务 APIID）或 id（任务数据库ID）'}), 400
+
+    rej = _cli_login_throttle_reject_if_blocked(request, username)
+    if rej:
+        return rej
+    user = _mcp_authenticate(username, password)
+    if not user:
+        _cli_record_credential_failure(request, username)
+        return jsonify({'success': False, 'message': '用户名或密码错误'}), 401
+    _cli_clear_credential_throttle(request, username)
+
+    def _abs(u: str) -> str:
+        u = (u or '').strip()
+        if not u:
+            return ''
+        if u.startswith('http://') or u.startswith('https://'):
+            return u
+        base = _public_site_base_url().rstrip('/')
+        return base + u
+
+    db = SessionLocal()
+    try:
+        task = None
+        if apiid:
+            task = db.query(Task).filter_by(task_id=apiid, user_id=user.id).first()
+        if not task and db_id is not None:
+            try:
+                tid_int = int(db_id)
+            except (TypeError, ValueError):
+                tid_int = None
+            if tid_int:
+                t2 = db.get(Task, tid_int)
+                if t2 and t2.user_id == user.id:
+                    task = t2
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在或无权限'}), 404
+
+        api_base = _public_site_base_url().rstrip('/')
+        api_url = f"{api_base}/api/{task.task_id}"
+        all_url = f"{api_base}/api/{task.task_id}/all"
+        detail_url = f"{api_base}{url_for('quickform.task_detail', task_id=task.id)}"
+
+        attachments = []
+        # 任务 HTML 附件（兼容单文件与多文件）
+        for f in _task_html_file_links(task):
+            if isinstance(f, dict) and f.get('url'):
+                attachments.append({
+                    'name': (f.get('name') or '').strip() or 'form.html',
+                    'url': _abs(f.get('url')),
+                })
+        # 数据大屏附件（如果已生成）
+        dash_saved = getattr(task, 'dashboard_saved_name', None)
+        if dash_saved:
+            attachments.append({
+                'name': '数据大屏.html',
+                'url': f"{api_base}/static/uploads/{dash_saved}",
+            })
+
+        return jsonify({
+            'success': True,
+            'apiid': task.task_id,
+            'name': task.title or '',
+            'intro': task.description or '',
+            'url': api_url,
+            'all_url': all_url,
+            'task_detail_url': detail_url,
+            'tutorial': (getattr(task, 'tutorial_link', None) or '').strip(),
+            'share_url': (getattr(task, 'share_url', None) or '').strip(),
+            'attachments': attachments,
+        }), 200
     finally:
         db.close()
 
@@ -5409,35 +6002,146 @@ def smart_analyze(task_id):
         
         ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
         decrypt_ai_config_inplace(ai_config)
-        
-        if not ai_config or not ai_config.selected_model:
-            return render_template('smart_analyze.html', task=task, error="请先在配置页面设置AI模型和API密钥", ai_config=ai_config, now=datetime.now(), model_label=None)
-        
-        model_label = MODEL_LABELS.get(ai_config.selected_model, ai_config.selected_model)
-        
-        if ai_config.selected_model not in SUPPORTED_AI_MODELS:
-            return render_template('smart_analyze.html', task=task, error=f"{model_label} 暂未集成，敬请期待后续版本", ai_config=ai_config, now=datetime.now(), model_label=model_label)
-        elif ai_config.selected_model == 'deepseek' and not ai_config.deepseek_api_key:
-            return render_template('smart_analyze.html', task=task, error="请先配置DeepSeek API密钥", ai_config=ai_config, now=datetime.now(), model_label=model_label)
-        elif ai_config.selected_model == 'doubao' and not ai_config.doubao_api_key:
-            return render_template('smart_analyze.html', task=task, error="请先配置豆包API密钥", ai_config=ai_config, now=datetime.now(), model_label=model_label)
+        model_label = None
+        ai_ready = False
+        ai_ready_reason = ''
+        if ai_config and ai_config.selected_model:
+            model_label = MODEL_LABELS.get(ai_config.selected_model, ai_config.selected_model)
+            if ai_config.selected_model not in SUPPORTED_AI_MODELS:
+                ai_ready_reason = f"{model_label} 暂未集成，敬请期待后续版本"
+            elif ai_config.selected_model == 'deepseek' and not ai_config.deepseek_api_key:
+                ai_ready_reason = "请先配置DeepSeek API密钥"
+            elif ai_config.selected_model == 'doubao' and not ai_config.doubao_api_key:
+                ai_ready_reason = "请先配置豆包API密钥"
+            else:
+                ai_ready = True
+        else:
+            ai_ready_reason = "请先在个人设置中配置AI模型和API密钥"
+
+        # 数据概览：供「数据分析向导」使用（尽量从数据库取样，避免 /all 压力）
+        submission_q = db.query(Submission).filter_by(task_id=task_id)
+        current_submission_count = submission_q.count()
+        sample_submission = submission_q.order_by(Submission.id.asc()).first()
+        sample_data_raw = ((sample_submission.data if sample_submission else '') or '').strip()
+        if len(sample_data_raw) > 3000:
+            sample_data_raw = sample_data_raw[:3000] + '...'
+        api_base_url = _public_site_base_url()
+        all_url = f"{api_base_url}/api/{task.task_id}/all"
+        stable_dash_saved = f"dash_{task.task_id}.html"
         
         # 如果是提交生成请求，则同步生成并返回同页结果
         if request.method == 'POST':
+            form_action = (request.form.get('action') or '').strip()
+
+            # 1. 制作实时数据大屏：自动生成/修改（异步；最多 3 次）
+            if form_action in ('dashboard_generate', 'dashboard_revise'):
+                if current_submission_count <= 0:
+                    flash('你至少需要回收一条数据。', 'warning')
+                    return redirect(url_for('quickform.smart_analyze', task_id=task.id))
+                if not ai_ready:
+                    flash(ai_ready_reason or '请先配置 AI 后再自动生成。', 'warning')
+                    return redirect(url_for('quickform.smart_analyze', task_id=task.id))
+
+                remaining = getattr(task, 'dashboard_ai_edit_remaining', None)
+                if remaining is None:
+                    remaining = 3
+                try:
+                    remaining = int(remaining)
+                except Exception:
+                    remaining = 0
+                if remaining <= 0:
+                    flash('仅允许 3 次自动生成/修改，当前次数已用完。', 'warning')
+                    return redirect(url_for('quickform.smart_analyze', task_id=task.id))
+
+                user_prompt = (request.form.get('dashboard_user_prompt') or '').strip()
+                revise_ins = (request.form.get('dashboard_revision') or '').strip()
+                base_prompt = (
+                    "你是一名资深前端工程师。请生成一个单页 HTML（只输出完整 HTML）。\n"
+                    "目标：制作一个可以实时分析统计的数据大屏（数据看板）。\n"
+                    f"数据来自：{all_url}\n"
+                    "要求：每隔 10 秒刷新一次（fetch 获取 JSON），并渲染关键指标与图表。\n"
+                    "页面要求：手机端可用、布局清晰、默认浅色主题；不要依赖外部 CDN；所有逻辑写在同一个 HTML 文件里。\n"
+                    "数据格式如下（示例，字段可能更多，请自适应）：\n"
+                    f"{sample_data_raw or '[暂无示例数据]'}\n"
+                )
+                if user_prompt:
+                    base_prompt += "\n用户需求补充：\n" + user_prompt + "\n"
+                if form_action == 'dashboard_revise' and revise_ins:
+                    base_prompt += "\n在保留现有大屏功能的基础上，按以下说明修改：\n" + revise_ins + "\n"
+
+                task.dashboard_generation_status = 'pending'
+                task.dashboard_generation_error = None
+                task.dashboard_saved_name = task.dashboard_saved_name or stable_dash_saved
+                task.dashboard_ai_edit_remaining = max(0, remaining - 1)
+                db.commit()
+
+                def _dash_bg(task_pk: int, ai_cfg_id: int, prompt_text: str, saved_name: str):
+                    _db = SessionLocal()
+                    try:
+                        tsk = _db.get(Task, task_pk)
+                        cfg = _db.get(AIConfig, ai_cfg_id)
+                        decrypt_ai_config_inplace(cfg)
+                        html = call_ai_model(prompt_text, cfg, chat_server_model=get_chat_server_model_light())
+                        html = (html or '').strip()
+                        if html.startswith("```"):
+                            html = html.strip('` \n')
+                        static_uploads = _static_uploads_dir()
+                        out_path = os.path.join(static_uploads, saved_name)
+                        with open(out_path, 'w', encoding='utf-8') as f:
+                            f.write(html)
+                        tsk.dashboard_file_name = saved_name
+                        tsk.dashboard_generated_at = datetime.now()
+                        tsk.dashboard_generation_status = 'completed'
+                        tsk.dashboard_generation_error = None
+                        _db.commit()
+                    except Exception as ex:
+                        try:
+                            tsk = _db.get(Task, task_pk)
+                            tsk.dashboard_generation_status = 'failed'
+                            tsk.dashboard_generation_error = _to_user_friendly_ai_error(str(ex))
+                            _db.commit()
+                        except Exception:
+                            _db.rollback()
+                        logger.exception("数据大屏生成失败: %s", ex)
+                    finally:
+                        _db.close()
+
+                try:
+                    t = threading.Thread(
+                        target=_dash_bg,
+                        args=(task.id, ai_config.id, base_prompt, task.dashboard_saved_name),
+                        daemon=True
+                    )
+                    t.start()
+                    return redirect(url_for('quickform.smart_analyze', task_id=task.id, dash_running=1))
+                except Exception as e:
+                    logger.exception("启动数据大屏生成线程失败: %s", e)
+                    flash('无法启动数据大屏生成，请稍后重试。', 'danger')
+                    return redirect(url_for('quickform.smart_analyze', task_id=task.id))
+
             # 检查是仅保存模板还是生成报告；report_action：generate 或 polish_and_generate
             action = request.form.get('action', 'generate')  # 'save_template' 或 'generate'
             report_action = request.form.get('report_action', 'generate')
             
-            # 获取用户提示词模板（不包含数据部分）
-            user_prompt_template = request.form.get('user_prompt_template', '').strip()
-            if user_prompt_template:
-                # 保存用户模板
-                task.user_prompt_template = user_prompt_template
+            # 合并输入框：接口描述 + 关注点，统一存到 user_prompt_template（兼容旧字段）
+            report_context = (request.form.get('report_context', '') or '').strip()
+            if not report_context:
+                # 兼容旧版本表单字段
+                legacy_interface_desc = (request.form.get('interface_desc', '') or '').strip()
+                legacy_focus = (request.form.get('user_prompt_template', '') or '').strip()
+                report_context = '\n'.join([x for x in [legacy_interface_desc, legacy_focus] if x]).strip()
+            if report_context:
+                task.user_prompt_template = report_context
                 db.commit()
             
             # 如果只是保存模板，直接返回
             if action == 'save_template':
                 flash('提示词模板已保存', 'success')
+                return redirect(url_for('quickform.smart_analyze', task_id=task.id))
+
+            # 生成分析报告需要 AI 配置
+            if not ai_ready:
+                flash(ai_ready_reason or '请先在个人设置中配置 AI 模型与 APIKEY。', 'warning')
                 return redirect(url_for('quickform.smart_analyze', task_id=task.id))
             
             # 生成报告的逻辑
@@ -5464,7 +6168,8 @@ def smart_analyze(task_id):
                         submission_for_prompt = [s for s in submission_for_prompt if s.submitted_at and start_d <= s.submitted_at.date() <= end_d]
                     except (ValueError, TypeError):
                         pass
-            interface_desc = request.form.get('interface_desc', '').strip()
+            # 接口描述：默认用任务简介，表单里不再单独编辑（合并到 report_context）
+            interface_desc = (task.description or '').strip()
             file_content_for_prompt = None
             if task.file_path and os.path.exists(task.file_path):
                 file_content_for_prompt = read_file_content(task.file_path)
@@ -5474,7 +6179,10 @@ def smart_analyze(task_id):
             if custom_prompt_from_form:
                 custom_prompt = custom_prompt_from_form
             else:
-                user_prompt_from_form = request.form.get('user_prompt_template', '').strip()
+                user_prompt_from_form = (request.form.get('report_context', '') or '').strip()
+                if not user_prompt_from_form:
+                    # 兼容旧字段
+                    user_prompt_from_form = (request.form.get('user_prompt_template', '') or '').strip()
                 user_template_val = user_prompt_from_form or (task.user_prompt_template if task.user_prompt_template else None)
                 custom_prompt = generate_analysis_prompt(
                     task, submission_for_prompt, file_content_for_prompt,
@@ -5613,6 +6321,15 @@ def smart_analyze(task_id):
             model_label=model_label,
             submission_count=current_submission_count,
             is_large_dataset=current_submission_count > 200,
+            ai_ready=ai_ready,
+            ai_ready_reason=ai_ready_reason,
+            all_url=all_url,
+            sample_data_raw=sample_data_raw,
+            dashboard_saved_name=getattr(task, 'dashboard_saved_name', None) or stable_dash_saved,
+            dashboard_status=getattr(task, 'dashboard_generation_status', None),
+            dashboard_error=getattr(task, 'dashboard_generation_error', None),
+            dashboard_remaining=getattr(task, 'dashboard_ai_edit_remaining', None) if getattr(task, 'dashboard_ai_edit_remaining', None) is not None else 3,
+            dash_running=(request.args.get('dash_running') == '1'),
         )
     finally:
         db.close()
@@ -5715,6 +6432,48 @@ def download_report(task_id):
         logger.exception("下载报告失败: %s", e)
         flash('下载报告失败，请稍后重试。', 'danger')
         return redirect(url_for('quickform.dashboard'))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/analyze/<int:task_id>/dashboard_status', methods=['GET'])
+@login_required
+def dashboard_status(task_id):
+    """数据大屏生成状态（smart_analyze 页面轮询使用）"""
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        # 权限：与 smart_analyze 相同（管理员/所有者/共享/组织成员）
+        has_access = False
+        if current_user.is_admin() or task.user_id == current_user.id:
+            has_access = True
+        elif db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first():
+            has_access = True
+        elif task.organization_id:
+            is_org_member = db.query(OrganizationMember).filter_by(
+                organization_id=task.organization_id, user_id=current_user.id
+            ).first() is not None
+            if is_org_member:
+                has_access = True
+        if not has_access:
+            return jsonify({'success': False, 'message': '无权访问此任务'}), 403
+
+        api_base_url = _public_site_base_url()
+        saved_name = getattr(task, 'dashboard_saved_name', None)
+        dash_url = None
+        if saved_name:
+            # static/uploads/<saved_name>
+            dash_url = f"{api_base_url}/static/uploads/{saved_name}"
+        return jsonify({
+            'success': True,
+            'status': getattr(task, 'dashboard_generation_status', None),
+            'error': getattr(task, 'dashboard_generation_error', None),
+            'remaining': getattr(task, 'dashboard_ai_edit_remaining', None),
+            'dash_url': dash_url,
+            'generated_at': task.dashboard_generated_at.strftime('%Y-%m-%d %H:%M:%S') if getattr(task, 'dashboard_generated_at', None) else None
+        })
     finally:
         db.close()
 
@@ -5904,13 +6663,27 @@ def report_status(task_id):
 @admin_required
 def admin_panel():
     """管理员面板：按当前 tab 仅加载该页数据，避免一次性查全表"""
+    from urllib.parse import urlencode
+
+    current_tab = request.args.get('tab', 'users')
+    if current_tab == 'traffic':
+        current_tab = 'tasks'
+    # 旧链接 tab=public-review|org-review|html-review 统一到「其他审核」主视图，避免子 tab 切换跳页
+    _other_review_frag = {
+        'public-review': 'section-public-audit',
+        'org-review': 'section-org-audit',
+        'html-review': 'section-html-audit',
+    }
+    if current_tab in _other_review_frag:
+        q = request.args.to_dict()
+        q['tab'] = 'other-review'
+        frag = _other_review_frag[current_tab]
+        return redirect(f"{request.path}?{urlencode(q)}#{frag}")
+
     db = SessionLocal()
     try:
         today = datetime.now().date()
         today_start = datetime.combine(today, datetime.min.time())
-        current_tab = request.args.get('tab', 'users')
-        if current_tab == 'traffic':
-            current_tab = 'tasks'
         user_per_page = 20
         task_per_page = 20
         html_review_per_page = 20
@@ -5929,7 +6702,9 @@ def admin_panel():
             Organization.teams_public_requested == True,
             Organization.teams_public_approved == 0,
         ).count()
-        pending_other_sidebar = pending_html_sidebar + pending_public_sidebar + pending_org_sidebar
+        # 「其他审核」侧栏数字：仅公开项目 + 团队入驻待审，不含 HTML 页面审核（HTML 在子 tab 内单独展示）
+        pending_other_sidebar = pending_public_sidebar + pending_org_sidebar
+        pending_quota_sidebar = db.query(TaskQuotaRequest).filter(TaskQuotaRequest.status == 0).count()
 
         # 默认值：未选中的 tab 不查数据
         users = []
@@ -5955,6 +6730,7 @@ def admin_panel():
         total_cert_requests = 0
 
         public_pending_with_author = []
+        public_pending_html_urls = []
         org_pending_with_creator = []
         open_source_tasks_with_author = []
         tutorials_json_content = '[]'
@@ -6047,6 +6823,14 @@ def admin_panel():
             author_ids = {t.user_id for t in public_pending_tasks}
             authors_map2 = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
             public_pending_with_author = [{'task': t, 'author': authors_map2.get(t.user_id)} for t in public_pending_tasks]
+            _seen_pub_html_urls = set()
+            for row in public_pending_with_author:
+                row['html_links'] = _task_html_file_links(row['task'])
+                for hl in row['html_links']:
+                    u = hl['url']
+                    if u not in _seen_pub_html_urls:
+                        _seen_pub_html_urls.add(u)
+                        public_pending_html_urls.append(u)
 
             org_pending = (
                 db.query(Organization)
@@ -6060,36 +6844,6 @@ def admin_panel():
             creator_ids = {o.creator_id for o in org_pending}
             creators_map = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
             org_pending_with_creator = [{'org': o, 'creator': creators_map.get(o.creator_id)} for o in org_pending]
-
-        elif current_tab == 'html-review':
-            html_review_page = request.args.get('html_review_page', 1, type=int) or 1
-            html_review_page = max(1, html_review_page)
-            html_tasks_query = db.query(Task).filter(
-                Task.file_path.isnot(None),
-                Task.file_name.isnot(None),
-                (Task.file_name.like('%.html') | Task.file_name.like('%.htm'))
-            )
-            total_html_tasks = html_tasks_query.count()
-            html_review_total_pages = max(math.ceil(total_html_tasks / html_review_per_page), 1) if total_html_tasks else 1
-            html_review_page = min(html_review_page, html_review_total_pages)
-            html_tasks = (
-                html_tasks_query
-                .order_by(Task.created_at.desc())
-                .offset((html_review_page - 1) * html_review_per_page)
-                .limit(html_review_per_page)
-                .all()
-            )
-            user_ids = {t.user_id for t in html_tasks} | {t.html_approved_by for t in html_tasks if t.html_approved_by}
-            user_ids.discard(None)
-            authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
-            for task in html_tasks:
-                html_tasks_with_review.append({
-                    'task': task,
-                    'author': authors_map.get(task.user_id),
-                    'approver': authors_map.get(task.html_approved_by) if task.html_approved_by else None
-                })
-                if task.html_approved != 1:
-                    pending_html_count += 1
 
         elif current_tab == 'cert-review':
             cert_review_page = request.args.get('cert_review_page', 1, type=int) or 1
@@ -6112,31 +6866,6 @@ def admin_panel():
 
         elif current_tab == 'data':
             pass  # stats 在下方按 tab 计算
-
-        elif current_tab == 'public-review':
-            public_pending_tasks = (
-                db.query(Task)
-                .filter(Task.sharing_type == 'public', Task.public_approved == 0)
-                .order_by(Task.created_at.desc())
-                .all()
-            )
-            author_ids = {t.user_id for t in public_pending_tasks}
-            authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
-            public_pending_with_author = [{'task': t, 'author': authors_map.get(t.user_id)} for t in public_pending_tasks]
-
-        elif current_tab == 'org-review':
-            org_pending = (
-                db.query(Organization)
-                .filter(
-                    Organization.teams_public_requested == True,
-                    Organization.teams_public_approved == 0,
-                )
-                .order_by(Organization.created_at.desc())
-                .all()
-            )
-            creator_ids = {o.creator_id for o in org_pending}
-            creators_map = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
-            org_pending_with_creator = [{'org': o, 'creator': creators_map.get(o.creator_id)} for o in org_pending]
 
         elif current_tab == 'open-source':
             open_tasks = (
@@ -6215,6 +6944,7 @@ def admin_panel():
             'total_tasks': total_tasks,
             'total_submissions': total_submissions,
             'certified_users': certified_users_top,
+            'online_now': (lambda: (lambda x: x)(0))(),  # placeholder, overwritten below
             'normal_users': 0,
             'new_users_today': 0,
             'new_tasks_today': 0,
@@ -6241,6 +6971,13 @@ def admin_panel():
                 stats['new_users_today'] = db.query(User).filter(User.created_at >= today_start).count()
             except Exception:
                 stats['new_users_today'] = 0
+
+        # 实时在线：当前正在处理的网页请求数（近似老师端在线）
+        try:
+            with _ONLINE_LOCK:
+                stats['online_now'] = int(_ONLINE_INFLIGHT_WEB)
+        except Exception:
+            stats['online_now'] = 0
 
         return render_template(
             'admin.html',
@@ -6270,6 +7007,7 @@ def admin_panel():
             cert_review_per_page=cert_review_per_page,
             current_tab=current_tab,
             public_pending_with_author=public_pending_with_author,
+            public_pending_html_urls=public_pending_html_urls,
             org_pending_with_creator=org_pending_with_creator,
             open_source_tasks_with_author=open_source_tasks_with_author,
             tutorials_json_content=tutorials_json_content,
@@ -6282,6 +7020,7 @@ def admin_panel():
             submit_quota_base_b=submit_quota_base_b,
             pending_cert_sidebar=pending_cert_sidebar,
             pending_other_sidebar=pending_other_sidebar,
+            pending_quota_sidebar=pending_quota_sidebar,
         )
     finally:
         db.close()
@@ -6604,13 +7343,13 @@ def admin_public_approve(task_id):
         task = db.get(Task, task_id)
         if not task or task.sharing_type != 'public' or task.public_approved != 0:
             flash('任务不存在或无需审核', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='public-review'))
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
         task.public_approved = 1
         db.commit()
         flash(f'已通过项目「{task.title}」的公开申请，将展示在项目交流页。', 'success')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='public-review'))
+    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
 
 
 @quickform_bp.route('/admin/public_reject/<int:task_id>', methods=['POST'])
@@ -6622,13 +7361,13 @@ def admin_public_reject(task_id):
         task = db.get(Task, task_id)
         if not task or task.sharing_type != 'public' or task.public_approved != 0:
             flash('任务不存在或无需审核', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='public-review'))
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
         task.public_approved = -1
         db.commit()
         flash(f'已拒绝项目「{task.title}」的公开申请。', 'success')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='public-review'))
+    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
 
 
 @quickform_bp.route('/admin/org_teams_approve/<int:org_id>', methods=['POST'])
@@ -6640,13 +7379,13 @@ def admin_org_teams_approve(org_id):
         org = db.get(Organization, org_id)
         if not org or not org.teams_public_requested or org.teams_public_approved != 0:
             flash('组织不存在或无需审核', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='org-review'))
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
         org.teams_public_approved = 1
         db.commit()
         flash(f'已通过组织「{org.name}」的入驻团队展示申请。', 'success')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='org-review'))
+    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
 
 
 @quickform_bp.route('/admin/org_teams_reject/<int:org_id>', methods=['POST'])
@@ -6658,13 +7397,13 @@ def admin_org_teams_reject(org_id):
         org = db.get(Organization, org_id)
         if not org or not org.teams_public_requested or org.teams_public_approved != 0:
             flash('组织不存在或无需审核', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='org-review'))
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
         org.teams_public_approved = -1
         db.commit()
         flash(f'已拒绝组织「{org.name}」的入驻团队展示申请。创建者可改为「内部交流」后重新申请。', 'success')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='org-review'))
+    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
 
 
 @quickform_bp.route('/admin/public_batch_approve', methods=['POST'])
@@ -6674,7 +7413,7 @@ def admin_public_batch_approve():
     task_ids = request.form.getlist('task_ids')
     if not task_ids:
         flash('请先勾选要通过的项目', 'warning')
-        return redirect(url_for('quickform.admin_panel', tab='public-review'))
+        return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
     db = SessionLocal()
     try:
         count = 0
@@ -6691,7 +7430,7 @@ def admin_public_batch_approve():
         flash(f'已批量通过 {count} 个项目公开申请。', 'success')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='public-review'))
+    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
 
 
 @quickform_bp.route('/admin/public_batch_reject', methods=['POST'])
@@ -6701,7 +7440,7 @@ def admin_public_batch_reject():
     task_ids = request.form.getlist('task_ids')
     if not task_ids:
         flash('请先勾选要拒绝的项目', 'warning')
-        return redirect(url_for('quickform.admin_panel', tab='public-review'))
+        return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
     db = SessionLocal()
     try:
         count = 0
@@ -6718,7 +7457,7 @@ def admin_public_batch_reject():
         flash(f'已批量拒绝 {count} 个项目公开申请。', 'success')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='public-review'))
+    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
 
 
 @quickform_bp.route('/admin/open_source_revoke/<int:task_id>', methods=['POST'])
@@ -7680,12 +8419,12 @@ def admin_review_html_batch():
 
         if not task_ids:
             flash('请选择至少一个待审核的任务', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='html-review'))
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-html-audit')
 
         tasks = db.query(Task).filter(Task.id.in_(task_ids)).all()
         if not tasks:
             flash('未找到所选任务', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='html-review'))
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-html-audit')
 
         updated_count = 0
         for task in tasks:
@@ -7895,7 +8634,7 @@ def admin_review_html_action(task_id):
         task = db.get(Task, task_id)
         if not task:
             flash('任务不存在', 'danger')
-            return redirect(url_for('quickform.admin_panel', tab='html-review'))
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-html-audit')
         
         action = request.form.get('action')
         note = (request.form.get('note') or '').strip()
@@ -7909,7 +8648,7 @@ def admin_review_html_action(task_id):
                 task.is_featured = False
                 flash('已取消加精标记', 'info')
             db.commit()
-            return redirect(url_for('quickform.admin_panel', tab='html-review'))
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-html-audit')
         
         if action == 'approve':
             task.html_approved = 1
@@ -7921,7 +8660,7 @@ def admin_review_html_action(task_id):
         elif action == 'reject':
             if not note:
                 flash('拒绝审核时需要填写原因。', 'danger')
-                return redirect(url_for('quickform.admin_panel', tab='html-review'))
+                return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-html-audit')
             task.html_approved = -1
             task.html_approved_by = current_user.id
             task.html_approved_at = datetime.now()
@@ -7933,7 +8672,7 @@ def admin_review_html_action(task_id):
     finally:
         db.close()
     
-    return redirect(url_for('quickform.admin_panel', tab='html-review'))
+    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-html-audit')
 
 @quickform_bp.route('/task/<int:task_id>/submission/remove', methods=['GET'])
 def remove_submission(task_id):
@@ -8428,7 +9167,109 @@ def init_quickform(app, login_manager_instance=None, database_type=None):
     except Exception:
         pass
 
-    logger.info("QuickForm Blueprint 初始化完成")
+    global _QUICKFORM_READY
+    _QUICKFORM_READY = True
+    logger.info("QuickForm Blueprint 初始化完成（ready=1）")
+
+
+def init_quickform_async(app, login_manager_instance=None, database_type=None):
+    """异步初始化 QuickForm：先让 Web 服务可用（维护页兜底），再后台做 DB 迁移与管理员初始化。"""
+    global bcrypt, login_manager, _database_type, _QUICKFORM_READY
+    _QUICKFORM_READY = False
+
+    # 1) 先同步建立数据库连接（不做迁移），避免后续后台迁移时还没 engine
+    if database_type:
+        _database_type = database_type.lower()
+        logger.info(f"根据应用配置，切换数据库类型为: {_database_type}")
+        _init_database(_database_type)
+
+    # 2) 先把 Flask 扩展挂上（不阻塞）
+    bcrypt = Bcrypt(app)
+    if login_manager_instance:
+        login_manager = login_manager_instance
+        login_manager.login_view = 'quickform.login'
+    else:
+        login_manager = LoginManager()
+        login_manager.init_app(app)
+        login_manager.login_view = 'quickform.login'
+
+    # 3) 后台线程执行迁移/初始化；完成后置 ready=1
+    def _bg():
+        global _QUICKFORM_READY
+        try:
+            try:
+                migrate_database(engine)
+            except Exception as e:
+                logger.warning(f"数据库迁移警告: {str(e)}")
+
+            # 初始化管理员账号（与同步 init_quickform 逻辑一致）
+            def init_admin_account():
+                db = SessionLocal()
+                try:
+                    admin_username = 'wzkjgz'
+                    admin_user = db.query(User).filter_by(username=admin_username).first()
+                    if not admin_user:
+                        hashed_password = bcrypt.generate_password_hash('wzkjgz123!').decode('utf-8')
+                        admin_user = User(
+                            username=admin_username,
+                            email='wzlinmiaoyan@163.com',
+                            password=hashed_password,
+                            role='admin',
+                            school='温州科技高级中学',
+                            phone='00000000000'
+                        )
+                        db.add(admin_user)
+                        db.commit()
+                        logger.info("成功创建管理员账号：wzkjgz")
+                    elif admin_user.role != 'admin':
+                        admin_user.role = 'admin'
+                        admin_user.password = bcrypt.generate_password_hash('wzkjgz123!').decode('utf-8')
+                        db.commit()
+                        logger.info("成功更新管理员账号：wzkjgz")
+                except Exception as e:
+                    logger.error(f"初始化管理员账号失败: {str(e)}")
+                finally:
+                    db.close()
+
+            try:
+                init_admin_account()
+            except Exception as e:
+                logger.warning(f"初始化管理员账号警告: {str(e)}")
+
+            # 确保 uploads 目录存在
+            try:
+                if not os.path.exists(UPLOAD_FOLDER):
+                    os.makedirs(UPLOAD_FOLDER)
+                if not os.path.exists(os.path.join(UPLOAD_FOLDER, 'reports')):
+                    os.makedirs(os.path.join(UPLOAD_FOLDER, 'reports'))
+                if not os.path.exists(CERTIFICATION_FOLDER):
+                    os.makedirs(CERTIFICATION_FOLDER)
+            except Exception:
+                pass
+
+            # PUBLIC_BASE_URL 环境变量兜底
+            try:
+                if not (app.config.get('PUBLIC_BASE_URL') or '').strip():
+                    _pb = (os.getenv('PUBLIC_BASE_URL') or os.getenv('QUICKFORM_PUBLIC_BASE_URL') or '').strip().rstrip('/')
+                    if _pb:
+                        app.config['PUBLIC_BASE_URL'] = _pb
+            except Exception:
+                pass
+
+            _QUICKFORM_READY = True
+            logger.info("QuickForm Blueprint 后台初始化完成（ready=1）")
+        except Exception as ex:
+            logger.exception("QuickForm 后台初始化失败: %s", ex)
+            # 保持 ready=0，继续展示维护页
+
+    try:
+        t = threading.Thread(target=_bg, daemon=True)
+        t.start()
+        logger.info("QuickForm Blueprint 已启动后台初始化线程（ready=0）")
+    except Exception as ex:
+        logger.exception("启动 QuickForm 后台初始化线程失败: %s", ex)
+        # 启动失败则回退同步初始化（至少让服务可用）
+        init_quickform(app, login_manager_instance, database_type=database_type)
 
 
 # ==================== 组织/团队管理路由 ====================
@@ -8438,7 +9279,9 @@ def teams_list():
     """入驻团队：展示全部团队列表，支持搜索与分页；无需登录可访问；点击加入需填写组织代码（需登录）"""
     db = SessionLocal()
     try:
-        def _org_desc_preview(md_text: str | None, max_len: int = 140) -> str:
+        from typing import Optional
+
+        def _org_desc_preview(md_text: Optional[str], max_len: int = 140) -> str:
             """组织简介（Markdown）转为适合列表展示的短摘要（纯文本）。"""
             raw = (md_text or "").strip()
             if not raw:
@@ -8498,6 +9341,22 @@ def teams_list():
                              per_page=per_page,
                              total_count=total_count,
                              total_pages=total_pages)
+    except Exception as e:
+        logger.exception("teams_list 页面渲染失败: %s", e)
+        return (
+            "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<title>团队列表暂时不可用 - QuickForm</title>"
+            "<link href='" + url_for('static', filename='css/bootstrap.min.css') + "' rel='stylesheet'>"
+            "</head><body><div class='container py-4' style='max-width:720px'>"
+            "<h4 class='mb-2'>团队列表暂时不可用</h4>"
+            "<p class='text-muted'>服务器遇到异常，请稍后刷新重试。</p>"
+            "<pre class='small text-muted' style='white-space:pre-wrap'>" + html.escape(str(e)) + "</pre>"
+            "<a class='btn btn-outline-primary btn-sm' href='" + url_for('quickform.index') + "'>返回首页</a>"
+            "</div></body></html>",
+            500,
+            [('Content-Type', 'text/html; charset=utf-8')],
+        )
     finally:
         db.close()
 

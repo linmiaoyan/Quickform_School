@@ -15,6 +15,15 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
+.post-item.is-pinned {
+    border-left-color: #f59e0b;
+    background: #fffbeb;
+}
+
+.post-item .post-badge.post-badge-pin {
+    background: #f59e0b;
+}
+
 .post-item .post-badge {
     display: inline-block;
     background: #2563eb;
@@ -436,10 +445,13 @@
             </div>
             {% if posts and posts|length > 0 %}
                 {% for post in posts %}
-                <div class="post-item">
+                <div class="post-item {% if post.is_pinned %}is-pinned{% endif %}">
                     <div class="post-header">
                         <div>
                             <span class="post-badge">{{ translate('community.question') }}</span>
+                            {% if post.is_pinned %}
+                                <span class="post-badge post-badge-pin">置顶</span>
+                            {% endif %}
                             <span class="post-author">{{ post.user.username }}</span>
                             {% if post.user.school %}
                                 <span class="text-muted" style="font-size: 0.875rem; margin-left: 0.5rem;">{{ post.user.school }}</span>
@@ -448,6 +460,15 @@
                         <div>
                             <span class="post-time">{{ post.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
                             {% if current_user.is_authenticated and current_user.is_admin() %}
+                            <form method="POST" action="{{ url_for('quickform.pin_post', post_id=post.id) }}" style="display: inline; margin-left: 0.5rem;">
+                                {% if post.is_pinned %}
+                                    <input type="hidden" name="pin" value="0">
+                                    <button type="submit" class="btn btn-sm btn-outline-warning">取消置顶</button>
+                                {% else %}
+                                    <input type="hidden" name="pin" value="1">
+                                    <button type="submit" class="btn btn-sm btn-outline-warning">置顶</button>
+                                {% endif %}
+                            </form>
                             <form method="POST" action="{{ url_for('quickform.delete_post', post_id=post.id) }}" style="display: inline; margin-left: 1rem;">
                                 <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('{{ translate('community.confirm_delete_post') }}')">{{ translate('common.delete') }}</button>
                             </form>
@@ -505,6 +526,19 @@
                 {% if pagination_posts.pages > 1 %}
                 <nav class="community-pagination mt-4" aria-label="留言列表分页">
                     <span class="pagination-info">{{ translate('community.page_info').format(current=pagination_posts.page, total=pagination_posts.pages) }}</span>
+                    <form class="d-flex align-items-center gap-1" method="GET" action="{{ url_for('quickform.community') }}" style="margin: 0 0.25rem;">
+                        {% if show_hot %}
+                            <input type="hidden" name="hot" value="1">
+                            <input type="hidden" name="latest_page" value="{{ pagination_latest.page }}">
+                            <input type="hidden" name="liked_page" value="{{ pagination_liked.page }}">
+                            <input type="hidden" name="per_project" value="{{ pagination_latest.per_page }}">
+                        {% endif %}
+                        <input type="hidden" name="per_post" value="{{ pagination_posts.per_page }}">
+                        <input type="number" class="form-control form-control-sm" name="post_page"
+                               min="1" max="{{ pagination_posts.pages }}" value="{{ pagination_posts.page }}"
+                               style="width: 5.5rem;" aria-label="跳转页码">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">跳转</button>
+                    </form>
                     <ul class="pagination pagination-sm mb-0">
                         <li class="page-item {% if pagination_posts.page <= 1 %}disabled{% endif %}">
                             {% if show_hot %}

@@ -56,9 +56,15 @@
                     <input type="checkbox" class="form-check-input" id="remember" name="remember" checked>
                     <label class="form-check-label" for="remember" style="color: #6b7280;">{{ translate('login.remember') }}</label>
                 </div>
-                <a href="{{ url_for('quickform.forgot_password') }}" style="font-size: 0.9rem; color: #2563eb; text-decoration: none;">
-                    忘记密码？
-                </a>
+                <div class="d-flex align-items-center gap-2">
+                    <a href="{{ url_for('quickform.forgot_username') }}" style="font-size: 0.9rem; color: #2563eb; text-decoration: none;">
+                        忘记用户名？
+                    </a>
+                    <span class="text-muted" style="opacity: 0.6;">|</span>
+                    <a href="{{ url_for('quickform.forgot_password') }}" style="font-size: 0.9rem; color: #2563eb; text-decoration: none;">
+                        忘记密码？
+                    </a>
+                </div>
             </div>
             <button type="submit" class="btn btn-primary w-100 py-2" style="font-weight: 500; font-size: 1rem;">{{ translate('login.submit') }}</button>
         </form>

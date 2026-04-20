@@ -11,6 +11,7 @@
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">
     <link href="{{ url_for('static', filename='css/common.css') }}" rel="stylesheet">
+    {% block head_extra %}{% endblock %}
     <style>
         /* 全局字体设置 - 使用现代系统字体栈，参考 Cursor 网站设计 */
         * {
@@ -104,6 +105,11 @@
         .card:hover {
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
             transform: translateY(-2px);
+        }
+
+        /* 新手引导进行中：禁用 hover 位移，避免 Intro.js 遮罩/高亮与布局动画抢焦点 */
+        body.qf-onboarding-active .card:hover {
+            transform: none !important;
         }
         
         .card-header {
@@ -420,6 +426,55 @@
             margin-top: 1rem;
             margin-bottom: 0;
         }
+
+        /* 通用：蓝金渐变“新手引导”按钮（首页/控制台复用） */
+        .qf-btn-onboard-gradient{
+            background-color: #1d4ed8;
+            background-image: linear-gradient(
+                115deg,
+                #1d4ed8 0%,
+                #2563eb 20%,
+                #60a5fa 45%,
+                #f59e0b 70%,
+                #2563eb 90%,
+                #1d4ed8 100%
+            );
+            background-size: 260% 100%;
+            background-position: 0% 50%;
+            color: #fff !important;
+            border: none;
+            font-weight: 700;
+            border-radius: 0.8rem;
+            box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+            transition: transform 0.22s ease, box-shadow 0.28s ease, filter 0.22s ease;
+        }
+        .qf-btn-onboard-gradient:hover{
+            color:#fff !important;
+            filter: brightness(0.98);
+            box-shadow: 0 12px 28px rgba(37, 99, 235, 0.28);
+            animation: qf-onboard-gradient-flow 2.6s ease-in-out infinite;
+        }
+        .qf-btn-onboard-gradient:active{
+            color:#fff !important;
+            transform: translateY(1px);
+        }
+        .qf-btn-onboard-gradient:focus-visible{
+            outline: 3px solid rgba(245, 158, 11, 0.35);
+            outline-offset: 2px;
+            animation: qf-onboard-gradient-flow 2.6s ease-in-out infinite;
+        }
+        @keyframes qf-onboard-gradient-flow {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .qf-btn-onboard-gradient:hover,
+            .qf-btn-onboard-gradient:focus-visible{
+                animation: none;
+                background-position: 50% 50%;
+            }
+        }
         
         /* 页脚 */
         .footer {
@@ -621,6 +676,7 @@
                 <a href="https://quickform.readthedocs.io/zh-cn/latest/guide/deploy.html" target="_blank" rel="noopener" class="text-decoration-none me-3">本地部署</a>
                 <a href="{{ url_for('quickform.cli_doc') }}" class="text-decoration-none me-3">CLI</a>
                 <a href="https://github.com/wstlab/quickform" target="_blank" rel="noopener" class="text-decoration-none me-3">GitHub</a>
+                <a href="{{ url_for('quickform.changelog_page') }}" class="text-decoration-none me-3">更新日志</a>
                 <a href="{{ url_for('quickform.index') }}#about" class="text-decoration-none me-3">关于我们</a>
                 <a href="https://my.feishu.cn/docx/KYlJdyq3wojmwox8KJTcnKORnob" target="_blank" rel="noopener" class="text-decoration-none me-3">免责声明</a>
             </p>

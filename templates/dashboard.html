@@ -2,6 +2,11 @@
 
 {% block title %}{{ translate('dashboard.title') }} - QuickForm{% endblock %}
 
+{% block head_extra %}
+<link href="{{ url_for('static', filename='vendor/introjs/introjs.min.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/introjs-bootstrap.css') }}" rel="stylesheet">
+{% endblock %}
+
 {% block navbar %}
 <style>
 .qf-migration-soon-wrap { position: relative; display: inline-block; }
@@ -27,6 +32,7 @@
 .qf-migration-soon-wrap:hover .qf-migration-soon-tip,
 .qf-migration-soon-wrap:focus-within .qf-migration-soon-tip { display: block; }
 .navbar .dropdown-menu { overflow: visible; }
+
 </style>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
@@ -256,7 +262,7 @@ a.qf-btn-create-task.btn-primary:active {
                 </div>
             </div>
             <div class="d-flex gap-2 align-items-center flex-wrap">
-                <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary qf-btn-create-task">
+                <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary qf-btn-create-task" id="qf-onboard-create-task-btn">
                     <i class="bi bi-plus-circle" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.create_new_task') if translate('dashboard.create_new_task') != 'dashboard.create_new_task' else '创建新任务' }}
                 </a>
                 <a href="{{ url_for('quickform.oneclick_create_task') }}" class="btn btn-outline-primary" style="font-weight: 500;" title="会消耗较多 token，请先在个人中心配置 AI">
@@ -560,8 +566,11 @@ a.qf-btn-create-task.btn-primary:active {
                 <h4>{{ translate('dashboard.no_tasks') }}</h4>
                 <p class="text-muted mb-4">{{ translate('dashboard.no_tasks_desc') }}</p>
                 <div class="d-flex flex-wrap gap-2 justify-content-center">
-                    <a href="{{ url_for('quickform.create_task') }}" class="btn btn-primary">{{ translate('dashboard.create_task') }}</a>
-                    <a href="{{ url_for('quickform.oneclick_create_task') }}" class="btn btn-outline-primary"><i class="bi bi-magic"></i> 一键生成新任务</a>
+                    <a href="{{ url_for('quickform.dashboard', onboard=1, flow='quickStart_v1') }}"
+                       class="btn qf-btn-onboard-gradient px-4 py-2"
+                       data-onboard-start="dashboard-empty">
+                        <i class="bi bi-compass"></i> 新手引导
+                    </a>
                 </div>
             </div>
         </div>
@@ -597,6 +606,8 @@ a.qf-btn-create-task.btn-primary:active {
 </div>
     
     {% block scripts %}
+<script src="{{ url_for('static', filename='vendor/introjs/intro.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/onboarding.js') }}"></script>
 <script>
     function copyToClipboard(elementId) {
         const element = document.getElementById(elementId);

@@ -2,6 +2,11 @@
 
 {% block title %}{{ translate('task_detail.edit_task') }} - QuickForm{% endblock %}
 
+{% block head_extra %}
+<link href="{{ url_for('static', filename='vendor/introjs/introjs.min.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/introjs-bootstrap.css') }}" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
 <style>
 .edit-content-layout {
@@ -20,6 +25,8 @@
 <form id="edit-task-form" method="POST" action="{{ url_for('quickform.edit_task', task_id=task.id) }}" enctype="multipart/form-data">
 <input type="hidden" id="files_to_remove" name="files_to_remove" value="">
 <input type="hidden" id="edit-form-action" name="action" value="">
+<input type="hidden" id="replace_saved_name" name="replace_saved_name" value="">
+<input type="file" id="replace-file-input" name="replace_file" accept=".html,.htm" style="display: none;">
 <div class="edit-content-layout">
     <!-- 左侧：基础信息与使用说明 -->
     <div>
@@ -176,13 +183,6 @@
                                 {% endif %}
                             </div>
                             {% endif %}
-                            <div>
-                                <label class="form-label" style="font-weight: 600; color: #111827;">数据提交接口示例</label>
-                                <div class="input-group">
-                                    <input type="text" class="form-control" readonly value="{{ api_base_url }}/api/{{ task.task_id }}" style="background: #f9fafb; font-size: 0.875rem;">
-                                </div>
-                                <small class="text-muted" style="color: #9ca3af; font-size: 0.75rem;">将该地址配置在前端表单的提交接口中即可完成对接。</small>
-                            </div>
                         </div>
                     </div>
                     
@@ -230,9 +230,14 @@
                                             {{ file.original_name }}
                                         </a>
                                     </div>
-                                    <button type="button" class="btn btn-danger btn-sm" onclick="removeHtmlFile('{{ file.saved_name }}'); return false;">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="qfReplaceHtmlKeepUrl('{{ file.saved_name }}'); return false;">
+                                            <i class="bi bi-arrow-repeat"></i> 替换保留URL
+                                        </button>
+                                        <button type="button" class="btn btn-danger btn-sm" onclick="removeHtmlFile('{{ file.saved_name }}'); return false;">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 {% endfor %}
                             </div>
@@ -273,7 +278,30 @@
 </form>
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='vendor/introjs/intro.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/onboarding.js') }}"></script>
 <script>
+    function qfReplaceHtmlKeepUrl(savedName) {
+        const form = document.getElementById('edit-task-form');
+        const inp = document.getElementById('replace-file-input');
+        const hidden = document.getElementById('replace_saved_name');
+        const act = document.getElementById('edit-form-action');
+        if (!form || !inp || !hidden || !act) return;
+        hidden.value = savedName || '';
+        act.value = 'replace_html_keep_url';
+        inp.value = '';
+        inp.click();
+    }
+    (function() {
+        const form = document.getElementById('edit-task-form');
+        const inp = document.getElementById('replace-file-input');
+        if (!form || !inp) return;
+        inp.addEventListener('change', function() {
+            if (!inp.files || !inp.files.length) return;
+            form.submit();
+        });
+    })();
+
     function qfToggleSecret(inputId, btn) {
         const input = document.getElementById(inputId);
         if (!input || !btn) return;

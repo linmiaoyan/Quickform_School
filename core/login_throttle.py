@@ -28,12 +28,12 @@ PAIR_LOCKOUT_SEC = 900
 
 _lock = threading.Lock()
 # ip -> deque[timestamp]
-_ip_fail_times: dict[str, deque] = {}
+_ip_fail_times = {}  # type: dict
 # ip -> lockout_until_ts
-_ip_lockout_until: dict[str, float] = {}
+_ip_lockout_until = {}  # type: dict
 # "ip\0username_norm" -> deque
-_pair_fail_times: dict[str, deque] = {}
-_pair_lockout_until: dict[str, float] = {}
+_pair_fail_times = {}  # type: dict
+_pair_lockout_until = {}  # type: dict
 
 
 def _client_ip(request) -> str:
@@ -60,7 +60,10 @@ def _locked_until(now: float, until_map: dict, key: str) -> float:
     return t
 
 
-def login_blocked(request, username: str | None = None) -> tuple[bool, int]:
+from typing import Optional, Tuple
+
+
+def login_blocked(request, username: Optional[str] = None) -> Tuple[bool, int]:
     """
     是否应拒绝本次登录尝试（在验证密码之前调用）。
     返回 (blocked, retry_after_seconds)。
@@ -79,7 +82,7 @@ def login_blocked(request, username: str | None = None) -> tuple[bool, int]:
     return False, 0
 
 
-def record_login_failure(request, username: str | None = None) -> None:
+def record_login_failure(request, username: Optional[str] = None) -> None:
     """密码错误或账号不存在时调用，累计失败并可能在超阈值时锁定。"""
     ip = _client_ip(request)
     now = time.time()
@@ -105,7 +108,7 @@ def record_login_failure(request, username: str | None = None) -> None:
                 pdq.clear()
 
 
-def clear_login_throttle(request, username: str | None = None) -> None:
+def clear_login_throttle(request, username: Optional[str] = None) -> None:
     """登录成功时清理该 IP 的计数与锁定（改善正常用户出 NAT 后的体验）。"""
     ip = _client_ip(request)
     with _lock:
