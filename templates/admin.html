@@ -92,10 +92,10 @@
             </div>
             <div class="col">
                 <div class="stat-card" style="border-left: 4px solid #06b6d4;">
-                    <div class="stat-label">当前实时在线</div>
-                    <div class="stat-number">{{ stats.online_now }}</div>
+                    <div class="stat-label">网页活跃用户</div>
+                    <div class="stat-number">{{ stats.online_active }}</div>
                     <div class="stat-label text-muted" style="font-size: 0.7rem; margin-top: 0.25rem;">
-                        统计口径：当前处理中的“网页请求”（已排除 /api、静态等高频接口），仅作近似参考
+                        统计口径：最近 {{ stats.online_active_window_seconds }} 秒内访问过网页界面（首页/控制台/任务页等）的去重人数，排除管理员与 /api、静态资源
                     </div>
                 </div>
             </div>

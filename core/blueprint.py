@@ -103,6 +103,10 @@ _CHANGELOG_CACHE = {
 # ---------- 实时在线（应用层“当前正在处理的网页请求”） ----------
 _ONLINE_LOCK = threading.Lock()
 _ONLINE_INFLIGHT_WEB = 0
+# 最近活跃访客（用于管理员面板展示“活跃在线人数”）
+# key -> last_seen_ts（unix seconds）
+_ONLINE_ACTIVE = {}
+ONLINE_ACTIVE_WINDOW_SECONDS = float(os.getenv('ONLINE_ACTIVE_WINDOW_SECONDS', '60') or '60')
 
 
 def _is_web_page_request(req) -> bool:
@@ -123,6 +127,73 @@ def _is_web_page_request(req) -> bool:
         return True
     except Exception:
         return False
+
+
+def _online_active_key(req) -> str:
+    """生成“活跃在线”去重 key：优先普通登录用户 id，其次设备指纹，再次 IP。"""
+    try:
+        # 普通登录用户优先（排除管理员后台）
+        if getattr(current_user, 'is_authenticated', False):
+            try:
+                if getattr(current_user, 'is_admin', None) and current_user.is_admin():
+                    return ''
+            except Exception:
+                pass
+            uid = getattr(current_user, 'id', None)
+            if uid is not None:
+                return f'u:{uid}'
+    except Exception:
+        pass
+
+    # 未登录访客：用设备指纹/请求头组合（避免同出口 IP 连坐）
+    try:
+        fp = _build_client_fingerprint(req)
+        if fp:
+            return f'fp:{fp}'
+    except Exception:
+        pass
+
+    try:
+        ip = get_request_client_ip(req)
+        if ip:
+            return f'ip:{ip}'
+    except Exception:
+        pass
+    return ''
+
+
+def _online_active_mark(req) -> None:
+    """记录一次网页访问的活跃时间戳（用于窗口内活跃人数统计）。"""
+    try:
+        key = _online_active_key(req)
+        if not key:
+            return
+        now_ts = time.time()
+        with _ONLINE_LOCK:
+            _ONLINE_ACTIVE[key] = now_ts
+    except Exception:
+        return
+
+
+def _online_active_count(window_seconds: float = None) -> int:
+    """统计窗口内活跃访客数（去重）。"""
+    try:
+        w = float(window_seconds) if window_seconds is not None else float(ONLINE_ACTIVE_WINDOW_SECONDS)
+        if w <= 0:
+            w = 60.0
+    except Exception:
+        w = 60.0
+    now_ts = time.time()
+    with _ONLINE_LOCK:
+        # 清理过期记录
+        cutoff = now_ts - w
+        for k in list(_ONLINE_ACTIVE.keys()):
+            if float(_ONLINE_ACTIVE.get(k) or 0) < cutoff:
+                try:
+                    del _ONLINE_ACTIVE[k]
+                except KeyError:
+                    pass
+        return len(_ONLINE_ACTIVE)
 
 
 def _read_git_changelog(limit: int = 120):
@@ -1131,6 +1202,8 @@ def _online_counter_before():
         if not _is_web_page_request(request):
             return None
         setattr(request, '_qf_counted_web', True)
+        # 记录“活跃在线”（窗口内访问过网页界面的访客数）
+        _online_active_mark(request)
         with _ONLINE_LOCK:
             global _ONLINE_INFLIGHT_WEB
             _ONLINE_INFLIGHT_WEB += 1
@@ -7167,6 +7240,13 @@ def admin_panel():
                 stats['online_now'] = int(_ONLINE_INFLIGHT_WEB)
         except Exception:
             stats['online_now'] = 0
+        # 活跃在线：窗口内访问过网页界面的唯一访客数（更贴近“有多少人在用网页”）
+        try:
+            stats['online_active'] = int(_online_active_count())
+            stats['online_active_window_seconds'] = int(float(ONLINE_ACTIVE_WINDOW_SECONDS or 60))
+        except Exception:
+            stats['online_active'] = 0
+            stats['online_active_window_seconds'] = 60
 
         return render_template(
             'admin.html',
