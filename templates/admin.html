@@ -1616,15 +1616,25 @@
         const btn = document.getElementById('openAllPublicPendingHtml');
         const jsonEl = document.getElementById('publicPendingHtmlUrlsJson');
         if (btn && jsonEl) {
-            btn.addEventListener('click', function(){
+            // 防止脚本被重复执行导致重复绑定/重复打开
+            if (btn.dataset.qfBoundOpenAllHtml !== '1') {
+                btn.dataset.qfBoundOpenAllHtml = '1';
+                btn.addEventListener('click', function(){
+                    if (btn.dataset.qfOpeningOpenAllHtml === '1') return;
+                    btn.dataset.qfOpeningOpenAllHtml = '1';
+                    btn.disabled = true;
                 let urls = [];
                 try {
                     urls = JSON.parse(jsonEl.textContent || '[]');
                 } catch (err) {
+                        btn.disabled = false;
+                        btn.dataset.qfOpeningOpenAllHtml = '0';
                     return;
                 }
                 if (!urls.length) {
                     alert('当前列表中没有可打开的 HTML 文件。');
+                        btn.disabled = false;
+                        btn.dataset.qfOpeningOpenAllHtml = '0';
                     return;
                 }
                 urls.forEach(function(u, i) {
@@ -1632,7 +1642,13 @@
                         window.open(u, '_blank', 'noopener,noreferrer');
                     }, i * 250);
                 });
-            });
+                    // 适度延迟后允许再次点击
+                    setTimeout(function () {
+                        btn.disabled = false;
+                        btn.dataset.qfOpeningOpenAllHtml = '0';
+                    }, Math.min(5000, urls.length * 260 + 500));
+                });
+            }
         }
     })();
     
