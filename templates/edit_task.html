@@ -67,9 +67,12 @@
                             </select>
                             {% endif %}
                             {% if current_user.is_admin() or current_user.is_certified %}
+                            {% set has_html_for_public = (task.file_name and task.file_name.lower().endswith('.html')) or (task.file_name and task.file_name.lower().endswith('.htm')) or (html_files and html_files|length > 0) %}
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="share_scope" id="edit_share_public" value="public" {% if scope_public %}checked{% endif %}>
-                                <label class="form-check-label" for="edit_share_public">公开（出现在项目交流，所有人可浏览）</label>
+                                <input class="form-check-input" type="radio" name="share_scope" id="edit_share_public" value="public" {% if not has_html_for_public %}disabled{% endif %} {% if scope_public %}checked{% endif %}>
+                                <label class="form-check-label {% if not has_html_for_public %}text-muted{% endif %}" for="edit_share_public">
+                                    公开（出现在项目交流，所有人可浏览）{% if not has_html_for_public %}（需先上传HTML）{% endif %}
+                                </label>
                             </div>
                             {% else %}
                             <div class="form-check">
@@ -109,19 +112,93 @@
                             lastScope = c ? c.value : 'private';
                         }
                         syncLast();
+
+                        function openPublicDisclosureModal(onConfirm) {
+                            var existing = document.getElementById('qf-public-disclosure-modal');
+                            if (existing) {
+                                existing.remove();
+                            }
+                            var wrap = document.createElement('div');
+                            wrap.id = 'qf-public-disclosure-modal';
+                            wrap.style.cssText = 'position:fixed; inset:0; z-index:1055; display:flex; align-items:center; justify-content:center; background:rgba(15,23,42,.45); padding:16px;';
+                            wrap.innerHTML = `
+                                <div class="bg-white rounded shadow" style="max-width:720px; width:100%; overflow:hidden;">
+                                    <div class="p-3 border-bottom d-flex align-items-center justify-content-between">
+                                        <div class="fw-semibold">公开项目前提示</div>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" aria-label="关闭" id="qf-public-disclosure-close">关闭</button>
+                                    </div>
+                                    <div class="p-3">
+                                        <div class="alert alert-warning small mb-3">
+                                            <div class="fw-semibold mb-1">请务必理解“公开”的含义</div>
+                                            <div class="mb-2">公开后，其他人可以在互联网上访问并看到你上传的 HTML 页面，也可以看到该任务的“项目内容/网页”。</div>
+                                            <div class="mb-2">同时，公开项目的接口地址可能会被他人拿到并向你的数据接口提交一些数据。请提前做好数据备份与防误用准备。</div>
+                                            <div class="text-muted">提示：不选择“公开”，也不影响你自己用链接/API/二维码收集数据。</div>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="qf-public-disclosure-check">
+                                            <label class="form-check-label small" for="qf-public-disclosure-check">
+                                                我已知晓上传 HTML 后别人就可以在互联网上看到我的 HTML 文件，【公开任务】是为了让其他教师看到并学习该任务
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="p-3 border-top d-flex justify-content-end gap-2">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="qf-public-disclosure-cancel">取消</button>
+                                        <button type="button" class="btn btn-primary btn-sm" id="qf-public-disclosure-confirm" disabled>我已知晓并继续</button>
+                                    </div>
+                                </div>
+                            `;
+                            document.body.appendChild(wrap);
+
+                            function close() {
+                                try { wrap.remove(); } catch (e) {}
+                            }
+                            var btnClose = document.getElementById('qf-public-disclosure-close');
+                            var btnCancel = document.getElementById('qf-public-disclosure-cancel');
+                            var btnConfirm = document.getElementById('qf-public-disclosure-confirm');
+                            var chk = document.getElementById('qf-public-disclosure-check');
+                            if (chk && btnConfirm) {
+                                chk.addEventListener('change', function () {
+                                    btnConfirm.disabled = !chk.checked;
+                                });
+                            }
+                            if (btnClose) btnClose.addEventListener('click', close);
+                            if (btnCancel) btnCancel.addEventListener('click', close);
+                            wrap.addEventListener('click', function (e) {
+                                if (e.target === wrap) close();
+                            });
+                            if (btnConfirm) {
+                                btnConfirm.addEventListener('click', function () {
+                                    if (chk && !chk.checked) return;
+                                    close();
+                                    try { onConfirm && onConfirm(); } catch (e) {}
+                                });
+                            }
+                        }
+
                         radios.forEach(function (r) {
                             r.addEventListener('change', function () {
                                 var newVal = this.value;
                                 if (newVal === 'public' && lastScope !== 'public') {
-                                    var msg = '「公开」表示将项目展示在本平台的「项目交流」区，供其他已登录教师浏览与交流；不是在搜索引擎或互联网上被任意陌生人检索到。\n\n不选「公开」时，您仍可通过任务链接、API、二维码等方式正常使用与收集数据，与是否公开无关。\n\n确定要选择「公开」吗？';
-                                    if (!confirm(msg)) {
-                                        var prev = form.querySelector('input[name="share_scope"][value="' + lastScope + '"]');
-                                        if (prev && !prev.disabled) {
-                                            prev.checked = true;
-                                            prev.dispatchEvent(new Event('change', { bubbles: true }));
-                                        }
-                                        return;
+                                    openPublicDisclosureModal(function () {
+                                        lastScope = newVal;
+                                    });
+                                    // 先回滚选择，确认后再设置为 public
+                                    var prev = form.querySelector('input[name="share_scope"][value="' + lastScope + '"]');
+                                    if (prev && !prev.disabled) {
+                                        prev.checked = true;
+                                        prev.dispatchEvent(new Event('change', { bubbles: true }));
                                     }
+                                    // 确认回调里再设 public（避免重复触发 change）
+                                    setTimeout(function () {
+                                        var pub = form.querySelector('input[name="share_scope"][value="public"]');
+                                        if (pub && !pub.disabled) {
+                                            openPublicDisclosureModal(function () {
+                                                pub.checked = true;
+                                                pub.dispatchEvent(new Event('change', { bubbles: true }));
+                                            });
+                                        }
+                                    }, 0);
+                                    return;
                                 }
                                 lastScope = newVal;
                             });

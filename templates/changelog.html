@@ -26,13 +26,13 @@
           <h2 class="accordion-header" id="qfChgH{{ loop.index }}">
             <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#qfChgC{{ loop.index }}" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="qfChgC{{ loop.index }}">
               <span class="fw-semibold">{{ g.date }}</span>
-              <span class="text-muted ms-2 small">（{{ (g.items|length) }}）</span>
+              <span class="text-muted ms-2 small">（{{ (g['items']|length) }}）</span>
             </button>
           </h2>
           <div id="qfChgC{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="qfChgH{{ loop.index }}" data-bs-parent="#qfChangelogAcc">
             <div class="accordion-body">
               <ul class="list-group list-group-flush">
-                {% for it in g.items %}
+                {% for it in g['items'] %}
                   <li class="list-group-item d-flex justify-content-between align-items-start gap-3">
                     <div class="flex-grow-1">
                       <div class="fw-semibold" style="line-height: 1.35;">{{ it.subject }}</div>

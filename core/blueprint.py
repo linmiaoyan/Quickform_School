@@ -103,6 +103,10 @@ _CHANGELOG_CACHE = {
 # ---------- 实时在线（应用层“当前正在处理的网页请求”） ----------
 _ONLINE_LOCK = threading.Lock()
 _ONLINE_INFLIGHT_WEB = 0
+# 最近活跃访客（用于管理员面板展示“活跃在线人数”）
+# key -> last_seen_ts（unix seconds）
+_ONLINE_ACTIVE = {}
+ONLINE_ACTIVE_WINDOW_SECONDS = float(os.getenv('ONLINE_ACTIVE_WINDOW_SECONDS', '60') or '60')
 
 
 def _is_web_page_request(req) -> bool:
@@ -123,6 +127,73 @@ def _is_web_page_request(req) -> bool:
         return True
     except Exception:
         return False
+
+
+def _online_active_key(req) -> str:
+    """生成“活跃在线”去重 key：优先普通登录用户 id，其次设备指纹，再次 IP。"""
+    try:
+        # 普通登录用户优先（排除管理员后台）
+        if getattr(current_user, 'is_authenticated', False):
+            try:
+                if getattr(current_user, 'is_admin', None) and current_user.is_admin():
+                    return ''
+            except Exception:
+                pass
+            uid = getattr(current_user, 'id', None)
+            if uid is not None:
+                return f'u:{uid}'
+    except Exception:
+        pass
+
+    # 未登录访客：用设备指纹/请求头组合（避免同出口 IP 连坐）
+    try:
+        fp = _build_client_fingerprint(req)
+        if fp:
+            return f'fp:{fp}'
+    except Exception:
+        pass
+
+    try:
+        ip = get_request_client_ip(req)
+        if ip:
+            return f'ip:{ip}'
+    except Exception:
+        pass
+    return ''
+
+
+def _online_active_mark(req) -> None:
+    """记录一次网页访问的活跃时间戳（用于窗口内活跃人数统计）。"""
+    try:
+        key = _online_active_key(req)
+        if not key:
+            return
+        now_ts = time.time()
+        with _ONLINE_LOCK:
+            _ONLINE_ACTIVE[key] = now_ts
+    except Exception:
+        return
+
+
+def _online_active_count(window_seconds: float = None) -> int:
+    """统计窗口内活跃访客数（去重）。"""
+    try:
+        w = float(window_seconds) if window_seconds is not None else float(ONLINE_ACTIVE_WINDOW_SECONDS)
+        if w <= 0:
+            w = 60.0
+    except Exception:
+        w = 60.0
+    now_ts = time.time()
+    with _ONLINE_LOCK:
+        # 清理过期记录
+        cutoff = now_ts - w
+        for k in list(_ONLINE_ACTIVE.keys()):
+            if float(_ONLINE_ACTIVE.get(k) or 0) < cutoff:
+                try:
+                    del _ONLINE_ACTIVE[k]
+                except KeyError:
+                    pass
+        return len(_ONLINE_ACTIVE)
 
 
 def _read_git_changelog(limit: int = 120):
@@ -1100,6 +1171,32 @@ def inject_upload_url():
     return dict(get_upload_file_url=get_upload_file_url)
 
 
+def _task_has_any_html(task) -> bool:
+    """任务是否已上传至少一个 HTML 文件（用于公开项目申请前置校验）。"""
+    if not task:
+        return False
+    try:
+        fp = (getattr(task, 'file_path', None) or '').strip()
+        fn = (getattr(task, 'file_name', None) or '').strip()
+        if fp and fn and fn.lower().endswith(('.html', '.htm')):
+            return True
+    except Exception:
+        pass
+    try:
+        html_files = getattr(task, 'html_files', None)
+        if html_files:
+            arr = json.loads(html_files) if isinstance(html_files, str) else html_files
+            if isinstance(arr, list):
+                for it in arr:
+                    if isinstance(it, dict) and (it.get('saved_name') or it.get('path')):
+                        name = (it.get('original_name') or it.get('saved_name') or it.get('path') or '')
+                        if str(name).lower().endswith(('.html', '.htm')):
+                            return True
+    except Exception:
+        pass
+    return False
+
+
 @quickform_bp.before_app_request
 def _maintenance_gate():
     """数据库迁移/初始化期间返回维护页，减少用户焦虑（仅 QuickForm 蓝图相关请求）。"""
@@ -1131,6 +1228,8 @@ def _online_counter_before():
         if not _is_web_page_request(request):
             return None
         setattr(request, '_qf_counted_web', True)
+        # 记录“活跃在线”（窗口内访问过网页界面的访客数）
+        _online_active_mark(request)
         with _ONLINE_LOCK:
             global _ONLINE_INFLIGHT_WEB
             _ONLINE_INFLIGHT_WEB += 1
@@ -1276,18 +1375,23 @@ def docs():
 
 @quickform_bp.route('/tutorials')
 def tutorials():
-    """开源教程：读取 static/tutorials/tutorials.json 渲染列表，并保留 B 站视频区块"""
+    """开源教程：读取 static/tutorials/tutorials.json 渲染列表，并保留 B 站视频区块。
+
+    说明：管理员可在后台保存“覆盖版教程 JSON”，写入独立文件，避免随代码更新被覆盖。
+    """
     tutorials_items = []
     try:
         tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
-        json_path = os.path.join(tutorials_dir, 'tutorials.json')
-        if os.path.exists(json_path):
-            with open(json_path, 'r', encoding='utf-8') as f:
+        default_json_path = os.path.join(tutorials_dir, 'tutorials.json')
+        admin_json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
+        chosen_path = admin_json_path if os.path.exists(admin_json_path) else default_json_path
+        if os.path.exists(chosen_path):
+            with open(chosen_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             if isinstance(data, list):
                 tutorials_items = data
             else:
-                logger.warning('tutorials.json 根节点不是数组，已忽略')
+                logger.warning('tutorials.json 根节点不是数组，已忽略（source=%s）', chosen_path)
     except Exception as e:
         logger.warning('读取 tutorials.json 失败: %s', e)
     for item in tutorials_items:
@@ -3255,8 +3359,14 @@ def edit_task(task_id):
                             except Exception as e2:
                                 logger.error("启动HTML文件分析失败(编辑): %s", str(e2), exc_info=True)
                 except Exception as e:
+                    # 避免异常导致 SQLAlchemy 会话进入异常状态，进而影响“保存描述”等后续 commit
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
                     logger.error("multipart 多文件上传失败: %s", str(e), exc_info=True)
-                    flash('文件上传失败，请重试。', 'danger')
+                    flash('文件上传失败，请重试（仅支持 .html/.htm，单个最大 4MB）。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
             # 回调/API：Base64 多文件（html_files_data），保留供重制 HTML 等场景
             elif html_files_data:
                 try:
@@ -3282,8 +3392,13 @@ def edit_task(task_id):
                     else:
                         task.html_approved = 0
                 except Exception as e:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
                     logger.error(f"多文件上传(html_files_data)失败: {str(e)}")
-                    flash('文件上传失败', 'danger')
+                    flash('文件上传失败，请重试（仅支持 .html/.htm，单个最大 4MB）。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
             # 优先检查Base64单文件（用于回调/公网，重制 HTML）
             elif file_content_base64 and file_name_base64:
                 # Base64上传方式
@@ -3391,9 +3506,14 @@ def edit_task(task_id):
                 organization_id = request.form.get('organization_id')
                 if share_scope == 'public':
                     if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                        task.sharing_type = 'public'
-                        task.organization_id = None
-                        task.public_approved = 0
+                        if not _task_has_any_html(task):
+                            flash('该任务尚未上传 HTML 网页文件，无法申请公开到项目交流。请先上传 HTML 后再试。', 'warning')
+                            task.sharing_type = 'organization' if task.organization_id else 'private'
+                            task.public_approved = 0
+                        else:
+                            task.sharing_type = 'public'
+                            task.organization_id = None
+                            task.public_approved = 0
                     else:
                         flash('只有通过教师认证的用户才能公开项目到共享区', 'warning')
                         task.sharing_type = 'organization' if task.organization_id else 'private'
@@ -3518,6 +3638,9 @@ def set_task_visibility(task_id):
         if visibility == 'public':
             # 只有管理员或通过教师认证的用户可以公开到项目交流；公开后需管理员审核通过才会在项目交流展示
             if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                if not _task_has_any_html(task):
+                    flash('该任务尚未上传 HTML 网页文件，无法申请公开到项目交流。请先上传 HTML 后再试。', 'warning')
+                    return redirect(url_for('quickform.task_detail', task_id=task.id))
                 task.sharing_type = 'public'
                 task.public_approved = 0  # 待管理员审核
                 message = '已申请公开到项目交流，审核通过后将展示在项目交流页。'
@@ -7063,9 +7186,11 @@ def admin_panel():
         elif current_tab == 'tutorials-edit':
             try:
                 tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
-                json_path = os.path.join(tutorials_dir, 'tutorials.json')
-                if os.path.exists(json_path):
-                    with open(json_path, 'r', encoding='utf-8') as f:
+                default_json_path = os.path.join(tutorials_dir, 'tutorials.json')
+                admin_json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
+                chosen_path = admin_json_path if os.path.exists(admin_json_path) else default_json_path
+                if os.path.exists(chosen_path):
+                    with open(chosen_path, 'r', encoding='utf-8') as f:
                         tutorials_json_content = f.read()
             except Exception as e:
                 logger.warning(f"读取 tutorials.json 失败: {e}")
@@ -7160,6 +7285,13 @@ def admin_panel():
                 stats['online_now'] = int(_ONLINE_INFLIGHT_WEB)
         except Exception:
             stats['online_now'] = 0
+        # 活跃在线：窗口内访问过网页界面的唯一访客数（更贴近“有多少人在用网页”）
+        try:
+            stats['online_active'] = int(_online_active_count())
+            stats['online_active_window_seconds'] = int(float(ONLINE_ACTIVE_WINDOW_SECONDS or 60))
+        except Exception:
+            stats['online_active'] = 0
+            stats['online_active_window_seconds'] = 60
 
         return render_template(
             'admin.html',
@@ -7200,6 +7332,11 @@ def admin_panel():
             oneclick_prompt_rows=oneclick_prompt_rows,
             submit_quota_base_c=submit_quota_base_c,
             submit_quota_base_b=submit_quota_base_b,
+            tutorials_json_is_admin_override=(
+                (lambda p: os.path.exists(p))(
+                    os.path.join(current_app.static_folder, 'tutorials', 'tutorials_admin.json')
+                )
+            ) if current_tab == 'tutorials-edit' else False,
             pending_cert_sidebar=pending_cert_sidebar,
             pending_other_sidebar=pending_other_sidebar,
             pending_quota_sidebar=pending_quota_sidebar,
@@ -7526,6 +7663,9 @@ def admin_public_approve(task_id):
         if not task or task.sharing_type != 'public' or task.public_approved != 0:
             flash('任务不存在或无需审核', 'warning')
             return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
+        if not _task_has_any_html(task):
+            flash(f'项目「{task.title}」未上传 HTML 文件，无法通过公开审核。请通知创建者先上传网页后再申请公开。', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
         task.public_approved = 1
         db.commit()
         flash(f'已通过项目「{task.title}」的公开申请，将展示在项目交流页。', 'success')
@@ -7599,6 +7739,7 @@ def admin_public_batch_approve():
     db = SessionLocal()
     try:
         count = 0
+        skipped = 0
         for tid in task_ids:
             try:
                 task_id = int(tid)
@@ -7606,10 +7747,16 @@ def admin_public_batch_approve():
                 continue
             task = db.get(Task, task_id)
             if task and task.sharing_type == 'public' and task.public_approved == 0:
+                if not _task_has_any_html(task):
+                    skipped += 1
+                    continue
                 task.public_approved = 1
                 count += 1
         db.commit()
-        flash(f'已批量通过 {count} 个项目公开申请。', 'success')
+        msg = f'已批量通过 {count} 个项目公开申请。'
+        if skipped:
+            msg += f'（跳过 {skipped} 个未上传 HTML 的任务）'
+        flash(msg, 'success')
     finally:
         db.close()
     return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
@@ -7682,7 +7829,7 @@ def admin_open_source_feature(task_id):
 @quickform_bp.route('/admin/tutorials_json/save', methods=['POST'])
 @admin_required
 def admin_tutorials_json_save():
-    """管理员保存开源教程菜单的 JSON 配置（static/tutorials/tutorials.json）"""
+    """管理员保存开源教程菜单的 JSON 配置（写入覆盖文件，避免随代码更新被覆盖）"""
     content = (request.form.get('tutorials_json') or '').strip()
     if not content:
         flash('内容不能为空', 'danger')
@@ -7694,15 +7841,31 @@ def admin_tutorials_json_save():
             return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
         tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
         os.makedirs(tutorials_dir, exist_ok=True)
-        json_path = os.path.join(tutorials_dir, 'tutorials.json')
+        json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        flash('开源教程链接已保存。', 'success')
+        flash('开源教程链接已保存（管理员覆盖版本）。', 'success')
     except json.JSONDecodeError as e:
         flash(f'JSON 格式错误：{e}', 'danger')
     except OSError as e:
-        logger.exception("写入 tutorials.json 失败")
+        logger.exception("写入 tutorials_admin.json 失败")
         flash(f'保存文件失败：{e}', 'danger')
+    return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
+
+
+@quickform_bp.route('/admin/tutorials_json/reset', methods=['POST'])
+@admin_required
+def admin_tutorials_json_reset():
+    """管理员恢复开源教程为仓库默认（删除覆盖文件）。"""
+    try:
+        tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
+        admin_json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
+        if os.path.exists(admin_json_path):
+            os.remove(admin_json_path)
+        flash('已恢复为默认开源教程（删除管理员覆盖版本）。', 'success')
+    except Exception as e:
+        logger.exception("恢复默认 tutorials 失败: %s", e)
+        flash('恢复默认失败，请稍后重试。', 'danger')
     return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
 
 
