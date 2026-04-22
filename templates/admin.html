@@ -528,6 +528,18 @@
                     </div>
                     <div class="card-body">
                         <p class="text-muted mb-3">编辑顶部导航「{{ translate('admin.tutorials_edit') }}」菜单中的链接文档，每项需包含 <code>title</code>、<code>author</code>、<code>author_link</code>、<code>description</code>，保存为 JSON 数组格式。</p>
+                        {% if tutorials_json_is_admin_override %}
+                        <div class="alert alert-info small">
+                            当前使用的是 <strong>管理员覆盖版本</strong>（不会随代码更新被覆盖）。
+                            <form method="POST" action="{{ url_for('quickform.admin_tutorials_json_reset') }}" class="d-inline ms-2" onsubmit="return confirm('确定恢复为默认教程并删除管理员覆盖版本吗？');">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">恢复默认</button>
+                            </form>
+                        </div>
+                        {% else %}
+                        <div class="alert alert-light small text-muted">
+                            当前使用的是 <strong>仓库默认版本</strong>。点击保存后会生成管理员覆盖版本，后续代码更新不会覆盖。
+                        </div>
+                        {% endif %}
                         <form method="POST" action="{{ url_for('quickform.admin_tutorials_json_save') }}">
                             <div class="mb-3">
                                 <label for="tutorials_json" class="form-label">tutorials.json 内容</label>

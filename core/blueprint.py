@@ -1276,18 +1276,23 @@ def docs():
 
 @quickform_bp.route('/tutorials')
 def tutorials():
-    """开源教程：读取 static/tutorials/tutorials.json 渲染列表，并保留 B 站视频区块"""
+    """开源教程：读取 static/tutorials/tutorials.json 渲染列表，并保留 B 站视频区块。
+
+    说明：管理员可在后台保存“覆盖版教程 JSON”，写入独立文件，避免随代码更新被覆盖。
+    """
     tutorials_items = []
     try:
         tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
-        json_path = os.path.join(tutorials_dir, 'tutorials.json')
-        if os.path.exists(json_path):
-            with open(json_path, 'r', encoding='utf-8') as f:
+        default_json_path = os.path.join(tutorials_dir, 'tutorials.json')
+        admin_json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
+        chosen_path = admin_json_path if os.path.exists(admin_json_path) else default_json_path
+        if os.path.exists(chosen_path):
+            with open(chosen_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             if isinstance(data, list):
                 tutorials_items = data
             else:
-                logger.warning('tutorials.json 根节点不是数组，已忽略')
+                logger.warning('tutorials.json 根节点不是数组，已忽略（source=%s）', chosen_path)
     except Exception as e:
         logger.warning('读取 tutorials.json 失败: %s', e)
     for item in tutorials_items:
@@ -7063,9 +7068,11 @@ def admin_panel():
         elif current_tab == 'tutorials-edit':
             try:
                 tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
-                json_path = os.path.join(tutorials_dir, 'tutorials.json')
-                if os.path.exists(json_path):
-                    with open(json_path, 'r', encoding='utf-8') as f:
+                default_json_path = os.path.join(tutorials_dir, 'tutorials.json')
+                admin_json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
+                chosen_path = admin_json_path if os.path.exists(admin_json_path) else default_json_path
+                if os.path.exists(chosen_path):
+                    with open(chosen_path, 'r', encoding='utf-8') as f:
                         tutorials_json_content = f.read()
             except Exception as e:
                 logger.warning(f"读取 tutorials.json 失败: {e}")
@@ -7200,6 +7207,11 @@ def admin_panel():
             oneclick_prompt_rows=oneclick_prompt_rows,
             submit_quota_base_c=submit_quota_base_c,
             submit_quota_base_b=submit_quota_base_b,
+            tutorials_json_is_admin_override=(
+                (lambda p: os.path.exists(p))(
+                    os.path.join(current_app.static_folder, 'tutorials', 'tutorials_admin.json')
+                )
+            ) if current_tab == 'tutorials-edit' else False,
             pending_cert_sidebar=pending_cert_sidebar,
             pending_other_sidebar=pending_other_sidebar,
             pending_quota_sidebar=pending_quota_sidebar,
@@ -7682,7 +7694,7 @@ def admin_open_source_feature(task_id):
 @quickform_bp.route('/admin/tutorials_json/save', methods=['POST'])
 @admin_required
 def admin_tutorials_json_save():
-    """管理员保存开源教程菜单的 JSON 配置（static/tutorials/tutorials.json）"""
+    """管理员保存开源教程菜单的 JSON 配置（写入覆盖文件，避免随代码更新被覆盖）"""
     content = (request.form.get('tutorials_json') or '').strip()
     if not content:
         flash('内容不能为空', 'danger')
@@ -7694,15 +7706,31 @@ def admin_tutorials_json_save():
             return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
         tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
         os.makedirs(tutorials_dir, exist_ok=True)
-        json_path = os.path.join(tutorials_dir, 'tutorials.json')
+        json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        flash('开源教程链接已保存。', 'success')
+        flash('开源教程链接已保存（管理员覆盖版本）。', 'success')
     except json.JSONDecodeError as e:
         flash(f'JSON 格式错误：{e}', 'danger')
     except OSError as e:
-        logger.exception("写入 tutorials.json 失败")
+        logger.exception("写入 tutorials_admin.json 失败")
         flash(f'保存文件失败：{e}', 'danger')
+    return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
+
+
+@quickform_bp.route('/admin/tutorials_json/reset', methods=['POST'])
+@admin_required
+def admin_tutorials_json_reset():
+    """管理员恢复开源教程为仓库默认（删除覆盖文件）。"""
+    try:
+        tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
+        admin_json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
+        if os.path.exists(admin_json_path):
+            os.remove(admin_json_path)
+        flash('已恢复为默认开源教程（删除管理员覆盖版本）。', 'success')
+    except Exception as e:
+        logger.exception("恢复默认 tutorials 失败: %s", e)
+        flash('恢复默认失败，请稍后重试。', 'danger')
     return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
 
 

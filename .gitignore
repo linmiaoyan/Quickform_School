@@ -30,6 +30,9 @@ uploads/
 QuickForm/uploads/
 Votesite/instance/
 
+# 管理员覆盖内容（运行时写入，避免被 merge 覆盖）
+static/tutorials/tutorials_admin.json
+
 # 系统文件
 .DS_Store
 Thumbs.db
