@@ -1171,6 +1171,32 @@ def inject_upload_url():
     return dict(get_upload_file_url=get_upload_file_url)
 
 
+def _task_has_any_html(task) -> bool:
+    """任务是否已上传至少一个 HTML 文件（用于公开项目申请前置校验）。"""
+    if not task:
+        return False
+    try:
+        fp = (getattr(task, 'file_path', None) or '').strip()
+        fn = (getattr(task, 'file_name', None) or '').strip()
+        if fp and fn and fn.lower().endswith(('.html', '.htm')):
+            return True
+    except Exception:
+        pass
+    try:
+        html_files = getattr(task, 'html_files', None)
+        if html_files:
+            arr = json.loads(html_files) if isinstance(html_files, str) else html_files
+            if isinstance(arr, list):
+                for it in arr:
+                    if isinstance(it, dict) and (it.get('saved_name') or it.get('path')):
+                        name = (it.get('original_name') or it.get('saved_name') or it.get('path') or '')
+                        if str(name).lower().endswith(('.html', '.htm')):
+                            return True
+    except Exception:
+        pass
+    return False
+
+
 @quickform_bp.before_app_request
 def _maintenance_gate():
     """数据库迁移/初始化期间返回维护页，减少用户焦虑（仅 QuickForm 蓝图相关请求）。"""
@@ -3469,9 +3495,14 @@ def edit_task(task_id):
                 organization_id = request.form.get('organization_id')
                 if share_scope == 'public':
                     if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                        task.sharing_type = 'public'
-                        task.organization_id = None
-                        task.public_approved = 0
+                        if not _task_has_any_html(task):
+                            flash('该任务尚未上传 HTML 网页文件，无法申请公开到项目交流。请先上传 HTML 后再试。', 'warning')
+                            task.sharing_type = 'organization' if task.organization_id else 'private'
+                            task.public_approved = 0
+                        else:
+                            task.sharing_type = 'public'
+                            task.organization_id = None
+                            task.public_approved = 0
                     else:
                         flash('只有通过教师认证的用户才能公开项目到共享区', 'warning')
                         task.sharing_type = 'organization' if task.organization_id else 'private'
@@ -3596,6 +3627,9 @@ def set_task_visibility(task_id):
         if visibility == 'public':
             # 只有管理员或通过教师认证的用户可以公开到项目交流；公开后需管理员审核通过才会在项目交流展示
             if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                if not _task_has_any_html(task):
+                    flash('该任务尚未上传 HTML 网页文件，无法申请公开到项目交流。请先上传 HTML 后再试。', 'warning')
+                    return redirect(url_for('quickform.task_detail', task_id=task.id))
                 task.sharing_type = 'public'
                 task.public_approved = 0  # 待管理员审核
                 message = '已申请公开到项目交流，审核通过后将展示在项目交流页。'
@@ -7618,6 +7652,9 @@ def admin_public_approve(task_id):
         if not task or task.sharing_type != 'public' or task.public_approved != 0:
             flash('任务不存在或无需审核', 'warning')
             return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
+        if not _task_has_any_html(task):
+            flash(f'项目「{task.title}」未上传 HTML 文件，无法通过公开审核。请通知创建者先上传网页后再申请公开。', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
         task.public_approved = 1
         db.commit()
         flash(f'已通过项目「{task.title}」的公开申请，将展示在项目交流页。', 'success')
@@ -7691,6 +7728,7 @@ def admin_public_batch_approve():
     db = SessionLocal()
     try:
         count = 0
+        skipped = 0
         for tid in task_ids:
             try:
                 task_id = int(tid)
@@ -7698,10 +7736,16 @@ def admin_public_batch_approve():
                 continue
             task = db.get(Task, task_id)
             if task and task.sharing_type == 'public' and task.public_approved == 0:
+                if not _task_has_any_html(task):
+                    skipped += 1
+                    continue
                 task.public_approved = 1
                 count += 1
         db.commit()
-        flash(f'已批量通过 {count} 个项目公开申请。', 'success')
+        msg = f'已批量通过 {count} 个项目公开申请。'
+        if skipped:
+            msg += f'（跳过 {skipped} 个未上传 HTML 的任务）'
+        flash(msg, 'success')
     finally:
         db.close()
     return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
