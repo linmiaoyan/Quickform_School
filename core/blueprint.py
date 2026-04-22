@@ -3359,8 +3359,14 @@ def edit_task(task_id):
                             except Exception as e2:
                                 logger.error("启动HTML文件分析失败(编辑): %s", str(e2), exc_info=True)
                 except Exception as e:
+                    # 避免异常导致 SQLAlchemy 会话进入异常状态，进而影响“保存描述”等后续 commit
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
                     logger.error("multipart 多文件上传失败: %s", str(e), exc_info=True)
-                    flash('文件上传失败，请重试。', 'danger')
+                    flash('文件上传失败，请重试（仅支持 .html/.htm，单个最大 4MB）。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
             # 回调/API：Base64 多文件（html_files_data），保留供重制 HTML 等场景
             elif html_files_data:
                 try:
@@ -3386,8 +3392,13 @@ def edit_task(task_id):
                     else:
                         task.html_approved = 0
                 except Exception as e:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
                     logger.error(f"多文件上传(html_files_data)失败: {str(e)}")
-                    flash('文件上传失败', 'danger')
+                    flash('文件上传失败，请重试（仅支持 .html/.htm，单个最大 4MB）。', 'danger')
+                    return redirect(url_for('quickform.edit_task', task_id=task.id))
             # 优先检查Base64单文件（用于回调/公网，重制 HTML）
             elif file_content_base64 and file_name_base64:
                 # Base64上传方式
