@@ -3651,21 +3651,69 @@ def api_send_email_code():
 SUBMIT_RATE_LIMIT_WINDOW = 30   # seconds（教室/公开课场景下适当放宽窗口）
 SUBMIT_RATE_LIMIT_THRESHOLD = 200  # 窗口内同一设备提交超过此次数则限流（设备指纹+任务维度）
 SUBMIT_BLACKLIST_DURATION = 300  # seconds
+# 防止学生页面写得差导致 F5/连点：同一设备在极短时间重复提交**完全相同 payload** 直接拒绝
+SUBMIT_DUPLICATE_PAYLOAD_WINDOW = float(os.getenv('SUBMIT_DUPLICATE_PAYLOAD_WINDOW', '2.0') or '2.0')
 
 rate_limit_cache = {}
 all_rate_limit_cache = {}
 rate_limit_lock = threading.Lock()
+# (task_id + fingerprint) -> deque([(ts, payload_hash), ...]) 只保留极短窗口
+_submit_payload_recent_cache = {}
+_submit_payload_recent_lock = threading.Lock()
 # /all 接口最小访问间隔（秒）：同一设备+同一任务在该间隔内重复读取会被短暂限流
 ALL_RATE_LIMIT_MIN_INTERVAL = float(os.getenv('ALL_RATE_LIMIT_MIN_INTERVAL', '0.35') or '0.35')
 
 
-def _build_client_fingerprint(req) -> str:
-    """构建设备级指纹：优先显式设备ID，否则使用稳定请求头组合哈希。"""
-    explicit_device_id = (
+def _extract_explicit_device_id(req) -> str:
+    """尽量从请求中提取稳定 device_id（用于同 IP 多设备区分）。"""
+    if req is None:
+        return ''
+    # 1) header（推荐：跨域 fetch/axios 也能带上）
+    explicit = (
         (req.headers.get('X-QuickForm-Device-ID') or '').strip()
         or (req.headers.get('X-Device-ID') or '').strip()
-        or (req.cookies.get('qf_device_id') or '').strip()
     )
+    if explicit:
+        return explicit[:256]
+
+    # 2) query 参数（兼容一些低代码/工具只能拼 URL 的场景）
+    try:
+        explicit = (
+            (req.args.get('qf_device_id') or '').strip()
+            or (req.args.get('device_id') or '').strip()
+        )
+    except Exception:
+        explicit = ''
+    if explicit:
+        return explicit[:256]
+
+    # 3) JSON body（兼容部分页面把 device_id 放进 payload）
+    try:
+        if getattr(req, 'is_json', False):
+            body = req.get_json(silent=True) or {}
+            if isinstance(body, dict):
+                explicit = (
+                    (body.get('qf_device_id') or '').strip()
+                    or (body.get('device_id') or '').strip()
+                )
+                if explicit:
+                    return str(explicit)[:256]
+    except Exception:
+        pass
+
+    # 4) cookie（同站点访问时可用；跨域一般不会自动携带）
+    try:
+        explicit = (req.cookies.get('qf_device_id') or '').strip()
+    except Exception:
+        explicit = ''
+    if explicit:
+        return explicit[:256]
+    return ''
+
+
+def _build_client_fingerprint(req) -> str:
+    """构建设备级指纹：优先显式设备ID，否则使用稳定请求头组合哈希。"""
+    explicit_device_id = _extract_explicit_device_id(req)
     if explicit_device_id:
         safe = explicit_device_id[:128]
         return 'dev-' + hashlib.sha256(f'explicit:{safe}'.encode('utf-8')).hexdigest()[:24]
@@ -3675,8 +3723,9 @@ def _build_client_fingerprint(req) -> str:
     ch_ua = (req.headers.get('Sec-CH-UA') or '').strip()
     ch_platform = (req.headers.get('Sec-CH-UA-Platform') or '').strip()
     ch_mobile = (req.headers.get('Sec-CH-UA-Mobile') or '').strip()
-    ip = get_request_client_ip(req)
-    base = '|'.join([ua, lang, ch_ua, ch_platform, ch_mobile, ip])
+    # 注意：这里不再混入 IP，以减少「同设备换网络/换出口」导致指纹漂移；
+    # 同时也避免教室场景下同出口 IP 参与指纹带来的误判连坐。
+    base = '|'.join([ua, lang, ch_ua, ch_platform, ch_mobile])
     return 'fp-' + hashlib.sha256(base.encode('utf-8')).hexdigest()[:24]
 
 
@@ -3690,6 +3739,35 @@ def _all_subject_key(req, task_id: str):
     fp = _build_client_fingerprint(req)
     ip = get_request_client_ip(req)
     return f'all:{task_id}:{fp}', fp, ip
+
+
+def _payload_hash_for_dedupe(data_text: str) -> str:
+    try:
+        s = (data_text or '').strip()
+        if len(s) > 200000:
+            s = s[:200000]
+        return hashlib.sha256(s.encode('utf-8', errors='ignore')).hexdigest()[:32]
+    except Exception:
+        return 'hash_error'
+
+
+def _submit_duplicate_payload_check(task_id: str, client_fp: str, now_ts: float, payload_hash: str) -> bool:
+    """返回 True 表示应拒绝（短窗口内同 payload 重复）。"""
+    if not payload_hash:
+        return False
+    w = float(SUBMIT_DUPLICATE_PAYLOAD_WINDOW or 0.0)
+    if w <= 0:
+        return False
+    key = f'dup:{task_id}:{client_fp}'
+    with _submit_payload_recent_lock:
+        dq = _submit_payload_recent_cache.setdefault(key, deque())
+        while dq and now_ts - float(dq[0][0] or 0) > w:
+            dq.popleft()
+        for ts, h in dq:
+            if h == payload_hash:
+                return True
+        dq.append((now_ts, payload_hash))
+        return False
 
 
 def _generate_submission_manage_code() -> str:
@@ -4682,6 +4760,30 @@ def submit_form(task_id):
         try:
             data_text = json.dumps(form_data, ensure_ascii=False)
             payload_bytes = len((data_text or '').encode('utf-8', errors='ignore'))
+            payload_hash = _payload_hash_for_dedupe(data_text)
+            if _submit_duplicate_payload_check(task_id, client_fp, now_ts, payload_hash):
+                logger.warning(
+                    "设备 %s（IP %s）短时间重复提交相同 payload，已拒绝 task_id=%s",
+                    client_fp, client_ip, task_id
+                )
+                # 复用 rate_limit_log 做可视化提示（任务详情页会展示封禁记录）
+                try:
+                    task.rate_limit_log = _append_rate_limit_log(
+                        task.rate_limit_log or '',
+                        f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] 设备 {client_fp}（IP {client_ip}）短时间重复提交相同数据，已拒绝",
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                response = jsonify({
+                    'error': 'duplicate_submit',
+                    'message': '提交过于频繁（疑似重复刷新/重复点击）。请稍后再试，或检查网页是否在提交后自动刷新/重复触发提交。'
+                })
+                response.headers['Access-Control-Allow-Origin'] = '*'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                response.headers['Cache-Control'] = 'no-store'
+                return response, 429
 
             # 单任务提交写入限额（防刷库/防存爆）：原子判断 + 计数累加
             base_c, base_b = _get_site_submit_quota_defaults(db)
