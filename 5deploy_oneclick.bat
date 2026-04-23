@@ -137,8 +137,17 @@ echo [步骤3] 启动服务（后台）...
 set "LOG_OUT=logs\\waitress-stdout.log"
 set "LOG_ERR=logs\\waitress-stderr.log"
 
-REM 用 cmd /c 做重定向，start /b 后台运行
-start "" /b cmd /c "%PYTHON% %APP_ENTRY% 1>>\"%LOG_OUT%\" 2>>\"%LOG_ERR%\""
+REM 启动前检查入口文件是否存在（避免路径错误）
+if not exist "%APP_ENTRY%" (
+    echo [错误] 未找到入口文件：%APP_ENTRY%
+    echo 请确认你在 QuickForm 根目录运行，并且文件存在。
+    pause
+    exit /b 1
+)
+
+REM 用 cmd.exe /c 做重定向；注意 cmd 对引号解析很敏感，使用双层引号保证稳健
+REM 参考：start "" /b cmd /c ""python" "app_waitress.py" 1>>"out.log" 2>>"err.log""
+start "" /b "%ComSpec%" /c ""%PYTHON%" "%APP_ENTRY%" 1>>"%LOG_OUT%" 2>>"%LOG_ERR%""
 
 REM 给服务一点启动时间
 timeout /t 2 /nobreak >nul
