@@ -362,6 +362,30 @@
                                 <a class="btn btn-sm" style="background-color:#3b82f6;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='storage', limit=20, format='xlsx') }}">
                                     导出空间占用 Top20
                                 </a>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="taskTitlesRefreshBtn">刷新标题缓存</button>
+                                <a class="btn btn-sm btn-outline-secondary" id="taskTitlesExportBtn" href="{{ url_for('quickform.admin_export_task_titles', format='txt') }}" target="_blank" rel="noopener">导出标题</a>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="taskTitlesAnalyzeBtn">生成词云/分类</button>
+                            </div>
+                        </div>
+                        <div class="border rounded p-3 bg-light mb-3" id="taskTitlesBox" style="display:none;">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <strong>任务标题分析</strong>
+                                <span class="badge bg-secondary" id="taskTitlesMeta">未加载</span>
+                                <span class="text-muted small" id="taskTitlesHint"></span>
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-lg-7">
+                                    <div class="bg-white border rounded p-2" style="min-height: 140px;">
+                                        <div class="text-muted small mb-2">词云（轻量渲染：按权重调字体大小）</div>
+                                        <div id="taskTitleWordCloud" style="line-height: 1.7; word-break: break-all;"></div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-5">
+                                    <div class="bg-white border rounded p-2" style="min-height: 140px;">
+                                        <div class="text-muted small mb-2">分类统计（规则命中）</div>
+                                        <ul class="list-group list-group-flush" id="taskTitleCategories"></ul>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="table-responsive">
@@ -2288,6 +2312,130 @@
         })
         .catch(() => alert('设置失败：网络错误'));
     }
+
+    // 所有任务列表：任务标题导出/缓存/词云/分类（零依赖轻量分析）
+    (function () {
+        var refreshBtn = document.getElementById('taskTitlesRefreshBtn');
+        var analyzeBtn = document.getElementById('taskTitlesAnalyzeBtn');
+        var box = document.getElementById('taskTitlesBox');
+        var meta = document.getElementById('taskTitlesMeta');
+        var hint = document.getElementById('taskTitlesHint');
+        var wc = document.getElementById('taskTitleWordCloud');
+        var cats = document.getElementById('taskTitleCategories');
+        if (!refreshBtn || !analyzeBtn || !box || !meta || !hint || !wc || !cats) return;
+
+        var urlCache = '{{ url_for("quickform.admin_api_task_titles_cache") }}';
+        var urlAnalysis = '{{ url_for("quickform.admin_api_task_titles_analysis") }}';
+
+        function setBusy(btn, busy, textBusy, textIdle) {
+            if (!btn) return;
+            btn.disabled = !!busy;
+            btn.textContent = busy ? (textBusy || '处理中…') : (textIdle || btn.textContent);
+        }
+
+        function renderMeta(cache, extraHint) {
+            cache = cache || {};
+            var gen = cache.generated_at || '—';
+            var total = (cache.total_tasks != null) ? cache.total_tasks : '—';
+            var kept = (cache.titles_count != null) ? cache.titles_count : (cache.titles ? cache.titles.length : '—');
+            var skipped = (cache.skipped_low_info != null) ? cache.skipped_low_info : '—';
+            var minLen = (cache.min_len != null) ? cache.min_len : '—';
+            meta.textContent = '生成：' + gen + '｜总任务：' + total + '｜保留：' + kept + '｜过滤：' + skipped + '（最短≥' + minLen + '字）';
+            hint.textContent = extraHint || '';
+        }
+
+        function renderWordCloud(topWords) {
+            wc.innerHTML = '';
+            var arr = Array.isArray(topWords) ? topWords : [];
+            if (!arr.length) {
+                wc.innerHTML = '<span class="text-muted small">暂无词频数据（可能标题较少或都被过滤）</span>';
+                return;
+            }
+            var max = 1;
+            arr.forEach(function (x) { max = Math.max(max, (x && x.count) ? x.count : 0); });
+            arr.forEach(function (x) {
+                var w = (x && x.word) ? String(x.word) : '';
+                var c = (x && x.count) ? Number(x.count) : 0;
+                if (!w) return;
+                var ratio = max > 0 ? (c / max) : 0;
+                var size = 12 + Math.round(ratio * 18); // 12~30
+                var span = document.createElement('span');
+                span.textContent = w;
+                span.title = '出现次数：' + c;
+                span.style.fontSize = size + 'px';
+                span.style.marginRight = '10px';
+                span.style.display = 'inline-block';
+                span.style.color = ratio > 0.66 ? '#2563eb' : (ratio > 0.33 ? '#06b6d4' : '#64748b');
+                wc.appendChild(span);
+            });
+        }
+
+        function renderCategories(catRows) {
+            cats.innerHTML = '';
+            var arr = Array.isArray(catRows) ? catRows : [];
+            if (!arr.length) {
+                cats.innerHTML = '<li class="list-group-item text-muted small">暂无分类数据</li>';
+                return;
+            }
+            arr.forEach(function (row) {
+                var li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-start';
+                var left = document.createElement('div');
+                var cat = (row && row.category) ? String(row.category) : '其他';
+                var cnt = (row && row.count != null) ? row.count : 0;
+                var ex = (row && Array.isArray(row.examples)) ? row.examples : [];
+                left.innerHTML = '<div><strong>' + cat + '</strong></div>' +
+                    (ex.length ? ('<div class="text-muted small">例如：' + ex.slice(0, 2).join('；') + '</div>') : '');
+                var right = document.createElement('span');
+                right.className = 'badge bg-primary rounded-pill';
+                right.textContent = String(cnt);
+                li.appendChild(left);
+                li.appendChild(right);
+                cats.appendChild(li);
+            });
+        }
+
+        function ensureBoxVisible() {
+            if (box.style.display === 'none') box.style.display = '';
+        }
+
+        refreshBtn.addEventListener('click', function () {
+            setBusy(refreshBtn, true, '刷新中…', '刷新标题缓存');
+            ensureBoxVisible();
+            renderMeta({}, '正在刷新缓存（会扫全库一次）…');
+            fetch(urlCache + '?force=1', { method: 'POST', credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (!res || !res.success) throw new Error((res && res.message) || '刷新失败');
+                    renderMeta(res.data || {}, '缓存已刷新。');
+                })
+                .catch(function (e) {
+                    renderMeta({}, '刷新失败：' + (e && e.message ? e.message : '未知错误'));
+                })
+                .finally(function () { setBusy(refreshBtn, false, '', '刷新标题缓存'); });
+        });
+
+        analyzeBtn.addEventListener('click', function () {
+            setBusy(analyzeBtn, true, '生成中…', '生成词云/分类');
+            ensureBoxVisible();
+            renderMeta({}, '正在生成分析（优先读缓存；无缓存则会扫全库一次）…');
+            fetch(urlAnalysis + '?top=80', { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    if (!res || !res.success) throw new Error((res && res.message) || '生成失败');
+                    renderMeta(res.cache || {}, '分析完成。');
+                    var d = res.data || {};
+                    renderWordCloud(d.top_words || []);
+                    renderCategories(d.categories || []);
+                })
+                .catch(function (e) {
+                    renderMeta({}, '生成失败：' + (e && e.message ? e.message : '未知错误'));
+                    wc.innerHTML = '<span class="text-danger small">生成失败</span>';
+                    cats.innerHTML = '<li class="list-group-item text-danger small">生成失败</li>';
+                })
+                .finally(function () { setBusy(analyzeBtn, false, '', '生成词云/分类'); });
+        });
+    })();
 
 </script>
 {% endblock %}

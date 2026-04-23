@@ -40,6 +40,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.utils import formataddr, parseaddr
 import subprocess
+import csv
+
 
 # 导入分离的模块
 from .models import (
@@ -89,6 +91,181 @@ def _redirect_back(fallback_endpoint: str = 'quickform.community', **fallback_kw
     except Exception:
         pass
     return redirect(url_for(fallback_endpoint, **(fallback_kwargs or {})))
+
+# ---------- 管理员：任务标题缓存 / 词云 / 轻量分类 ----------
+# 目标：
+# - 导出所有任务标题
+# - 首次构建后写入独立文件，后续读取不扫全库
+# - 提供“词云数据 + 简单分类统计”，尽量不消耗内存
+#
+# 说明：缓存为运行时文件，不纳入 git；默认过滤过短/低信息标题（见 ADMIN_TASK_TITLES_MIN_LEN）。
+_ADMIN_CACHE_DIR = os.path.join(_QUICKFORM_APP_ROOT, 'runtime_cache')
+_ADMIN_TASK_TITLES_CACHE_PATH = os.path.join(_ADMIN_CACHE_DIR, 'admin_task_titles_cache.json')
+ADMIN_TASK_TITLES_MIN_LEN = int(os.getenv('ADMIN_TASK_TITLES_MIN_LEN', '4') or '4')
+ADMIN_TASK_TITLES_CACHE_MAX = int(os.getenv('ADMIN_TASK_TITLES_CACHE_MAX', '200000') or '200000')
+
+
+def _ensure_admin_cache_dir():
+    try:
+        os.makedirs(_ADMIN_CACHE_DIR, exist_ok=True)
+    except Exception:
+        pass
+
+
+def _clean_task_title(s: str) -> str:
+    try:
+        t = (s or '').strip()
+        if not t:
+            return ''
+        t = re.sub(r'\s+', ' ', t)
+        return t[:160]
+    except Exception:
+        return ''
+
+
+def _is_low_info_title(t: str, min_len: int = None) -> bool:
+    try:
+        ml = int(min_len) if min_len is not None else int(ADMIN_TASK_TITLES_MIN_LEN or 4)
+    except Exception:
+        ml = 4
+    if not t:
+        return True
+    if len(t) < ml:
+        return True
+    if re.fullmatch(r'[\W_]+', t):
+        return True
+    if re.fullmatch(r'\d+', t):
+        return True
+    return False
+
+
+def _load_task_titles_cache():
+    try:
+        if not os.path.exists(_ADMIN_TASK_TITLES_CACHE_PATH):
+            return None, None
+        with open(_ADMIN_TASK_TITLES_CACHE_PATH, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        if not isinstance(payload, dict):
+            return None, None
+        titles = payload.get('titles') or []
+        if not isinstance(titles, list):
+            titles = []
+        return payload, titles
+    except Exception:
+        return None, None
+
+
+def _rebuild_task_titles_cache(db, force: bool = False):
+    _ensure_admin_cache_dir()
+    if not force:
+        payload, titles = _load_task_titles_cache()
+        if payload and isinstance(titles, list) and titles:
+            return payload
+
+    titles = []
+    total = 0
+    skipped = 0
+    try:
+        q = db.query(Task.title)
+        for r in q:
+            total += 1
+            raw = r[0] if isinstance(r, (list, tuple)) else getattr(r, 'title', None)
+            t = _clean_task_title(raw or '')
+            if _is_low_info_title(t):
+                skipped += 1
+                continue
+            titles.append(t)
+            if len(titles) >= int(ADMIN_TASK_TITLES_CACHE_MAX or 200000):
+                break
+    except Exception:
+        # 兜底：若查询失败，返回空缓存
+        pass
+
+    payload = {
+        'generated_at': datetime.now().isoformat(timespec='seconds'),
+        'total_tasks_scanned': int(total),
+        'min_len': int(ADMIN_TASK_TITLES_MIN_LEN or 4),
+        'skipped_low_info': int(skipped),
+        'titles_count': int(len(titles)),
+        'titles': titles,
+    }
+    try:
+        tmp_path = _ADMIN_TASK_TITLES_CACHE_PATH + '.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp_path, _ADMIN_TASK_TITLES_CACHE_PATH)
+    except Exception:
+        pass
+    return payload
+
+
+_TITLE_STOPWORDS = {
+    '的', '了', '和', '与', '及', '或', '在', '对', '为', '及其', '以及', '一个', '一种', '如何', '为什么',
+    '练习', '测试', '测验', '作业', '答案', '题', '题目', '试题', '试卷', '单元', '期中', '期末',
+    '（', '）', '(', ')', '-', '_', '/', '\\', '|', ':', '：', ',', '，', '.', '。', '、',
+}
+
+
+def _tokenize_title_light(t: str):
+    """零依赖轻量分词：抽取中文连续片段与英文/数字词。"""
+    if not t:
+        return []
+    t = t.lower()
+    # 中文片段
+    zh = re.findall(r'[\u4e00-\u9fff]{2,}', t)
+    en = re.findall(r'[a-z0-9]{3,}', t)
+    toks = zh + en
+    out = []
+    for x in toks:
+        x = x.strip()
+        if not x:
+            continue
+        if x in _TITLE_STOPWORDS:
+            continue
+        out.append(x)
+    return out
+
+
+def _classify_title_light(t: str):
+    """简单规则分类：根据关键词命中返回分类名。"""
+    s = (t or '').lower()
+    rules = [
+        ('英语/外语', ['英语', 'english', '听力', '口语', '阅读', '作文', '词汇', '语法']),
+        ('理科/数学', ['数学', '几何', '代数', '函数', '方程', '数列', '概率', '统计']),
+        ('理科/物理', ['物理', '力学', '电学', '磁', '光学', '热学']),
+        ('理科/化学', ['化学', '酸', '碱', '氧化', '还原', '离子', '元素', '反应', '溶液']),
+        ('文科/语文', ['语文', '阅读理解', '古诗', '文言', '作文', '写作', '修辞']),
+        ('文科/历史', ['历史', '朝代', '战争', '革命', '史']),
+        ('文科/地理', ['地理', '气候', '地形', '人口', '城市', '地图']),
+        ('生物/科学', ['生物', '细胞', '遗传', '生态', '科学', '实验']),
+        ('通知/活动', ['通知', '报名', '活动', '会议', '安排']),
+        ('数据/隐私', ['数据', '隐私', '保护', '协议', '条款']),
+    ]
+    for cat, keys in rules:
+        for k in keys:
+            if k in s:
+                return cat
+    if any(x in s for x in ['测试', '测验', '试卷', '试题', '题库']):
+        return '测评/试卷'
+    return '其他'
+
+
+def _analyze_titles_light(titles, top_n: int = 60):
+    """返回：词频 topN + 分类计数 + 质量过滤信息。"""
+    from collections import Counter, defaultdict
+    word_counter = Counter()
+    cat_counter = Counter()
+    examples_by_cat = defaultdict(list)
+    for t in titles:
+        cat = _classify_title_light(t)
+        cat_counter[cat] += 1
+        if len(examples_by_cat[cat]) < 3:
+            examples_by_cat[cat].append(t)
+        for tok in _tokenize_title_light(t):
+            word_counter[tok] += 1
+    top_words = [{'word': w, 'count': int(c)} for w, c in word_counter.most_common(max(5, int(top_n or 60)))]
+    cats = [{'category': k, 'count': int(v), 'examples': examples_by_cat.get(k, [])} for k, v in cat_counter.most_common()]
+    return top_words, cats
 
 # ---------- 服务就绪标记（用于维护页兜底）----------
 _QUICKFORM_READY = False
@@ -8231,6 +8408,73 @@ def admin_api_online_active_series():
         'window_seconds': int(float(ONLINE_ACTIVE_WINDOW_SECONDS or 60)),
         'retention_seconds': int(ONLINE_ACTIVE_SERIES_RETENTION_SECONDS or (48 * 3600)),
     })
+
+
+@quickform_bp.route('/admin/api/task_titles/cache', methods=['GET', 'POST'])
+@admin_required
+def admin_api_task_titles_cache():
+    """管理员接口：读取/重建任务标题缓存（文件缓存，降低重复扫库压力）。"""
+    force = (request.args.get('force') or request.form.get('force') or '').strip().lower() in ('1', 'true', 'yes', 'y')
+    db = SessionLocal()
+    try:
+        payload = _rebuild_task_titles_cache(db, force=force)
+        return jsonify({'success': True, 'data': payload})
+    except Exception as e:
+        logger.exception('admin_api_task_titles_cache: %s', e)
+        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/admin/api/task_titles/analysis', methods=['GET'])
+@admin_required
+def admin_api_task_titles_analysis():
+    """管理员接口：返回任务标题词云词频 + 简单分类统计（基于缓存）。"""
+    top_n = request.args.get('top', default=60, type=int)
+    if not top_n or top_n < 10:
+        top_n = 60
+    if top_n > 200:
+        top_n = 200
+    payload, titles = _load_task_titles_cache()
+    if not payload or not isinstance(titles, list):
+        # 没缓存就先建一次（不强制每次都扫库）
+        db = SessionLocal()
+        try:
+            payload = _rebuild_task_titles_cache(db, force=False)
+            titles = (payload or {}).get('titles') or []
+        finally:
+            db.close()
+    analysis = _analyze_task_titles(titles or [], top_n=top_n)
+    return jsonify({'success': True, 'cache': payload or {}, 'data': analysis})
+
+
+@quickform_bp.route('/admin/export/task_titles', methods=['GET'])
+@admin_required
+def admin_export_task_titles():
+    """管理员导出：所有任务标题（基于缓存；过滤过短标题）。"""
+    fmt = (request.args.get('format') or 'txt').strip().lower()
+    payload, titles = _load_task_titles_cache()
+    if not payload or not isinstance(titles, list):
+        db = SessionLocal()
+        try:
+            payload = _rebuild_task_titles_cache(db, force=False)
+            titles = (payload or {}).get('titles') or []
+        finally:
+            db.close()
+
+    titles = [t for t in (titles or []) if not _is_low_info_title(_clean_task_title(t))]
+    if fmt == 'json':
+        resp = make_response(json.dumps({'generated_at': (payload or {}).get('generated_at'), 'titles': titles}, ensure_ascii=False))
+        resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+        resp.headers['Content-Disposition'] = 'attachment; filename="task_titles.json"'
+        return resp
+
+    # 默认 txt，一行一个标题
+    body = '\n'.join([_clean_task_title(t) for t in titles if _clean_task_title(t)])
+    resp = make_response(body)
+    resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    resp.headers['Content-Disposition'] = 'attachment; filename="task_titles.txt"'
+    return resp
 
 
 @quickform_bp.route('/admin/api/data_stats/<string:section>', methods=['GET'])
