@@ -33,6 +33,9 @@ Votesite/instance/
 # 管理员覆盖内容（运行时写入，避免被 merge 覆盖）
 static/tutorials/tutorials_admin.json
 
+# 运行时缓存（管理员导出/分析用）
+runtime_cache/
+
 # 系统文件
 .DS_Store
 Thumbs.db
