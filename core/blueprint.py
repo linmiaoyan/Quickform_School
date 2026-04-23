@@ -269,6 +269,11 @@ def _analyze_titles_light(titles, top_n: int = 60):
     cats = [{'category': k, 'count': int(v), 'examples': examples_by_cat.get(k, [])} for k, v in cat_counter.most_common()]
     return top_words, cats
 
+
+def _analyze_task_titles(titles, top_n: int = 60):
+    """兼容别名：历史实现中路由调用了 _analyze_task_titles。"""
+    return _analyze_titles_light(titles, top_n=top_n)
+
 # ---------- 服务就绪标记（用于维护页兜底）----------
 _QUICKFORM_READY = False
 
