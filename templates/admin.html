@@ -1127,6 +1127,25 @@
                             </div>
                         </div>
 
+                        <!-- 网页活跃用户趋势（可选时间范围，分钟级采样） -->
+                        <div class="card mb-4">
+                            <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                                <h6 class="mb-0"><i class="bi bi-activity"></i> 网页活跃用户</h6>
+                                <span class="badge bg-info text-dark">当前：{{ stats.online_active }}</span>
+                                <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+                                    <label class="mb-0 small">开始</label>
+                                    <input type="datetime-local" id="active-chart-start" class="form-control form-control-sm" style="width: auto;">
+                                    <label class="mb-0 small">结束</label>
+                                    <input type="datetime-local" id="active-chart-end" class="form-control form-control-sm" style="width: auto;">
+                                    <button type="button" class="btn btn-sm btn-primary" id="active-chart-btn">查询</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="text-muted small mb-2">说明：该图为请求驱动采样（默认每 60 秒一个点），用于观察趋势；统计口径与首页卡片一致（排除管理员、/api 与静态资源）。</div>
+                                <div id="online-active-chart" style="width: 100%; height: 320px;"></div>
+                            </div>
+                        </div>
+
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="border rounded p-3 bg-light">
@@ -2110,6 +2129,60 @@
             setTimeout(function() { if (chartDom.offsetParent) loadRegChart(); }, 100);
         });
         if (window.location.search.indexOf('tab=data') !== -1) setTimeout(loadRegChart, 300);
+    })();
+
+    // 网页活跃用户图表（可选时间范围，分钟级采样）
+    (function(){
+        var startEl = document.getElementById('active-chart-start');
+        var endEl = document.getElementById('active-chart-end');
+        var btn = document.getElementById('active-chart-btn');
+        var chartDom = document.getElementById('online-active-chart');
+        if (!chartDom || !btn) return;
+        function pad2(n){ return String(n).padStart(2,'0'); }
+        function fmtLocal(d){
+            return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+        }
+        function defaultDates() {
+            var end = new Date();
+            var start = new Date(end.getTime() - 6 * 3600 * 1000);
+            if (startEl && !startEl.value) startEl.value = fmtLocal(start);
+            if (endEl && !endEl.value) endEl.value = fmtLocal(end);
+        }
+        function loadChart() {
+            var start = (startEl && startEl.value) || '';
+            var end = (endEl && endEl.value) || '';
+            var url = '{{ url_for("quickform.admin_api_online_active_series") }}?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+            fetch(url, { credentials: 'same-origin' })
+                .then(function(r){ return r.json(); })
+                .then(function(res){
+                    if (!res || !res.success) { if (res && res.message) alert(res.message); return; }
+                    var data = res.data || [];
+                    if (typeof echarts === 'undefined') {
+                        chartDom.innerHTML = '<p class="text-muted text-center py-4">请加载 ECharts 后使用图表</p>';
+                        return;
+                    }
+                    var dates = data.map(function(item){
+                        var d = new Date((item.ts || 0) * 1000);
+                        return pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+                    });
+                    var counts = data.map(function(item){ return item.count || 0; });
+                    var chart = echarts.init(chartDom);
+                    chart.setOption({
+                        tooltip: { trigger: 'axis' },
+                        xAxis: { type: 'category', data: dates, axisLabel: { rotate: 45 } },
+                        yAxis: { type: 'value', name: '活跃人数', minInterval: 1 },
+                        series: [{ name: '活跃人数', type: 'line', data: counts, smooth: true, symbol: 'circle', symbolSize: 6, lineStyle: { width: 2, color: '#06b6d4' } }]
+                    });
+                    window.addEventListener('resize', function(){ chart.resize(); });
+                })
+                .catch(function(e){ console.error(e); chartDom.innerHTML = '<p class="text-danger text-center py-4">加载失败</p>'; });
+        }
+        defaultDates();
+        btn.addEventListener('click', loadChart);
+        document.querySelector('.sidebar-item[data-tab="data"]') && document.querySelector('.sidebar-item[data-tab="data"]').addEventListener('click', function() {
+            setTimeout(function() { if (chartDom.offsetParent) loadChart(); }, 100);
+        });
+        if (window.location.search.indexOf('tab=data') !== -1) setTimeout(loadChart, 350);
     })();
 
     // 数据报表：按需加载各分区统计（避免默认全表扫描）

@@ -108,6 +108,43 @@ _ONLINE_INFLIGHT_WEB = 0
 _ONLINE_ACTIVE = {}
 ONLINE_ACTIVE_WINDOW_SECONDS = float(os.getenv('ONLINE_ACTIVE_WINDOW_SECONDS', '60') or '60')
 
+# “网页活跃用户”采样序列（用于管理员图表）
+# 为了避免引入新表/后台任务，这里采用请求驱动采样：
+# - 在网页请求触发时，按固定间隔写入一个采样点（时间戳+当前 active count）
+# - 仅保留最近一段时间的点（默认 48h），供管理员可视化查询
+_ONLINE_ACTIVE_SERIES_LOCK = threading.Lock()
+_ONLINE_ACTIVE_SERIES = []  # list[tuple[ts:int, count:int]]
+_ONLINE_ACTIVE_SERIES_LAST_TS = 0
+ONLINE_ACTIVE_SERIES_SAMPLE_SECONDS = int(os.getenv('ONLINE_ACTIVE_SERIES_SAMPLE_SECONDS', '60') or '60')
+ONLINE_ACTIVE_SERIES_RETENTION_SECONDS = int(os.getenv('ONLINE_ACTIVE_SERIES_RETENTION_SECONDS', str(48 * 3600)) or str(48 * 3600))
+
+
+def _online_active_series_maybe_sample(now_ts: float = None) -> None:
+    """按固定间隔采样当前活跃人数，写入内存序列（用于图表）。"""
+    try:
+        ts = int(now_ts if now_ts is not None else time.time())
+        interval = int(ONLINE_ACTIVE_SERIES_SAMPLE_SECONDS or 60)
+        if interval <= 0:
+            interval = 60
+        # 向下取整到 interval 对齐，避免每秒一个点
+        aligned = ts - (ts % interval)
+        with _ONLINE_ACTIVE_SERIES_LOCK:
+            global _ONLINE_ACTIVE_SERIES_LAST_TS
+            if _ONLINE_ACTIVE_SERIES_LAST_TS and aligned <= int(_ONLINE_ACTIVE_SERIES_LAST_TS):
+                return
+            cnt = int(_online_active_count())
+            _ONLINE_ACTIVE_SERIES.append((int(aligned), cnt))
+            _ONLINE_ACTIVE_SERIES_LAST_TS = int(aligned)
+            # 清理过期点
+            retention = int(ONLINE_ACTIVE_SERIES_RETENTION_SECONDS or (48 * 3600))
+            if retention <= 0:
+                retention = 48 * 3600
+            cutoff = int(aligned) - retention
+            if _ONLINE_ACTIVE_SERIES and _ONLINE_ACTIVE_SERIES[0][0] < cutoff:
+                _ONLINE_ACTIVE_SERIES[:] = [(t, c) for (t, c) in _ONLINE_ACTIVE_SERIES if t >= cutoff]
+    except Exception:
+        return
+
 
 def _is_web_page_request(req) -> bool:
     """是否计入“老师端网页在线”：排除 /api/*、静态资源等高频请求。"""
@@ -1230,6 +1267,8 @@ def _online_counter_before():
         setattr(request, '_qf_counted_web', True)
         # 记录“活跃在线”（窗口内访问过网页界面的访客数）
         _online_active_mark(request)
+        # 采样序列（用于管理员图表）
+        _online_active_series_maybe_sample()
         with _ONLINE_LOCK:
             global _ONLINE_INFLIGHT_WEB
             _ONLINE_INFLIGHT_WEB += 1
@@ -8146,6 +8185,52 @@ def admin_api_daily_registrations():
         return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
+
+
+@quickform_bp.route('/admin/api/online_active_series')
+@admin_required
+def admin_api_online_active_series():
+    """管理员接口：返回“网页活跃用户”时间序列（请求驱动采样，近似趋势）。"""
+    start_s = (request.args.get('start') or '').strip()
+    end_s = (request.args.get('end') or '').strip()
+    try:
+        if start_s:
+            start_dt = datetime.fromisoformat(start_s.replace('Z', '+00:00'))
+        else:
+            start_dt = datetime.now() - timedelta(hours=6)
+        if end_s:
+            end_dt = datetime.fromisoformat(end_s.replace('Z', '+00:00'))
+        else:
+            end_dt = datetime.now()
+        if start_dt > end_dt:
+            start_dt, end_dt = end_dt, start_dt
+    except Exception:
+        start_dt = datetime.now() - timedelta(hours=6)
+        end_dt = datetime.now()
+
+    start_ts = int(start_dt.timestamp())
+    end_ts = int(end_dt.timestamp())
+
+    # 复制序列并按范围过滤
+    with _ONLINE_ACTIVE_SERIES_LOCK:
+        series = list(_ONLINE_ACTIVE_SERIES)
+    data = [{'ts': int(t), 'count': int(c)} for (t, c) in series if int(t) >= start_ts and int(t) <= end_ts]
+
+    # 若没有点，也返回当前值作为一个点（避免空图表）
+    if not data:
+        now_ts = int(time.time())
+        if now_ts >= start_ts and now_ts <= end_ts:
+            data = [{'ts': now_ts - (now_ts % int(ONLINE_ACTIVE_SERIES_SAMPLE_SECONDS or 60)), 'count': int(_online_active_count())}]
+
+    return jsonify({
+        'success': True,
+        'data': data,
+        'start': start_dt.isoformat(timespec='seconds'),
+        'end': end_dt.isoformat(timespec='seconds'),
+        'sample_seconds': int(ONLINE_ACTIVE_SERIES_SAMPLE_SECONDS or 60),
+        'window_seconds': int(float(ONLINE_ACTIVE_WINDOW_SECONDS or 60)),
+        'retention_seconds': int(ONLINE_ACTIVE_SERIES_RETENTION_SECONDS or (48 * 3600)),
+    })
 
 
 @quickform_bp.route('/admin/api/data_stats/<string:section>', methods=['GET'])
