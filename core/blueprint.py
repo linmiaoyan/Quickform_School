@@ -99,7 +99,9 @@ def _redirect_back(fallback_endpoint: str = 'quickform.community', **fallback_kw
 # - 提供“词云数据 + 简单分类统计”，尽量不消耗内存
 #
 # 说明：缓存为运行时文件，不纳入 git；默认过滤过短/低信息标题（见 ADMIN_TASK_TITLES_MIN_LEN）。
-_ADMIN_CACHE_DIR = os.path.join(_QUICKFORM_APP_ROOT, 'runtime_cache')
+# 注意：本模块在 import 时会执行到这里，而 _QUICKFORM_APP_ROOT 在后文才定义。
+# 因此这里不能依赖 _QUICKFORM_APP_ROOT，需用当前文件路径推导仓库根目录。
+_ADMIN_CACHE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'runtime_cache'))
 _ADMIN_TASK_TITLES_CACHE_PATH = os.path.join(_ADMIN_CACHE_DIR, 'admin_task_titles_cache.json')
 ADMIN_TASK_TITLES_MIN_LEN = int(os.getenv('ADMIN_TASK_TITLES_MIN_LEN', '4') or '4')
 ADMIN_TASK_TITLES_CACHE_MAX = int(os.getenv('ADMIN_TASK_TITLES_CACHE_MAX', '200000') or '200000')
