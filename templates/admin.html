@@ -1842,23 +1842,38 @@
         };
     })();
 
-    // 教师认证单条拒绝：点击时再输入原因
+    // 教师认证单条拒绝：点击时选择默认理由，并可补充备注覆盖
     function handleCertReject(button) {
-        var defaultReason = '{{ translate('admin.default_reject_reason') }}';
-        var reason = prompt('{{ translate('admin.input_reject_reason') }}（必填，可直接确认使用默认理由）：', defaultReason);
-        if (reason === null) {
+        var options = [
+            { value: 'more_info', label: '{{ translate('admin.default_reject_reason') }}' },
+            { value: 'complete_org_info', label: '请在个人中心完善单位信息' }
+        ];
+        var choiceText = options.map(function (o, idx) { return (idx + 1) + '. ' + o.label; }).join('\n');
+        var selected = prompt('请选择拒绝默认理由（输入序号 1/2，取消则不操作）：\n' + choiceText, '1');
+        if (selected === null) return;
+        selected = (selected || '').trim();
+        var idx = parseInt(selected, 10);
+        if (!(idx === 1 || idx === 2)) {
+            alert('请选择 1 或 2');
             return;
         }
-        reason = reason.trim();
-        if (!reason) {
-            alert('拒绝原因不能为空');
-            return;
-        }
+        var chosen = options[idx - 1];
+        var note = prompt('可选：补充备注（留空则使用所选默认理由）：', '');
+        if (note === null) return;
+        note = (note || '').trim();
         if (!confirm('{{ translate('admin.confirm_reject_cert') }}')) {
             return;
         }
         var form = button.closest('form');
         if (!form) return;
+        var reasonInput = form.querySelector('input[name="reject_reason"]');
+        if (!reasonInput) {
+            reasonInput = document.createElement('input');
+            reasonInput.type = 'hidden';
+            reasonInput.name = 'reject_reason';
+            form.appendChild(reasonInput);
+        }
+        reasonInput.value = chosen.value;
         var noteInput = form.querySelector('input[name="note"]');
         if (!noteInput) {
             noteInput = document.createElement('input');
@@ -1866,7 +1881,7 @@
             noteInput.name = 'note';
             form.appendChild(noteInput);
         }
-        noteInput.value = reason;
+        noteInput.value = note;
         var actionInput = form.querySelector('input[name="action"]');
         if (!actionInput) {
             actionInput = document.createElement('input');

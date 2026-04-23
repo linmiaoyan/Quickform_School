@@ -9201,6 +9201,7 @@ def admin_handle_certification(request_id):
     """管理员审核教师认证申请"""
     action = request.form.get('action')
     note = (request.form.get('note') or '').strip()
+    reject_reason = (request.form.get('reject_reason') or '').strip()
 
     db = SessionLocal()
     try:
@@ -9231,6 +9232,12 @@ def admin_handle_certification(request_id):
                 flash('该认证申请已被拒绝', 'info')
                 return redirect(url_for('quickform.admin_panel', tab='cert-review'))
 
+            # 若管理员未填写备注，则使用预设拒绝理由（前端二选一）
+            if not note:
+                if reject_reason == 'complete_org_info':
+                    note = '请在个人中心完善单位信息'
+                else:
+                    note = '请提供更多个人相关信息'
             _cert_apply_reject(db, cert_request, current_user.id, note)
             db.commit()
             flash('已拒绝该认证申请。', 'warning')
