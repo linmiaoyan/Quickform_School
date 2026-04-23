@@ -88,7 +88,11 @@
                                 <td>
                                     {% if req.status == 0 %}
                                     <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center">
-                                        <input type="text" class="form-control form-control-sm" name="note" placeholder="备注（可选）">
+                                        <select class="form-select form-select-sm" name="reject_reason" style="max-width: 280px;" aria-label="拒绝原因（默认）">
+                                            <option value="more_info" selected>请提供更多个人相关信息</option>
+                                            <option value="complete_org_info">请在个人中心完善单位信息</option>
+                                        </select>
+                                        <input type="text" class="form-control form-control-sm" name="note" placeholder="备注（可选，可覆盖默认理由）">
                                         <div class="btn-group">
                                             <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">{{ translate('admin.pass') }}</button>
                                             <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger" onclick="return confirm('{{ translate('admin.confirm_reject_cert') }}')">{{ translate('admin.reject') }}</button>
