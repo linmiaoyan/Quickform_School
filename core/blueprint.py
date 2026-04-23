@@ -6513,10 +6513,15 @@ def smart_analyze(task_id):
                 # 兼容历史脏数据：保持原样字符串
                 pass
         if parsed_samples:
-            # 为“数据大屏提示词模板”提供更贴近真实传输的 JSON 形式：
-            # 使用 ensure_ascii=True 让中文以 \uXXXX 形式展示，便于复制给大模型时保持纯 ASCII
+            # 为“数据大屏提示词模板”提供更贴近真实 /all 接口返回的 JSON 形式：
+            # - 包含 submissions 数组与 total_submissions 数字
+            # - 使用 ensure_ascii=True 让中文以 \uXXXX 形式展示，便于复制给大模型时保持纯 ASCII
             try:
-                sample_data_raw = json.dumps(parsed_samples, ensure_ascii=True, indent=2)
+                sample_payload = {
+                    'submissions': parsed_samples,
+                    'total_submissions': int(current_submission_count or len(parsed_samples) or 0),
+                }
+                sample_data_raw = json.dumps(sample_payload, ensure_ascii=True, indent=2)
             except Exception:
                 sample_data_raw = "[\n" + ",\n".join(samples) + "\n]" if samples else ''
         elif samples:
