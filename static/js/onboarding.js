@@ -97,6 +97,11 @@
   function startIntro(steps, opts) {
     if (typeof introJs !== 'function') return;
     var intro = introJs();
+    var opt = opts || {};
+    // 自定义选项：不传给 intro.js
+    var introUserOpts = Object.assign({}, opt);
+    delete introUserOpts.noStateClose;
+    delete introUserOpts.onAfterClose;
     try { document.body && document.body.classList && document.body.classList.add('qf-onboarding-active'); } catch (e0) {}
     intro.setOptions(Object.assign({
       steps: steps,
@@ -113,7 +118,7 @@
       scrollToElement: true,
       scrollPadding: 80,
       disableInteraction: false
-    }, (opts || {})));
+    }, introUserOpts));
 
     intro.onexit(function () {
       // 只有“用户主动退出/跳过”才标记完成；引导内跨页跳转不应触发完成
@@ -122,13 +127,23 @@
         if (st && (st.navigating || st.suppressExit)) return;
       } catch (e) {}
       try { document.body && document.body.classList && document.body.classList.remove('qf-onboarding-active'); } catch (e0) {}
-      clearState();
-      markCompleted();
+      if (!opt.noStateClose) {
+        clearState();
+        markCompleted();
+      }
+      if (typeof opt.onAfterClose === 'function') {
+        try { opt.onAfterClose('exit'); } catch (e1) {}
+      }
     });
     intro.oncomplete(function () {
       try { document.body && document.body.classList && document.body.classList.remove('qf-onboarding-active'); } catch (e0) {}
-      clearState();
-      markCompleted();
+      if (!opt.noStateClose) {
+        clearState();
+        markCompleted();
+      }
+      if (typeof opt.onAfterClose === 'function') {
+        try { opt.onAfterClose('complete'); } catch (e1) {}
+      }
     });
 
     // 容错：元素不存在时，跳过该步，避免卡死
@@ -698,9 +713,90 @@
     });
   }
 
+  function stripStep3HashOnce() {
+    try {
+      if ((window.location.hash || '').replace(/^#/, '') !== 'quick-start-step-3') return;
+      var path = window.location.pathname || '/';
+      var q = window.location.search || '';
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', path + q);
+      } else {
+        window.location.hash = '';
+      }
+    } catch (e) {}
+  }
+
+  function startHomeFromTaskDetailHint() {
+    var st = getState();
+    if (st && st.active) return;
+    if (hasOnboardQuery()) return;
+    if (window.__qfHomeTaskDetailHintStarted) return;
+    var h = '';
+    try {
+      h = (window.location.hash || '').replace(/^#/, '');
+    } catch (e) {}
+    if (h !== 'quick-start-step-3') return;
+    var card = qs('#quick-start-step-3');
+    if (!card) return;
+    window.__qfHomeTaskDetailHintStarted = true;
+
+    var aiRow = qs('#quick-start-step-3-ai');
+    setTimeout(function () {
+      try {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (e) {
+        try { card.scrollIntoView(true); } catch (e2) {}
+      }
+    }, 120);
+    try {
+      card.classList.add('qf-home-step-pulse');
+    } catch (e0) {}
+    if (aiRow) {
+      try {
+        aiRow.classList.add('qf-home-ai-pulse');
+      } catch (e1) {}
+    }
+    setTimeout(function () {
+      try { card.classList.remove('qf-home-step-pulse'); } catch (e) {}
+      if (aiRow) {
+        try { aiRow.classList.remove('qf-home-ai-pulse'); } catch (e2) {}
+      }
+    }, 4000);
+
+    var hashCleared = false;
+    function afterClose() {
+      if (hashCleared) return;
+      hashCleared = true;
+      stripStep3HashOnce();
+    }
+
+    startIntro(
+      [
+        {
+          title: '在 AI 中生成页面',
+          intro:
+            '在任务详情里已为你准备好提示词；请复制后粘贴到下面任意一个 AI 链接，生成单页 HTML，再回任务里上传即可。',
+          element: card,
+          position: 'top'
+        }
+      ],
+      {
+        noStateClose: true,
+        showProgress: false,
+        skipLabel: '关闭',
+        nextLabel: '知道了',
+        doneLabel: '知道了',
+        onAfterClose: function () { afterClose(); }
+      }
+    );
+  }
+
   function maybeStartHomeTour() {
     var st = getState();
-    if (!st.active && !hasOnboardQuery()) return;
+    if (!st.active && !hasOnboardQuery()) {
+      startHomeFromTaskDetailHint();
+      return;
+    }
     if (!qs('#quick-start-step-3')) return;
 
     var steps = [

@@ -274,6 +274,27 @@
     background: #eff6ff;
 }
 
+/* 从任务详情「去 AI 生成网页」跳转时短暂高亮第 3 步与 AI 链接行 */
+@keyframes qf-home-step-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45); }
+    100% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+}
+@keyframes qf-home-ai-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.4); }
+    100% { box-shadow: 0 0 0 8px rgba(14, 165, 233, 0); }
+}
+.qf-home-step-pulse {
+    animation: qf-home-step-pulse 1.1s ease-out 2;
+    border-color: #93c5fd !important;
+}
+.qf-home-ai-pulse {
+    border-radius: 10px;
+    padding: 0.15rem 0.2rem !important;
+    margin: -0.15rem -0.2rem 0 !important;
+    animation: qf-home-ai-pulse 1.1s ease-out 2;
+    background: rgba(239, 246, 255, 0.85) !important;
+}
+
 .qf-step-prompt {
     margin: 0;
     padding: 0.45rem 0.5rem;
@@ -837,7 +858,7 @@
                                 </div>
                                 <div class="qf-step-card-bd">
                                     <p>在 AI 生成的网页或现有页面中，把表单的<strong>提交地址</strong>改成任务提供的 URL（与文档字段名对齐即可）。</p>
-                                    <div class="qf-step-ai-row" aria-label="常见 AI 助手">
+                                    <div class="qf-step-ai-row" id="quick-start-step-3-ai" aria-label="常见 AI 助手">
                                         <a href="https://www.doubao.com/" target="_blank" rel="noopener noreferrer">豆包</a>
                                         <a href="https://tongyi.aliyun.com/" target="_blank" rel="noopener noreferrer">通义</a>
                                         <a href="https://kimi.moonshot.cn/" target="_blank" rel="noopener noreferrer">Kimi</a>
