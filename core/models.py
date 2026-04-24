@@ -125,22 +125,16 @@ class Task(Base):
     dashboard_generation_status = Column(String(20), nullable=True)  # pending/completed/failed
     dashboard_generation_error = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)  # 任务状态：True=正常接收/读取数据，False=停用（接口拒绝）
-    # 单任务 API 用量（GET /api/<task_id> 与 GET /api/<task_id>/all）；限额由常量 + quota_extra_* 组成
+    # 单任务 API 用量（校园版：仅统计，不做限额拦截）
     api_task_get_count = Column(Integer, default=0)  # 轻量 GET（最新 3 条）成功次数
-    api_task_all_count = Column(Integer, default=0)  # /all 成功次数（计入读取次数上限）
+    api_task_all_count = Column(Integer, default=0)  # /all 成功次数
     api_task_all_bytes_total = Column(BigInteger, default=0)  # /all 已下发响应体累计字节
-    quota_extra_all_reads = Column(Integer, default=0)  # 管理员批复的额外「/all 读取次数」
-    quota_extra_all_bytes = Column(BigInteger, default=0)  # 管理员批复的额外流量额度（字节）
-    # 单任务“提交写入”用量与限额（用于防刷库/防存爆；限额 = SiteQuotaDefault 默认值 + quota_extra_submit_*）
     submission_count_total = Column(Integer, default=0)  # 已接收提交条数（累计）
     submission_bytes_total = Column(BigInteger, default=0)  # 已接收提交 data 的累计字节（UTF-8）
-    quota_extra_submit_count = Column(Integer, default=0)  # 管理员批复的额外「提交条数」额度
-    quota_extra_submit_bytes = Column(BigInteger, default=0)  # 管理员批复的额外「提交字节」额度（字节）
     approver = relationship('User', foreign_keys=[html_approved_by], backref='approved_tasks')
     organization = relationship('Organization', back_populates='tasks')
     shares = relationship('TaskShare', back_populates='task', cascade='all, delete-orphan')
     likes = relationship('TaskLike', back_populates='task', cascade='all, delete-orphan')
-    quota_requests = relationship('TaskQuotaRequest', back_populates='task', cascade='all, delete-orphan')
 
 
 class Submission(Base):
@@ -286,45 +280,6 @@ class TaskLike(Base):
     user = relationship('User', foreign_keys=[user_id])
 
 
-class TaskQuotaRequest(Base):
-    """任务 /all 限额「解除/加额」申请（管理员批复额外次数与流量）"""
-    __tablename__ = 'task_quota_request'
-    id = Column(Integer, primary_key=True)
-    task_id = Column(Integer, ForeignKey('task.id', ondelete='CASCADE'), nullable=False)
-    user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
-    status = Column(Integer, default=0)  # 0=待审核 1=已通过 -1=已拒绝
-    applicant_note = Column(Text)
-    created_at = Column(DateTime, default=datetime.now)
-    reviewed_at = Column(DateTime)
-    reviewed_by = Column(Integer, ForeignKey('user.id'))
-    review_note = Column(Text)
-    requested_extra_reads = Column(Integer)  # 申请：希望增加的 /all 次数额度
-    requested_extra_mb = Column(Integer)  # 申请：希望增加的流量额度（MB）
-    granted_extra_reads = Column(Integer)  # 批复：增加的 /all 次数额度
-    granted_extra_mb = Column(Integer)  # 批复：增加的流量额度（MB）
-
-    task = relationship('Task', back_populates='quota_requests')
-    applicant = relationship('User', foreign_keys=[user_id])
-    reviewer = relationship('User', foreign_keys=[reviewed_by])
-
-
-class SiteQuotaDefault(Base):
-    """全站默认：每个任务 /all 接口的基础次数与流量上限（单表单行 id=1，管理员后台可改）"""
-    __tablename__ = 'site_quota_default'
-    id = Column(Integer, primary_key=True)
-    default_all_read_limit = Column(Integer, nullable=False, default=2000)
-    default_all_bytes_limit = Column(BigInteger, nullable=False, default=100 * 1024 * 1024)
-    # 单任务提交写入默认限额（防刷库/防存爆）
-    # - default_submit_count_limit = 0 表示「不限提交次数」（仅按累计体积/单条大小等限制）。
-    default_submit_count_limit = Column(Integer, nullable=False, default=100000)
-    # 默认把累计体积上限调高一些（仍建议结合 Nginx/WAF 做全站限速）
-    default_submit_bytes_limit = Column(BigInteger, nullable=False, default=500 * 1024 * 1024)  # 默认 500MB
-    auto_quota_approve_enabled = Column(Integer, nullable=False, default=0)  # 0=关闭 1=开启
-    auto_quota_approve_max_reads = Column(Integer, nullable=False, default=0)  # 自动审批：次数阈值
-    auto_quota_approve_max_mb = Column(Integer, nullable=False, default=0)  # 自动审批：流量阈值(MB)
-    updated_at = Column(DateTime, default=datetime.now)
-
-
 class OneclickPromptOption(Base):
     """一键生成任务：勾选后追加给模型的说明文案（管理员后台可改）；正文中的「API地址」会在生成时替换为真实接口根 URL"""
 
@@ -378,7 +333,17 @@ DEFAULT_ONECLICK_PROMPT_OPTIONS = [
 
 
 def migrate_database(engine):
-    """数据库迁移函数"""
+    """数据库迁移函数（校园版：新库起步已停用）。
+
+    校园版默认使用 PostgreSQL 并通过 `Base.metadata.create_all()` 初始化全量表结构，
+    不再维护 SQLite/MySQL 时代的增量 DDL/兼容迁移代码。
+    """
+    # Campus edition: disable legacy migration logic entirely.
+    try:
+        logger.info("Campus edition: migrate_database() is disabled (new DB bootstrap).")
+    except Exception:
+        pass
+    return
     try:
         if (os.getenv('QF_SKIP_DB_MIGRATION') or '').strip() == '1':
             logger.warning("检测到 QF_SKIP_DB_MIGRATION=1：跳过数据库迁移（仅建议在确认库结构已完整时使用）")
@@ -827,7 +792,7 @@ def migrate_database(engine):
                 except Exception as e:
                     logger.warning(f"添加teams_public_approved失败（可能已存在）: {str(e)}")
 
-            # task：单任务 API 用量与 /all 加额（限额 = 系统默认 + quota_extra_*）
+            # task：单任务 API 用量统计（校园版：不含加额/限额）
             dialect = engine.dialect.name if hasattr(engine, 'dialect') else 'sqlite'
             backfill_task_api_from_log = False
             if task_cols and 'api_task_get_count' not in task_cols:
@@ -852,23 +817,7 @@ def migrate_database(engine):
                     logger.info("成功为task添加api_task_all_bytes_total")
                 except Exception as e:
                     logger.warning(f"添加api_task_all_bytes_total失败（可能已存在）: {str(e)}")
-            if task_cols and 'quota_extra_all_reads' not in task_cols:
-                try:
-                    conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_all_reads INTEGER DEFAULT 0"))
-                    logger.info("成功为task添加quota_extra_all_reads")
-                except Exception as e:
-                    logger.warning(f"添加quota_extra_all_reads失败（可能已存在）: {str(e)}")
-            if task_cols and 'quota_extra_all_bytes' not in task_cols:
-                try:
-                    if dialect == 'mysql':
-                        conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_all_bytes BIGINT DEFAULT 0"))
-                    else:
-                        conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_all_bytes INTEGER DEFAULT 0"))
-                    logger.info("成功为task添加quota_extra_all_bytes")
-                except Exception as e:
-                    logger.warning(f"添加quota_extra_all_bytes失败（可能已存在）: {str(e)}")
-
-            # task：提交写入限额与计数（防刷库/防存爆）
+            # task：提交写入用量统计（校园版：不含加额/限额）
             if task_cols and 'submission_count_total' not in task_cols:
                 try:
                     conn.execute(text("ALTER TABLE task ADD COLUMN submission_count_total INTEGER DEFAULT 0"))
@@ -886,23 +835,6 @@ def migrate_database(engine):
                     logger.info("成功为task添加submission_bytes_total")
                 except Exception as e:
                     logger.warning(f"添加submission_bytes_total失败（可能已存在）: {str(e)}")
-            if task_cols and 'quota_extra_submit_count' not in task_cols:
-                try:
-                    conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_submit_count INTEGER DEFAULT 0"))
-                    conn.execute(text("UPDATE task SET quota_extra_submit_count = 0 WHERE quota_extra_submit_count IS NULL"))
-                    logger.info("成功为task添加quota_extra_submit_count")
-                except Exception as e:
-                    logger.warning(f"添加quota_extra_submit_count失败（可能已存在）: {str(e)}")
-            if task_cols and 'quota_extra_submit_bytes' not in task_cols:
-                try:
-                    if dialect == 'mysql':
-                        conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_submit_bytes BIGINT DEFAULT 0"))
-                    else:
-                        conn.execute(text("ALTER TABLE task ADD COLUMN quota_extra_submit_bytes INTEGER DEFAULT 0"))
-                    conn.execute(text("UPDATE task SET quota_extra_submit_bytes = 0 WHERE quota_extra_submit_bytes IS NULL"))
-                    logger.info("成功为task添加quota_extra_submit_bytes")
-                except Exception as e:
-                    logger.warning(f"添加quota_extra_submit_bytes失败（可能已存在）: {str(e)}")
 
             # 从 submission 聚合回填「提交条数 / 累计字节」（升级后首次对齐；后续由接口累加维护）
             if task_cols and 'submission' in inspector.get_table_names():
