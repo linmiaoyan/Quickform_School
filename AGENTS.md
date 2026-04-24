@@ -6,6 +6,8 @@
 
 QuickForm (`quickform.cn`) is a Python/Flask web application for form data collection and AI-powered analysis. Single-service architecture (not a monorepo).
 
+Agent note: tiny doc-only change committed on `cursor/doc-touch-e466` to verify repo/branch routing.
+
 ### Running the dev server
 
 1. Ensure a `.env` file exists at the repo root with at least `SECRET_KEY=<strong-random-value>`. Without MySQL env vars (`MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`), the app falls back to SQLite automatically.
