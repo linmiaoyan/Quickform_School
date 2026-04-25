@@ -71,7 +71,7 @@
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="share_scope" id="edit_share_public" value="public" {% if not has_html_for_public %}disabled{% endif %} {% if scope_public %}checked{% endif %}>
                                 <label class="form-check-label {% if not has_html_for_public %}text-muted{% endif %}" for="edit_share_public">
-                                    公开（出现在项目交流，所有人可浏览）{% if not has_html_for_public %}（需先上传HTML）{% endif %}
+                                    公开（出现在项目交流，所有人可浏览）{% if not has_html_for_public %}（需先上传网页文件）{% endif %}
                                 </label>
                             </div>
                             {% else %}
@@ -137,7 +137,7 @@
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" id="qf-public-disclosure-check">
                                             <label class="form-check-label small" for="qf-public-disclosure-check">
-                                                我已知晓上传 HTML 后别人就可以在互联网上看到我的 HTML 文件，【公开任务】是为了让其他教师看到并学习该任务
+                                                我已知晓上传网页文件后别人就可以在互联网上看到我的网页文件，【公开任务】是为了让其他教师看到并学习该任务
                                             </label>
                                         </div>
                                     </div>
@@ -235,7 +235,7 @@
                             {% endif %}
                             <ul class="list-unstyled mb-4" style="color: #111827; line-height: 1.8;">
                                 <li class="mb-2">• 修改任务标题或描述不会影响数据提交地址。</li>
-                                <li class="mb-2">• 重新上传 HTML 页面后，系统会自动重新进行安全审核与智能分析。</li>
+                                <li class="mb-2">• 重新上传网页文件后，系统会自动重新进行安全审核与智能分析。</li>
                                 <li class="mb-2">• 建议在标题中体现年级、学科与主题，方便后续管理。</li>
                             </ul>
                         </div>
@@ -243,7 +243,7 @@
                     
             </div>
             
-            <!-- 右侧：HTML 页面上传 -->
+            <!-- 右侧：网页文件上传 -->
             <div>
                 {% if task_ai_generated and task_html_ai_edit_remaining is not none and task_html_ai_edit_remaining > 0 and not task_html_ai_async_pending %}
                 <div class="card mb-4" style="position: sticky; top: 1rem;">
@@ -262,14 +262,14 @@
                 {% endif %}
                 <div class="card mb-4" style="position: sticky; top: 1rem;">
                     <div class="card-header">
-                        <h5 class="mb-0" style="color: white; font-weight: 600;">HTML 页面上传</h5>
+                        <h5 class="mb-0" style="color: white; font-weight: 600;">网页文件上传</h5>
                     </div>
                     <div class="card-body">
                         {% if task.html_analysis and task.html_analysis.startswith('【HTML分析失败】') %}
                         <div class="alert alert-danger mb-3" role="alert">
-                            <strong>上次 HTML 智能分析失败</strong>
+                            <strong>上次网页文件智能分析失败</strong>
                             <p class="mb-0 mt-2 small" style="white-space: pre-wrap;">{{ task.html_analysis }}</p>
-                            <p class="mb-0 mt-2 small text-muted">修正个人中心的模型与 API Key 后，点击本页「保存修改」或重新上传 HTML，可再次触发分析。</p>
+                            <p class="mb-0 mt-2 small text-muted">修正个人中心的模型与 API Key 后，点击本页「保存修改」或重新上传网页文件，可再次触发分析。</p>
                         </div>
                         {% endif %}
                         <!-- 已上传文件列表（需在 form 内提交，故用 form 的 id 通过 JS 关联） -->
@@ -307,7 +307,7 @@
                              onclick="document.getElementById('html-file-input-edit').click()">
                             <input type="file" id="html-file-input-edit" name="files" accept=".html,.htm" multiple style="display: none;" onchange="handleFileSelectEdit(event)">
                             <div id="upload-text-edit">
-                                <p class="mb-2" style="color: #6b7280; font-weight: 500; margin: 0;">将 HTML 文件拖拽到此处</p>
+                                <p class="mb-2" style="color: #6b7280; font-weight: 500; margin: 0;">将网页文件拖拽到此处</p>
                                 <p class="mb-3" style="color: #9ca3af; font-size: 0.875rem; margin: 0;">或点击下方按钮从本地选择文件</p>
                                 <button type="button" class="btn btn-primary btn-sm">选择文件</button>
                             </div>
@@ -317,7 +317,7 @@
                             </div>
                         </div>
                         <small class="form-text text-muted d-block mt-2" style="color: #9ca3af;">
-                            <i class="bi bi-info-circle"></i> 支持最多 10 个 HTML/HTM 文件，单个文件不超过 4MB，重新上传会自动更新分析结果。
+                            <i class="bi bi-info-circle"></i> 支持最多 10 个网页文件（HTML/HTM），单个文件不超过 4MB，重新上传会自动更新分析结果。
                         </small>
                     </div>
                 </div>

@@ -6117,7 +6117,7 @@ def smart_analyze(task_id):
                     flash('无法启动数据大屏生成，请稍后重试。', 'danger')
                     return redirect(url_for('quickform.smart_analyze', task_id=task.id))
 
-            # 检查是仅保存模板还是生成报告；report_action：generate 或 polish_and_generate
+            # 检查是仅保存模板还是生成报告
             action = request.form.get('action', 'generate')  # 'save_template' 或 'generate'
             report_action = request.form.get('report_action', 'generate')
             
@@ -6188,21 +6188,6 @@ def smart_analyze(task_id):
                     user_template=user_template_val,
                     interface_desc=interface_desc or None
                 )
-            
-            # 若为「润色提示词并生成报告」，先调用 AI 润色提示词再生成
-            if report_action == 'polish_and_generate' and custom_prompt:
-                try:
-                    polish_prompt = (
-                        "请将以下数据分析需求改写成一条更清晰、专业、便于大模型执行的分析提示词。"
-                        "只输出润色后的完整提示词内容，不要输出解释或前缀。\n\n" + custom_prompt
-                    )
-                    polished = call_ai_model(
-                        polish_prompt, ai_config, chat_server_model=get_chat_server_model_light()
-                    )
-                    if polished and polished.strip():
-                        custom_prompt = polished
-                except Exception as e:
-                    logger.warning(f"润色提示词失败，将使用原提示词: {e}")
             
             # 保存完整提示词（用于兼容旧代码）
             # MySQL TEXT 列约 64KB，超长提示词会触发 1406 Data too long。
