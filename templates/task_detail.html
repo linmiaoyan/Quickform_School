@@ -174,7 +174,7 @@
                         </a>
                         {% if can_edit_task %}
                         <a href="{{ url_for('quickform.edit_task', task_id=task.id) }}#html-upload-area-edit" class="btn btn-sm btn-outline-primary" id="qf-onboard-upload-html">
-                            <i class="bi bi-upload"></i> 上传 HTML
+                            <i class="bi bi-upload"></i> 上传网页文件
                         </a>
                         {% endif %}
                     </div>
@@ -197,7 +197,7 @@
                     {% if html_files and html_files|length > 0 %}
                     <div class="alert alert-success mb-2" id="qf-onboard-qrcode-area">
                         <div class="mb-2">
-                            <strong>已上传的HTML文件：（点击文件名右侧查看网址对应二维码）</strong>
+                            <strong>已上传的网页文件：（点击文件名右侧查看网址对应二维码）</strong>
                         </div>
                         <div class="d-flex flex-wrap gap-3">
                             {% for file in html_files %}
@@ -243,7 +243,7 @@
                     <div class="alert alert-danger mt-3" role="alert">
                         <strong>HTML 智能分析未成功</strong>
                         <p class="mb-0 mt-2 small" style="white-space: pre-wrap;">{{ task.html_analysis }}</p>
-                        <p class="mb-0 mt-2 small text-muted">请打开「个人中心」检查当前选用的 AI 模型与 API Key（例如 DeepSeek 是否余额不足、Key 是否过期），修正后可在「编辑任务」中重新保存或再次上传 HTML，系统会重新尝试分析。</p>
+                        <p class="mb-0 mt-2 small text-muted">请打开「个人中心」检查当前选用的 AI 模型与 API Key（例如 DeepSeek 是否余额不足、Key 是否过期），修正后可在「编辑任务」中重新保存或再次上传网页文件，系统会重新尝试分析。</p>
                     </div>
                     {% endif %}
                 </div>
@@ -372,7 +372,7 @@
                             {# 无 HTML 时不允许申请公开（服务端也会二次校验） #}
                             {% set has_html_for_public = (task.file_name and task.file_name.lower().endswith('.html')) or (task.file_name and task.file_name.lower().endswith('.htm')) or (html_files and html_files|length > 0) %}
                             <input type="radio" class="btn-check" name="visibility" id="vis-public" value="public" {% if task.sharing_type == 'public' %}checked{% endif %} {% if not has_html_for_public %}disabled{% endif %}>
-                            <label class="btn {% if not has_html_for_public %}btn-outline-secondary text-muted{% else %}btn-outline-primary{% endif %}" for="vis-public" title="{% if not has_html_for_public %}需先上传 HTML 网页文件后才能公开{% else %}公开至平台上供交流学习{% endif %}">
+                            <label class="btn {% if not has_html_for_public %}btn-outline-secondary text-muted{% else %}btn-outline-primary{% endif %}" for="vis-public" title="{% if not has_html_for_public %}需先上传网页文件后才能公开{% else %}公开至平台上供交流学习{% endif %}">
                                 公开到项目交流
                             </label>
                         </div>
@@ -380,7 +380,7 @@
                             保存公开设置
                         </button>
                         <small class="text-muted d-block w-100 mt-1" style="font-size: 0.85rem;">
-                            只有通过教师认证的用户或管理员可申请公开；且需先上传 HTML 网页文件。申请后需管理员审核，通过后将在「项目交流」展示（任务名称、简介与网页）。
+                            只有通过教师认证的用户或管理员可申请公开；且需先上传网页文件。申请后需管理员审核，通过后将在「项目交流」展示（任务名称、简介与网页）。
                         </small>
                     </form>
                 </div>
@@ -832,12 +832,12 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
                                 <div class="fw-semibold mb-1">请确认你理解“公开任务”的含义：</div>
                                 <div class="mb-1">- 公开后，<strong>其他教师可以看到你的项目</strong>（任务名称、简介与网页）。</div>
                                 <div class="mb-1">- 公开后，别人可能会向该任务的数据接口提交一些数据；请提前做好数据备份与风控设置。</div>
-                                <div class="mb-0">- 上传 HTML 后，HTML 文件可通过公开链接在互联网上被访问。</div>
+                                <div class="mb-0">- 上传网页文件后，网页文件可通过公开链接在互联网上被访问。</div>
                             </div>
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="qfPublicConfirmAgree">
                                 <label class="form-check-label small" for="qfPublicConfirmAgree">
-                                    我已知晓上传HTML后别人就可以在互联网上看到我的HTML文件，【公开任务】是为了让其他教师看到并学习该任务
+                                    我已知晓上传网页文件后别人就可以在互联网上看到我的网页文件，【公开任务】是为了让其他教师看到并学习该任务
                                 </label>
                             </div>
                         </div>
