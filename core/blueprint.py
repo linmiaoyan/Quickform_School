@@ -39,7 +39,6 @@ import unicodedata
 import smtplib
 from email.mime.text import MIMEText
 from email.utils import formataddr, parseaddr
-import subprocess
 import csv
 
 
@@ -92,197 +91,18 @@ def _redirect_back(fallback_endpoint: str = 'quickform.community', **fallback_kw
         pass
     return redirect(url_for(fallback_endpoint, **(fallback_kwargs or {})))
 
-# ---------- 管理员：任务标题缓存 / 词云 / 轻量分类 ----------
-# 目标：
-# - 导出所有任务标题
-# - 首次构建后写入独立文件，后续读取不扫全库
-# - 提供“词云数据 + 简单分类统计”，尽量不消耗内存
-#
-# 说明：缓存为运行时文件，不纳入 git；默认过滤过短/低信息标题（见 ADMIN_TASK_TITLES_MIN_LEN）。
-# 注意：本模块在 import 时会执行到这里，而 _QUICKFORM_APP_ROOT 在后文才定义。
-# 因此这里不能依赖 _QUICKFORM_APP_ROOT，需用当前文件路径推导仓库根目录。
-_ADMIN_CACHE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'runtime_cache'))
-_ADMIN_TASK_TITLES_CACHE_PATH = os.path.join(_ADMIN_CACHE_DIR, 'admin_task_titles_cache.json')
-ADMIN_TASK_TITLES_MIN_LEN = int(os.getenv('ADMIN_TASK_TITLES_MIN_LEN', '4') or '4')
-ADMIN_TASK_TITLES_CACHE_MAX = int(os.getenv('ADMIN_TASK_TITLES_CACHE_MAX', '200000') or '200000')
-
-
-def _ensure_admin_cache_dir():
-    try:
-        os.makedirs(_ADMIN_CACHE_DIR, exist_ok=True)
-    except Exception:
-        pass
-
-
-def _clean_task_title(s: str) -> str:
-    try:
-        t = (s or '').strip()
-        if not t:
-            return ''
-        t = re.sub(r'\s+', ' ', t)
-        return t[:160]
-    except Exception:
-        return ''
-
-
-def _is_low_info_title(t: str, min_len: int = None) -> bool:
-    try:
-        ml = int(min_len) if min_len is not None else int(ADMIN_TASK_TITLES_MIN_LEN or 4)
-    except Exception:
-        ml = 4
-    if not t:
-        return True
-    if len(t) < ml:
-        return True
-    if re.fullmatch(r'[\W_]+', t):
-        return True
-    if re.fullmatch(r'\d+', t):
-        return True
-    return False
-
-
-def _load_task_titles_cache():
-    try:
-        if not os.path.exists(_ADMIN_TASK_TITLES_CACHE_PATH):
-            return None, None
-        with open(_ADMIN_TASK_TITLES_CACHE_PATH, 'r', encoding='utf-8') as f:
-            payload = json.load(f)
-        if not isinstance(payload, dict):
-            return None, None
-        titles = payload.get('titles') or []
-        if not isinstance(titles, list):
-            titles = []
-        return payload, titles
-    except Exception:
-        return None, None
-
-
-def _rebuild_task_titles_cache(db, force: bool = False):
-    _ensure_admin_cache_dir()
-    if not force:
-        payload, titles = _load_task_titles_cache()
-        if payload and isinstance(titles, list) and titles:
-            return payload
-
-    titles = []
-    total = 0
-    skipped = 0
-    try:
-        q = db.query(Task.title)
-        for r in q:
-            total += 1
-            raw = r[0] if isinstance(r, (list, tuple)) else getattr(r, 'title', None)
-            t = _clean_task_title(raw or '')
-            if _is_low_info_title(t):
-                skipped += 1
-                continue
-            titles.append(t)
-            if len(titles) >= int(ADMIN_TASK_TITLES_CACHE_MAX or 200000):
-                break
-    except Exception:
-        # 兜底：若查询失败，返回空缓存
-        pass
-
-    payload = {
-        'generated_at': datetime.now().isoformat(timespec='seconds'),
-        'total_tasks_scanned': int(total),
-        'min_len': int(ADMIN_TASK_TITLES_MIN_LEN or 4),
-        'skipped_low_info': int(skipped),
-        'titles_count': int(len(titles)),
-        'titles': titles,
-    }
-    try:
-        tmp_path = _ADMIN_TASK_TITLES_CACHE_PATH + '.tmp'
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False)
-        os.replace(tmp_path, _ADMIN_TASK_TITLES_CACHE_PATH)
-    except Exception:
-        pass
-    return payload
-
-
-_TITLE_STOPWORDS = {
-    '的', '了', '和', '与', '及', '或', '在', '对', '为', '及其', '以及', '一个', '一种', '如何', '为什么',
-    '练习', '测试', '测验', '作业', '答案', '题', '题目', '试题', '试卷', '单元', '期中', '期末',
-    '（', '）', '(', ')', '-', '_', '/', '\\', '|', ':', '：', ',', '，', '.', '。', '、',
-}
-
-
-def _tokenize_title_light(t: str):
-    """零依赖轻量分词：抽取中文连续片段与英文/数字词。"""
-    if not t:
-        return []
-    t = t.lower()
-    # 中文片段
-    zh = re.findall(r'[\u4e00-\u9fff]{2,}', t)
-    en = re.findall(r'[a-z0-9]{3,}', t)
-    toks = zh + en
-    out = []
-    for x in toks:
-        x = x.strip()
-        if not x:
-            continue
-        if x in _TITLE_STOPWORDS:
-            continue
-        out.append(x)
-    return out
-
-
-def _classify_title_light(t: str):
-    """简单规则分类：根据关键词命中返回分类名。"""
-    s = (t or '').lower()
-    rules = [
-        ('英语/外语', ['英语', 'english', '听力', '口语', '阅读', '作文', '词汇', '语法']),
-        ('理科/数学', ['数学', '几何', '代数', '函数', '方程', '数列', '概率', '统计']),
-        ('理科/物理', ['物理', '力学', '电学', '磁', '光学', '热学']),
-        ('理科/化学', ['化学', '酸', '碱', '氧化', '还原', '离子', '元素', '反应', '溶液']),
-        ('文科/语文', ['语文', '阅读理解', '古诗', '文言', '作文', '写作', '修辞']),
-        ('文科/历史', ['历史', '朝代', '战争', '革命', '史']),
-        ('文科/地理', ['地理', '气候', '地形', '人口', '城市', '地图']),
-        ('生物/科学', ['生物', '细胞', '遗传', '生态', '科学', '实验']),
-        ('通知/活动', ['通知', '报名', '活动', '会议', '安排']),
-        ('数据/隐私', ['数据', '隐私', '保护', '协议', '条款']),
-    ]
-    for cat, keys in rules:
-        for k in keys:
-            if k in s:
-                return cat
-    if any(x in s for x in ['测试', '测验', '试卷', '试题', '题库']):
-        return '测评/试卷'
-    return '其他'
-
-
-def _analyze_titles_light(titles, top_n: int = 60):
-    """返回：词频 topN + 分类计数 + 质量过滤信息。"""
-    from collections import Counter, defaultdict
-    word_counter = Counter()
-    cat_counter = Counter()
-    examples_by_cat = defaultdict(list)
-    for t in titles:
-        cat = _classify_title_light(t)
-        cat_counter[cat] += 1
-        if len(examples_by_cat[cat]) < 3:
-            examples_by_cat[cat].append(t)
-        for tok in _tokenize_title_light(t):
-            word_counter[tok] += 1
-    top_words = [{'word': w, 'count': int(c)} for w, c in word_counter.most_common(max(5, int(top_n or 60)))]
-    cats = [{'category': k, 'count': int(v), 'examples': examples_by_cat.get(k, [])} for k, v in cat_counter.most_common()]
-    return top_words, cats
-
-
-def _analyze_task_titles(titles, top_n: int = 60):
-    """兼容别名：历史实现中路由调用了 _analyze_task_titles。"""
-    return _analyze_titles_light(titles, top_n=top_n)
+# 管理员：任务标题文件缓存、词云与轻量分类
+from . import admin_task_titles as _admin_task_titles  # noqa: E402
+ADMIN_TASK_TITLES_MIN_LEN = _admin_task_titles.ADMIN_TASK_TITLES_MIN_LEN
+ADMIN_TASK_TITLES_CACHE_MAX = _admin_task_titles.ADMIN_TASK_TITLES_CACHE_MAX
+_rebuild_task_titles_cache = _admin_task_titles._rebuild_task_titles_cache
+_load_task_titles_cache = _admin_task_titles._load_task_titles_cache
+_analyze_task_titles = _admin_task_titles._analyze_task_titles
+_is_low_info_title = _admin_task_titles._is_low_info_title
+_clean_task_title = _admin_task_titles._clean_task_title
 
 # ---------- 服务就绪标记（用于维护页兜底）----------
 _QUICKFORM_READY = False
-
-# ---------- 更新日志（git log）缓存 ----------
-_CHANGELOG_CACHE = {
-    'ts': 0.0,
-    'items': [],  # [{hash, date, subject, commit_url}]
-    'error': '',
-}
 
 # ---------- 实时在线（应用层“当前正在处理的网页请求”） ----------
 _ONLINE_LOCK = threading.Lock()
@@ -415,52 +235,6 @@ def _online_active_count(window_seconds: float = None) -> int:
                 except KeyError:
                     pass
         return len(_ONLINE_ACTIVE)
-
-
-def _read_git_changelog(limit: int = 120):
-    """从 git log 读取更新日志（短哈希+日期+标题）。若运行环境无 .git 则返回空并带 error。"""
-    now_ts = time.time()
-    ttl = 120.0  # 2 min cache
-    try:
-        if _CHANGELOG_CACHE.get('items') and (now_ts - float(_CHANGELOG_CACHE.get('ts') or 0.0) < ttl):
-            return _CHANGELOG_CACHE.get('items') or [], _CHANGELOG_CACHE.get('error') or ''
-    except Exception:
-        pass
-
-    items = []
-    err = ''
-    try:
-        repo_root = _QUICKFORM_APP_ROOT  # core/..，一般即仓库根
-        cmd = ['git', 'log', f'-n{max(1, int(limit))}', '--date=short', '--pretty=format:%h\t%ad\t%s']
-        p = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=2.5)
-        if p.returncode != 0:
-            raise RuntimeError((p.stderr or p.stdout or 'git log failed').strip())
-        out = (p.stdout or '').strip()
-        if out:
-            for line in out.splitlines():
-                parts = line.split('\t', 2)
-                if len(parts) < 3:
-                    continue
-                h, d, s = parts[0].strip(), parts[1].strip(), parts[2].strip()
-                if not h:
-                    continue
-                items.append({
-                    'hash': h,
-                    'date': d,
-                    'subject': s,
-                    'commit_url': f'https://github.com/wstlab/quickform/commit/{h}',
-                })
-    except Exception as ex:
-        err = f'无法读取 git 更新日志：{str(ex)}'
-        items = []
-
-    try:
-        _CHANGELOG_CACHE['ts'] = now_ts
-        _CHANGELOG_CACHE['items'] = items
-        _CHANGELOG_CACHE['error'] = err
-    except Exception:
-        pass
-    return items, err
 
 # 加载环境变量
 load_dotenv()
@@ -878,6 +652,11 @@ def parse_urlencoded(raw_data):
 # 数据库初始化已迁移到 core/db.py（校园版：PostgreSQL-only，新库起步）
 from core.db import engine, SessionLocal  # noqa: E402
 
+
+def _init_database():
+    """向后兼容：旧脚本曾调用以初始化库；现由 core.db 在 import 时完成。"""
+    return SessionLocal, engine
+
 MODEL_LABELS = {
     'chat_server': '硅基流动',
     'deepseek': 'DeepSeek',
@@ -889,7 +668,7 @@ MODEL_LABELS = {
     'openrouter': 'OpenRouter'
 }
 
-# 注意：engine和SessionLocal现在在_init_database()函数中初始化
+# engine / SessionLocal 由 core.db 在 import 时初始化；`_init_database` 供旧脚本兼容
 
 # 全局变量（将在init函数中设置）
 bcrypt = None
