@@ -165,22 +165,9 @@ bcrypt = Bcrypt(app)
 # 导入模型
 from core.models import Base, User, Task, Submission, AIConfig
 
-# 数据库配置 - 优先检查MySQL配置，如果配置了MySQL就使用MySQL
-MYSQL_HOST = os.getenv('MYSQL_HOST', '')
-MYSQL_USER = os.getenv('MYSQL_USER', '')
-MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '')
-MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', 'quickform')
-
-# 如果环境变量中明确指定了DATABASE_TYPE，使用指定的类型
-# 否则，如果MySQL配置完整，优先使用MySQL；否则使用SQLite
-if os.getenv('DATABASE_TYPE'):
-    DATABASE_TYPE = os.getenv('DATABASE_TYPE', 'sqlite')
-elif MYSQL_HOST and MYSQL_USER and MYSQL_PASSWORD:
-    DATABASE_TYPE = 'mysql'
-    logger.info("检测到 MySQL 配置，将使用 MySQL 数据库")
-else:
-    DATABASE_TYPE = 'sqlite'
-    logger.info("未检测到 MySQL 配置，将使用 SQLite 数据库")
+# 数据库配置（校园版：PostgreSQL 起步）
+# DATABASE_TYPE 仍保留参数位以兼容 init_quickform_async 的签名，但 blueprint 内会按 postgresql 初始化。
+DATABASE_TYPE = os.getenv('DATABASE_TYPE', 'postgres')
 
 # 导入并注册QuickForm Blueprint
 from core import blueprint as quickform_blueprint

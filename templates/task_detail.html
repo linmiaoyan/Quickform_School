@@ -264,81 +264,8 @@
             </div>
         </div>
 
-        {% if quota_ui %}
-        {% set pct_r = (quota_ui.all_count * 100.0 / quota_ui.max_reads) if quota_ui.max_reads else 0 %}
-        {% set pct_b = (quota_ui.all_bytes * 100.0 / quota_ui.max_bytes) if quota_ui.max_bytes else 0 %}
-        {% set w_r = pct_r if pct_r < 100 else 100 %}
-        {% set w_b = pct_b if pct_b < 100 else 100 %}
-        <style>
-        .qf-q-row { font-size: 0.8125rem; color: #64748b; }
-        .qf-q-bar { height: 5px; background: #eef2f7; border-radius: 3px; overflow: hidden; margin-top: 4px; }
-        .qf-q-metrics-line { flex-wrap: wrap; column-gap: 0.75rem; row-gap: 0.15rem; }
-        .qf-q-fill { height: 100%; border-radius: 3px; transition: width .2s ease; }
-        .qf-q-fill.qf-ok { background: rgba(148, 163, 184, 0.28); }
-        .qf-q-fill.qf-warn { background: rgba(251, 191, 36, 0.5); }
-        .qf-q-fill.qf-over { background: rgba(248, 113, 113, 0.85); }
-        </style>
-        <div class="card border mb-3" style="background: #f9fafb; border-color: #e5e7eb !important;">
-            <div class="card-body py-2 px-3">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
-                    <span class="qf-q-row mb-0"><strong style="color:#475569;font-weight:600;">数据接口用量</strong><i class="bi bi-question-circle text-secondary ms-1 align-middle" style="cursor: help; font-size: 0.95rem;" title="日常收数、网页填表使用默认接口即可，一般不必操心额度。此处展示的是「全量接口 /all」的用量（常见于数据大屏等需要一次性拉取全部数据的场景）；仅在 /all 被频繁调用并提示超限时，再申请加额即可。" aria-label="说明：日常收数一般不必担心额度；此处为全量接口 /all（如数据大屏）用量，超限时再申请加额。"></i>（GET 合计 <strong>{{ quota_ui.total_get }}</strong>：轻量 {{ quota_ui.get_count }} + /all {{ quota_ui.all_count }}）</span>
-                    {% if can_request_quota_relief %}
-                    <div class="d-flex flex-wrap align-items-center gap-1">
-                        {% if quota_ui.pending %}
-                        <span class="badge bg-warning text-dark">加额申请审核中</span>
-                        {% else %}
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quotaRequestModal-{{ task.id }}">申请加额</button>
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                </div>
-                <div class="qf-q-row d-flex align-items-baseline qf-q-metrics-line">
-                    <span>/all 读取 <strong>{{ quota_ui.all_count }}</strong> / {{ quota_ui.max_reads }} 次</span>
-                    <span class="text-muted user-select-none" aria-hidden="true">·</span>
-                    <span>/all 流量 <strong>{{ (quota_ui.all_bytes / 1024 / 1024) | round(2) }}</strong> / {{ (quota_ui.max_bytes / 1024 / 1024) | round(0) | int }} MB</span>
-                </div>
-                <div class="row g-2 g-sm-3 mt-0">
-                    <div class="col-6">
-                        <div class="qf-q-bar" title="/all 读取进度"><div class="qf-q-fill {% if pct_r >= 100 %}qf-over{% elif pct_r >= 85 %}qf-warn{% else %}qf-ok{% endif %}" style="width: {{ w_r }}%;"></div></div>
-                    </div>
-                    <div class="col-6">
-                        <div class="qf-q-bar" title="/all 流量进度"><div class="qf-q-fill {% if pct_b >= 100 %}qf-over{% elif pct_b >= 85 %}qf-warn{% else %}qf-ok{% endif %}" style="width: {{ w_b }}%;"></div></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        {% if can_request_quota_relief and not quota_ui.pending %}
-        <div class="modal fade" id="quotaRequestModal-{{ task.id }}" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content">
-                    <form method="post" action="{{ url_for('quickform.task_quota_request_submit', task_id=task.id) }}">
-                        <div class="modal-header">
-                            <h5 class="modal-title">申请加额</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div class="mb-3">
-                                <label class="form-label" for="quotaReqReads-{{ task.id }}">次数</label>
-                                <input type="number" class="form-control" id="quotaReqReads-{{ task.id }}" name="requested_extra_reads" min="0" required placeholder="例如 2000">
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label" for="quotaReqMb-{{ task.id }}">流量（MB）</label>
-                                <input type="number" class="form-control" id="quotaReqMb-{{ task.id }}" name="requested_extra_mb" min="0" required placeholder="例如 100">
-                            </div>
-                            <div class="mb-0">
-                                <label class="form-label" for="quotaReqNote-{{ task.id }}">理由</label>
-                                <textarea class="form-control" id="quotaReqNote-{{ task.id }}" name="applicant_note" rows="3" minlength="2" required placeholder="请说明用途和场景"></textarea>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
-                            <button type="submit" class="btn btn-primary">提交申请</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-        {% endif %}
+        {% if false %}
+        <div></div>
         {% endif %}
         
         <!-- 共享管理卡片（仅任务所有者且已登录时显示） -->
