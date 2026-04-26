@@ -2710,76 +2710,6 @@ def task_detail(task_id):
         db.close()
 
 
-@quickform_bp.route('/task/<int:task_id>/submission_manage_code/generate', methods=['POST'])
-@login_required
-def generate_submission_manage_code(task_id):
-    """为任务生成或重置删改认证码。"""
-    db = SessionLocal()
-    try:
-        task = db.get(Task, task_id)
-        if not task:
-            flash('任务不存在', 'danger')
-            return redirect(url_for('quickform.dashboard'))
-        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-        org_mem = db.query(OrganizationMember).filter_by(
-            organization_id=task.organization_id, user_id=current_user.id
-        ).first() if task.organization_id else None
-        can_edit = (
-            current_user.is_admin() or task.user_id == current_user.id or
-            (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
-            (share_rec and share_rec.can_edit)
-        )
-        if not can_edit:
-            flash('无权为该任务生成删改认证码', 'danger')
-            return redirect(url_for('quickform.task_detail', task_id=task.id))
-        task.submission_manage_code = _generate_submission_manage_code()
-        db.commit()
-        flash('已生成新的删改认证码。请妥善保存，后续可用于带码删改提交数据。', 'success')
-        return redirect(url_for('quickform.task_detail', task_id=task.id, show_manage_code_tip=1))
-    except Exception as e:
-        db.rollback()
-        logger.exception('generate_submission_manage_code failed: %s', e)
-        flash('生成删改认证码失败，请稍后重试。', 'danger')
-        return redirect(url_for('quickform.task_detail', task_id=task_id))
-    finally:
-        db.close()
-
-
-@quickform_bp.route('/task/<int:task_id>/submission_manage_code/disable', methods=['POST'])
-@login_required
-def disable_submission_manage_code(task_id):
-    """关闭/停用任务删改认证码（清空）。"""
-    db = SessionLocal()
-    try:
-        task = db.get(Task, task_id)
-        if not task:
-            flash('任务不存在', 'danger')
-            return redirect(url_for('quickform.dashboard'))
-        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-        org_mem = db.query(OrganizationMember).filter_by(
-            organization_id=task.organization_id, user_id=current_user.id
-        ).first() if task.organization_id else None
-        can_edit = (
-            current_user.is_admin() or task.user_id == current_user.id or
-            (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
-            (share_rec and share_rec.can_edit)
-        )
-        if not can_edit:
-            flash('无权关闭该任务的删改认证码', 'danger')
-            return redirect(url_for('quickform.task_detail', task_id=task.id))
-        task.submission_manage_code = None
-        db.commit()
-        flash('已关闭删改认证码。后续带码删改请求将不再允许。', 'success')
-        return redirect(url_for('quickform.task_detail', task_id=task.id))
-    except Exception as e:
-        db.rollback()
-        logger.exception('disable_submission_manage_code failed: %s', e)
-        flash('关闭删改认证码失败，请稍后重试。', 'danger')
-        return redirect(url_for('quickform.task_detail', task_id=task_id))
-    finally:
-        db.close()
-
-
 ## 校园版：移除配额/加额相关功能（只统计不限制）
 
 
@@ -3721,27 +3651,10 @@ def _submit_duplicate_payload_check(task_id: str, client_fp: str, now_ts: float,
         return False
 
 
-def _generate_submission_manage_code() -> str:
-    """生成任务级删改认证码。"""
-    # 生成更长随机串，降低被猜测/爆破风险（约 32+ chars）
-    return secrets.token_urlsafe(24)
-
-
-def _extract_submission_manage_code() -> str:
-    """从查询参数、表单或请求头中提取删改认证码。"""
-    return (
-        (request.args.get('edit_code') or '').strip()
-        or (request.form.get('edit_code') or '').strip()
-        or (request.headers.get('X-QuickForm-Edit-Code') or '').strip()
-    )
-
-
-def _can_manage_task_submissions(db, task, auth_code: str = ''):
-    """是否允许删改任务提交：教师原有编辑权限，或提供正确的任务删改认证码。"""
+def _can_manage_task_submissions(db, task):
+    """是否允许删改任务提交：仅限拥有编辑权限的账号。"""
     if not task:
         return False
-    if auth_code and getattr(task, 'submission_manage_code', None):
-        return secrets.compare_digest((task.submission_manage_code or '').strip(), auth_code.strip())
     if not getattr(current_user, 'is_authenticated', False):
         return False
     share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
@@ -9006,7 +8919,6 @@ def remove_submission(task_id):
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
     submission_id = request.args.get('submission_id', type=int)
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -9016,7 +8928,7 @@ def remove_submission(task_id):
 
     logger.info(
         f"[remove_submission] GET user={getattr(current_user, 'id', None)} "
-        f"task={task_id} submission={submission_id} ip={client_ip} code={'yes' if auth_code else 'no'}"
+        f"task={task_id} submission={submission_id} ip={client_ip}"
     )
     try:
         if not _manage_rate_limit_check(task_id):
@@ -9024,15 +8936,15 @@ def remove_submission(task_id):
         task = db.get(Task, task_id)
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
-        can_edit = _can_manage_task_submissions(db, task, auth_code)
+        can_edit = _can_manage_task_submissions(db, task)
         if not can_edit:
             logger.warning(
                 f"[remove_submission] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
             )
-            return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
-        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
-        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+            return make_response({'success': False, 'message': '无权删除此任务的数据，请使用有编辑权限的账号在页面内操作。'}, 403)
+        # 降低 CSRF 风险：要求 XHR 头
+        if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
         if not submission_id:
             logger.warning(f"[remove_submission] missing submission_id task={task_id}")
             return make_response({'success': False, 'message': '缺少提交ID'}, 400)
@@ -9067,7 +8979,6 @@ def remove_submissions_batch(task_id):
     """批量删除提交数据（用于页面多选删除）。"""
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -9082,16 +8993,16 @@ def remove_submissions_batch(task_id):
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
 
-        can_edit = _can_manage_task_submissions(db, task, auth_code)
+        can_edit = _can_manage_task_submissions(db, task)
         if not can_edit:
             logger.warning(
                 f"[remove_submissions_batch] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
             )
-            return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
+            return make_response({'success': False, 'message': '无权删除此任务的数据，请使用有编辑权限的账号在页面内操作。'}, 403)
 
-        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
-        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+        # 降低 CSRF 风险：要求 XHR 头
+        if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
 
         submission_ids = []
         if request.is_json:
@@ -9128,8 +9039,8 @@ def remove_submissions_batch(task_id):
         _invalidate_task_read_cache(task.task_id)
         _invalidate_task_data_cache(task.id)
         logger.info(
-            "[remove_submissions_batch] success user=%s task=%s count=%s ip=%s code=%s",
-            getattr(current_user, 'id', None), task_id, len(to_del), client_ip, 'yes' if auth_code else 'no'
+            "[remove_submissions_batch] success user=%s task=%s count=%s ip=%s",
+            getattr(current_user, 'id', None), task_id, len(to_del), client_ip
         )
         return make_response({'success': True, 'message': f'已删除 {len(to_del)} 条提交记录', 'deleted': len(to_del)})
     except Exception as e:
@@ -9142,10 +9053,9 @@ def remove_submissions_batch(task_id):
 
 @quickform_bp.route('/task/<int:task_id>/submission/update', methods=['POST'])
 def update_submission(task_id):
-    """修改单条提交数据（允许编辑权限账号或携带任务删改认证码）。"""
+    """修改单条提交数据（仅允许编辑权限账号）。"""
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -9160,16 +9070,16 @@ def update_submission(task_id):
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
 
-        can_edit = _can_manage_task_submissions(db, task, auth_code)
+        can_edit = _can_manage_task_submissions(db, task)
         if not can_edit:
             logger.warning(
-                "[update_submission] forbidden task=%s ip=%s code=%s",
-                task_id, client_ip, 'yes' if auth_code else 'no'
+                "[update_submission] forbidden task=%s ip=%s",
+                task_id, client_ip
             )
-            return make_response({'success': False, 'message': '无权修改此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
-        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
-        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+            return make_response({'success': False, 'message': '无权修改此任务的数据，请使用有编辑权限的账号在页面内操作。'}, 403)
+        # 降低 CSRF 风险：要求 XHR 头
+        if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
 
         payload = None
         if request.is_json:
@@ -9239,7 +9149,6 @@ def clear_all_submissions(task_id):
     """删除任务的所有提交数据（支持DELETE与GET降级）"""
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -9248,7 +9157,7 @@ def clear_all_submissions(task_id):
         return resp
 
     logger.info(
-        f"[clear_all_submissions] GET user={getattr(current_user, 'id', None)} task={task_id} ip={client_ip} code={'yes' if auth_code else 'no'}"
+        f"[clear_all_submissions] GET user={getattr(current_user, 'id', None)} task={task_id} ip={client_ip}"
     )
     task_clear_lock = _get_submission_clear_lock(task_id)
     try:
@@ -9258,14 +9167,14 @@ def clear_all_submissions(task_id):
             task = db.get(Task, task_id)
             if not task:
                 return make_response({'success': False, 'message': '任务不存在'}, 404)
-            can_edit = _can_manage_task_submissions(db, task, auth_code)
+            can_edit = _can_manage_task_submissions(db, task)
             if not can_edit:
                 logger.warning(
                     f"[clear_all_submissions] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
                 )
-                return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
-            if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-                return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+                return make_response({'success': False, 'message': '无权删除此任务的数据，请使用有编辑权限的账号。'}, 403)
+            if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+                return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
 
             submission_ids = [
                 row[0]
@@ -9325,7 +9234,6 @@ def clear_submissions_by_date_range(task_id):
     db = SessionLocal()
     date_start_s = request.args.get('date_start', '').strip()
     date_end_s = request.args.get('date_end', '').strip()
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -9341,11 +9249,11 @@ def clear_submissions_by_date_range(task_id):
             task = db.get(Task, task_id)
             if not task:
                 return make_response({'success': False, 'message': '任务不存在'}, 404)
-            can_edit = _can_manage_task_submissions(db, task, auth_code)
+            can_edit = _can_manage_task_submissions(db, task)
             if not can_edit:
-                return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
-            if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-                return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+                return make_response({'success': False, 'message': '无权删除此任务的数据，请使用有编辑权限的账号。'}, 403)
+            if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+                return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
             if not date_start_s or not date_end_s:
                 return make_response({'success': False, 'message': '请填写开始日期和结束日期'}, 400)
             try:

@@ -441,11 +441,6 @@
                                     <button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#qfApiConnectivityTest" aria-expanded="false" aria-controls="qfApiConnectivityTest">
                                         <i class="bi bi-wifi"></i> 无法连接？测试一下API的联通情况
                                     </button>
-                                    {% if can_edit_task %}
-                                    <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#qfManageCodeCollapse" aria-expanded="false" aria-controls="qfManageCodeCollapse">
-                                        <i class="bi bi-shield-lock"></i> 想要生成的网页可以删改数据？
-                                    </button>
-                                    {% endif %}
                                 </div>
 
                                 <div class="collapse mt-3" id="qfApiConnectivityTest">
@@ -491,34 +486,6 @@
                                     </div>
                                 </div>
 
-                                {% if can_edit_task %}
-                                <div class="collapse mt-3" id="qfManageCodeCollapse">
-                                    <div class="alert alert-light border small py-2 px-3 mb-0">
-                                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                                            <div><strong>删改认证码</strong></div>
-                                            <div class="d-flex align-items-center gap-2">
-                                                <form method="POST" action="{{ url_for('quickform.generate_submission_manage_code', task_id=task.id) }}" class="m-0" id="manage-code-generate-form">
-                                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="openManageCodeDisclaimer()">{{ '重新生成' if task.submission_manage_code else '生成认证码' }}</button>
-                                                </form>
-                                                {% if task.submission_manage_code %}
-                                                <form method="POST" action="{{ url_for('quickform.disable_submission_manage_code', task_id=task.id) }}" class="m-0"
-                                                      onsubmit="return confirm('确定要关闭删改认证码吗？关闭后，带码删改将立即失效。');">
-                                                    <button type="submit" class="btn btn-outline-danger btn-sm">关闭</button>
-                                                </form>
-                                                {% endif %}
-                                            </div>
-                                        </div>
-                                        <div class="mt-2 text-muted">默认不启用。生成后，可以删改已收集得到的数据</div>
-                                        {% if task.submission_manage_code %}
-                                        <div class="input-group input-group-sm mt-2">
-                                            <input type="password" class="form-control" id="submission-manage-code" value="{{ task.submission_manage_code }}" readonly>
-                                            <button type="button" class="btn btn-outline-secondary" onclick="toggleSecretVisible('submission-manage-code', this)">显示</button>
-                                            <button type="button" class="btn btn-outline-secondary" onclick="copyInputValue('submission-manage-code', this)">复制</button>
-                                        </div>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -562,81 +529,6 @@
     </div>
 </div>
 
-{% if can_edit_task and task.submission_manage_code and request.args.get('show_manage_code_tip') %}
-<div class="modal fade" id="manageCodeTipModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">已启用删改认证码</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-success mb-3">
-                    <strong>一句话说明：</strong>以后删除/清空数据时，除了“有编辑权限的账号”，也可以在请求里带上这串认证码来通过校验（别泄露给学生）。
-                </div>
-
-                <div class="mb-2"><strong>给大模型的说明（可直接复制）</strong></div>
-                <div class="input-group">
-                    <textarea class="form-control" id="manage-code-ai-prompt" rows="10" readonly style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px;">你正在使用 QuickForm 系统。现在我为任务启用了“删改认证码”，请在需要删除数据时按以下规则构造请求：
-
-【任务删改认证码】{{ task.submission_manage_code }}
-【任务ID】{{ task.id }}
-【任务对外 task_id】{{ task.task_id }}
-
-允许的删改接口（GET）：
-1) 删除单条：{{ api_base_url }}/task/{{ task.id }}/submission/remove?submission_id=<提交ID>&edit_code={{ task.submission_manage_code }}
-2) 清空全部：{{ api_base_url }}/task/{{ task.id }}/submissions/clear?edit_code={{ task.submission_manage_code }}
-3) 按日期范围删除：{{ api_base_url }}/task/{{ task.id }}/submissions/clear_by_range?date_start=YYYY-MM-DD&date_end=YYYY-MM-DD&edit_code={{ task.submission_manage_code }}
-
-修改单条（POST JSON）：
-POST {{ api_base_url }}/task/{{ task.id }}/submission/update
-Body: {"submission_id": <提交ID>, "data": <新的数据(字符串或JSON对象)>}
-
-也可以不用 query 参数，改用请求头：
-X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
-
-注意：
-- 不要把认证码暴露给学生或写进公开网页。
-- 提交接口（收数）是：{{ api_base_url }}/api/{{ task.task_id }}（POST）</textarea>
-                    <button class="btn btn-outline-primary" type="button" onclick="copyInputValue('manage-code-ai-prompt', this)">复制</button>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
-
-{% if can_edit_task %}
-<div class="modal fade" id="manageCodeDisclaimerModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">生成删改认证码前提示</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-warning mb-3">
-                    该功能用于允许携带认证码的请求删除、清空或修改本任务已收集的数据。请谨慎使用并妥善保管认证码，避免泄露。
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="manageCodeDisclaimerAgree">
-                    <label class="form-check-label" for="manageCodeDisclaimerAgree">
-                        我已知晓该功能的效果，并理解其对数据造成影响的责任由我自行承担。
-                    </label>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-primary" id="manageCodeDisclaimerConfirmBtn" onclick="confirmGenerateManageCode()" disabled>我已知晓，继续生成</button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
-
 {% block scripts %}
 <script src="{{ url_for('static', filename='vendor/introjs/intro.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/onboarding.js') }}"></script>
@@ -673,35 +565,6 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
             return;
         }
         copyTextValue(input.value || input.textContent || '', btn);
-    }
-
-    function toggleSecretVisible(inputId, btn) {
-        const input = document.getElementById(inputId);
-        if (!input || !btn) return;
-        const nextType = input.type === 'password' ? 'text' : 'password';
-        input.type = nextType;
-        btn.textContent = nextType === 'password' ? '显示' : '隐藏';
-    }
-
-    function openManageCodeDisclaimer() {
-        var modalEl = document.getElementById('manageCodeDisclaimerModal');
-        if (!modalEl || !window.bootstrap || !bootstrap.Modal) {
-            var fallback = confirm('该功能可允许携带认证码的请求删除、清空或修改已收集数据。请妥善保管认证码，避免泄露。\\n\\n我已知晓该功能影响，并愿意承担由此带来的数据影响责任。是否继续？');
-            if (fallback) {
-                var form = document.getElementById('manage-code-generate-form');
-                if (form) form.submit();
-            }
-            return;
-        }
-        var m = bootstrap.Modal.getOrCreateInstance(modalEl);
-        m.show();
-    }
-
-    function confirmGenerateManageCode() {
-        var agree = document.getElementById('manageCodeDisclaimerAgree');
-        if (!agree || !agree.checked) return;
-        var form = document.getElementById('manage-code-generate-form');
-        if (form) form.submit();
     }
 
     var QF_QR_LOGO_URL = {{ url_for('static', filename='quickform.png') | tojson }};
@@ -759,44 +622,7 @@ X-QuickForm-Edit-Code: {{ task.submission_manage_code }}
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        var disclaimerModal = document.getElementById('manageCodeDisclaimerModal');
-        var disclaimerAgree = document.getElementById('manageCodeDisclaimerAgree');
-        var disclaimerConfirmBtn = document.getElementById('manageCodeDisclaimerConfirmBtn');
-        if (disclaimerModal && disclaimerAgree && disclaimerConfirmBtn) {
-            function updateDisclaimerBtn() {
-                disclaimerConfirmBtn.disabled = !disclaimerAgree.checked;
-            }
-            disclaimerAgree.addEventListener('change', updateDisclaimerBtn);
-            disclaimerModal.addEventListener('shown.bs.modal', function () {
-                disclaimerAgree.checked = false;
-                updateDisclaimerBtn();
-            });
-            disclaimerModal.addEventListener('hidden.bs.modal', function () {
-                disclaimerAgree.checked = false;
-                updateDisclaimerBtn();
-            });
-            updateDisclaimerBtn();
-        }
-
-        var m = document.getElementById('manageCodeTipModal');
-        if (!m) return;
-        try {
-            // 强制挂到 body，避免被父容器 stacking context 影响，导致鼠标事件穿透/闪动
-            if (m.parentElement !== document.body) {
-                document.body.appendChild(m);
-            }
-            // 某些场景下关闭后可能残留 backdrop，导致页面发黑且不可交互
-            m.addEventListener('hidden.bs.modal', function () {
-                document.body.classList.remove('modal-open');
-                document.body.style.removeProperty('padding-right');
-                document.body.style.removeProperty('overflow');
-                document.querySelectorAll('.modal-backdrop').forEach(function (el) { el.remove(); });
-            });
-            var modal = new bootstrap.Modal(m);
-            modal.show();
-        } catch (e) {
-            // ignore
-        }
+        // no-op
     });
 
     // 公开项目确认：提交前弹窗 + 勾选框确认，避免误解“公开”含义

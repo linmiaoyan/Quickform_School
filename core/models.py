@@ -105,7 +105,7 @@ class Task(Base):
     # 外部URL与教程链接（扣子/豆包等分享链接）
     share_url = Column(String(500))  # 扣子编程、豆包编程等提供的分享URL
     tutorial_link = Column(String(500))  # 提示词分享链接，便于分享和后期查找
-    submission_manage_code = Column(String(64), nullable=True)  # 任务级删改认证码；为空表示未启用
+    # submission_manage_code removed in campus edition
     ai_generated = Column(Boolean, default=False)  # 是否为一键生成任务
     html_ai_edit_remaining = Column(Integer, nullable=True)  # 剩余可修改次数（3→2→1→0），非一键生成为 None
     # 一键生成异步：pending=后台生成中；failed=失败（见 oneclick_generation_error）；成功后可置 NULL
@@ -317,10 +317,5 @@ DEFAULT_ONECLICK_PROMPT_OPTIONS = [
         'opt_decorate',
         '内置页面装饰',
         '内置轻量样式即可：标题与表单分区清晰，卡片或表单区适度圆角、留白与浅阴影，配色简洁，保证可读、不花哨。',
-    ),
-    (
-        'opt_manage_code',
-        '删改功能（认证码）',
-        '补充一个“删改认证码（manage code）”可选输入框（默认隐藏/密码态），用于教师在需要时删除、清空或修改已提交数据。相关请求需携带认证码：可放在 query 参数 edit_code，或请求头 X-QuickForm-Edit-Code。请在页面上给出简短提示：该认证码应由任务创建者在任务详情页生成并妥善保管，不可暴露给学生。',
     ),
 ]

@@ -14,38 +14,6 @@
             </div>
         </div>
 
-        {% if can_edit_task and task.submission_manage_code %}
-        <div class="alert alert-info small">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div><strong>使用删改认证码删改数据</strong></div>
-                <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleManageCodeHelp()">展开/收起</button>
-            </div>
-            <div id="manageCodeHelp" class="mt-2" style="display:none;">
-                <div class="input-group input-group-sm mb-2" style="max-width: 520px;">
-                    <span class="input-group-text">认证码</span>
-                    <input type="password" class="form-control" id="manageCodeInput" value="{{ task.submission_manage_code }}" readonly>
-                    <button type="button" class="btn btn-outline-secondary" onclick="toggleSecretVisible('manageCodeInput', this)">显示</button>
-                    <button type="button" class="btn btn-outline-secondary" onclick="copyFromInput('manageCodeInput', this)">复制</button>
-                </div>
-                <div class="input-group">
-                    <textarea class="form-control" id="manageCodeAiPrompt" rows="6" readonly style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px;">QuickForm 任务删改说明（仅对本任务有效）：
-
-认证码：{{ task.submission_manage_code }}
-任务ID：{{ task.id }}
-
-删除单条（GET）：
-{{ api_base_url }}/task/{{ task.id }}/submission/remove?submission_id=<提交ID>&edit_code={{ task.submission_manage_code }}
-
-修改单条（POST JSON）：
-POST {{ api_base_url }}/task/{{ task.id }}/submission/update
-Body: {"submission_id": <提交ID>, "data": <新的数据(字符串或JSON对象)>}
-也可用请求头：X-QuickForm-Edit-Code: {{ task.submission_manage_code }}</textarea>
-                    <button class="btn btn-outline-primary" type="button" onclick="copyTextarea('manageCodeAiPrompt', this)">复制给大模型</button>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h5 class="mb-0" style="color: white; font-weight: 600;">{{ translate('task_detail.submission_list') }}（共 {{ total_submissions }} 条）</h5>
@@ -187,11 +155,6 @@ Body: {"submission_id": <提交ID>, "data": <新的数据(字符串或JSON对象
 {% endif %}
 
 <script>
-function toggleManageCodeHelp() {
-    var el = document.getElementById('manageCodeHelp');
-    if (!el) return;
-    el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
-}
 function toggleSecretVisible(inputId, btn) {
     var input = document.getElementById(inputId);
     if (!input || !btn) return;
