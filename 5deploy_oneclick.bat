@@ -12,7 +12,7 @@ REM ============================================
 cd /d "%~dp0"
 
 REM ---- 可配置项（默认匹配你当前环境） ----
-set "GITHUB_URL=https://github.com/quickform_school/quickform_school.git"
+set "GITHUB_URL=https://github.com/linmiaoyan/quickform_school.git"
 set "BRANCH=main"
 
 REM Watt Toolkit 代理（HTTP 代理，端口来自你截图：26561）

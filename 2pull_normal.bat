@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 chcp 65001 >nul
 
-set GITHUB_URL=https://github.com/quickform_school/quickform_school.git
+set GITHUB_URL=https://github.com/linmiaoyan/quickform_school.git
 
 echo ============================================
 echo 服务器代码更新
