@@ -79,7 +79,7 @@ if %errorlevel% equ 0 (
     echo [成功] 代码已推送到GitHub
     echo ============================================
     echo.
-    echo 仓库地址：https://github.com/quickform_school/quickform_school
+    echo 仓库地址：https://github.com/linmiaoyan/quickform_school
     echo.
 ) else (
     echo.

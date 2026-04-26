@@ -1202,56 +1202,56 @@ def changelog_page():
         {
             'date': '2026-04-16',
             'items': [
-                {'subject': 'CLI/接口侧能力更新（api 邀请）。', 'hash': '1f80870', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/1f808700c65901c736f5188e8472248392729fe7'},
-                {'subject': '接口相关调整（interface）。', 'hash': 'f082167', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/f082167a0accbd73250cd234a3173a12d555f490'},
-                {'subject': '管理员面板与统计卡片相关更新（admin dashboard）。', 'hash': 'f5d806c', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/f5d806c8dc163d927391ec1b2b7455030881c641'},
-                {'subject': '任务防护与批量删除相关更新（multi-del taskdefend）。', 'hash': 'fcf0437', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/fcf0437693f0984b77fa038fbc1cf971a2bf9921'},
+                {'subject': 'CLI/接口侧能力更新（api 邀请）。', 'hash': '1f80870', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/1f808700c65901c736f5188e8472248392729fe7'},
+                {'subject': '接口相关调整（interface）。', 'hash': 'f082167', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/f082167a0accbd73250cd234a3173a12d555f490'},
+                {'subject': '管理员面板与统计卡片相关更新（admin dashboard）。', 'hash': 'f5d806c', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/f5d806c8dc163d927391ec1b2b7455030881c641'},
+                {'subject': '任务防护与批量删除相关更新（multi-del taskdefend）。', 'hash': 'fcf0437', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/fcf0437693f0984b77fa038fbc1cf971a2bf9921'},
             ],
         },
         {
             'date': '2026-04-15',
             'items': [
-                {'subject': '社区与认证流程相关更新（qfcode community certification）。', 'hash': '2f3068a', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/2f3068aefdb51707b1b7f8893e3f24162f966276'},
+                {'subject': '社区与认证流程相关更新（qfcode community certification）。', 'hash': '2f3068a', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/2f3068aefdb51707b1b7f8893e3f24162f966276'},
             ],
         },
         {
             'date': '2026-04-12',
             'items': [
-                {'subject': '首页/入口与展示细节调整（index）。', 'hash': '6ac361c', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/6ac361c54d069321aa0bd8fb96ff664d6049202a'},
-                {'subject': '随机展示与阴影等 UI 细节优化（random shadow）。', 'hash': '5e65b05', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/5e65b054cb08af57b9e432b0b77a10fcc29d2464'},
+                {'subject': '首页/入口与展示细节调整（index）。', 'hash': '6ac361c', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/6ac361c54d069321aa0bd8fb96ff664d6049202a'},
+                {'subject': '随机展示与阴影等 UI 细节优化（random shadow）。', 'hash': '5e65b05', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/5e65b054cb08af57b9e432b0b77a10fcc29d2464'},
             ],
         },
         {
             'date': '2026-04-10',
             'items': [
-                {'subject': '数据详情页与展示修复（data detail update bug）。', 'hash': '87a9bff', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/87a9bffb1c4af5209ac48383a1d72a1ba955e904'},
-                {'subject': '注册/登录相关测试与修复（sign up）。', 'hash': '47b7b3f', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/47b7b3f5c7cae8a3c4f335ccc29ce30f56323ca8'},
-                {'subject': 'API Key 长度与配置兼容（api key longer）。', 'hash': 'f62147f', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/f62147fdd2515017fb8f9bf4fb61885cc237440a'},
-                {'subject': '免责声明页面/文案更新（disclainer）。', 'hash': '81a608a', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/81a608afb29b8c4cbac3c830710a2ca3ca5517d3'},
+                {'subject': '数据详情页与展示修复（data detail update bug）。', 'hash': '87a9bff', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/87a9bffb1c4af5209ac48383a1d72a1ba955e904'},
+                {'subject': '注册/登录相关测试与修复（sign up）。', 'hash': '47b7b3f', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/47b7b3f5c7cae8a3c4f335ccc29ce30f56323ca8'},
+                {'subject': 'API Key 长度与配置兼容（api key longer）。', 'hash': 'f62147f', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/f62147fdd2515017fb8f9bf4fb61885cc237440a'},
+                {'subject': '免责声明页面/文案更新（disclainer）。', 'hash': '81a608a', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/81a608afb29b8c4cbac3c830710a2ca3ca5517d3'},
             ],
         },
         {
             'date': '2026-04-09',
             'items': [
-                {'subject': '全站 https 相关调整与修复。', 'hash': 'de1a52f', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/de1a52fad4af9712b45cf7473ef2400a84736f1c'},
-                {'subject': '用户指纹/风控与异常禁止修复（user fingerprint）。', 'hash': 'fd87ffa', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/fd87ffadccdcc0f89faae13fda5591c3b4a6f8d1'},
-                {'subject': '一键操作与错误修复（one click / error fix）。', 'hash': '71f922b', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/71f922b8bff7190e3a79d00c92be7e6056458999'},
-                {'subject': 'waitress 与按钮灰度等细节修复。', 'hash': '1ac9681', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/1ac9681a7f39ab85dbcf7ebd8861341bc8f5be54'},
+                {'subject': '全站 https 相关调整与修复。', 'hash': 'de1a52f', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/de1a52fad4af9712b45cf7473ef2400a84736f1c'},
+                {'subject': '用户指纹/风控与异常禁止修复（user fingerprint）。', 'hash': 'fd87ffa', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/fd87ffadccdcc0f89faae13fda5591c3b4a6f8d1'},
+                {'subject': '一键操作与错误修复（one click / error fix）。', 'hash': '71f922b', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/71f922b8bff7190e3a79d00c92be7e6056458999'},
+                {'subject': 'waitress 与按钮灰度等细节修复。', 'hash': '1ac9681', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/1ac9681a7f39ab85dbcf7ebd8861341bc8f5be54'},
             ],
         },
         {
             'date': '2026-04-08',
             'items': [
-                {'subject': '主色渐变与 UI 更新（UI gradient / UI update）。', 'hash': 'bb24de2', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/bb24de2632eb0e5288fc26b2d4a994270ff47e45'},
-                {'subject': '服务端运行与 waitress 相关更新。', 'hash': '5750c89', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/5750c899d1eb697b1118d4c407f7b2a8ace6a642'},
+                {'subject': '主色渐变与 UI 更新（UI gradient / UI update）。', 'hash': 'bb24de2', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/bb24de2632eb0e5288fc26b2d4a994270ff47e45'},
+                {'subject': '服务端运行与 waitress 相关更新。', 'hash': '5750c89', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/5750c899d1eb697b1118d4c407f7b2a8ace6a642'},
             ],
         },
         {
             'date': '2026-04-07',
             'items': [
-                {'subject': '页面布局与多处 bugfix；社区选择与懒加载修复。', 'hash': '7cb72d0', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/7cb72d06f6ddb05062af1902a7eba081beba32f2'},
-                {'subject': '任务详情与加载优化（task detail / lazyload）。', 'hash': '3909a73', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/3909a73d9df64706e171c592bd97be9c01ead87e'},
-                {'subject': '管理员 UI 与 SQL 缓存等更新。', 'hash': 'd8d20c8', 'commit_url': 'https://github.com/quickform_school/quickform_school/commit/d8d20c86e843186e84af847c7a5d4bd65c4cbea6'},
+                {'subject': '页面布局与多处 bugfix；社区选择与懒加载修复。', 'hash': '7cb72d0', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/7cb72d06f6ddb05062af1902a7eba081beba32f2'},
+                {'subject': '任务详情与加载优化（task detail / lazyload）。', 'hash': '3909a73', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/3909a73d9df64706e171c592bd97be9c01ead87e'},
+                {'subject': '管理员 UI 与 SQL 缓存等更新。', 'hash': 'd8d20c8', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/d8d20c86e843186e84af847c7a5d4bd65c4cbea6'},
             ],
         },
     ]
