@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 chcp 65001 >nul
 
-set GITHUB_URL=https://github.com/linmiaoyan/QuickForm.git
+set GITHUB_URL=https://github.com/quickform_school/quickform_school.git
 
 echo ============================================
 echo 强制完整拉取 - 恢复所有文件

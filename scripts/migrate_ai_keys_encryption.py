@@ -8,22 +8,16 @@ from sqlalchemy.orm import sessionmaker
 
 
 def build_db_url() -> str:
-    mysql_host = os.getenv('MYSQL_HOST', '')
-    mysql_user = os.getenv('MYSQL_USER', '')
-    mysql_password = os.getenv('MYSQL_PASSWORD', '')
-    mysql_database = os.getenv('MYSQL_DATABASE', 'quickform')
-
-    if os.getenv('DATABASE_TYPE'):
-        db_type = os.getenv('DATABASE_TYPE', 'sqlite').lower()
-    elif mysql_host and mysql_user and mysql_password:
-        db_type = 'mysql'
-    else:
-        db_type = 'sqlite'
-
-    if db_type == 'mysql':
-        port = os.getenv('MYSQL_PORT', '3306')
-        return f"mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}:{port}/{mysql_database}?charset=utf8mb4"
-    return "sqlite:///core/quickform.db"
+    explicit = (os.getenv('DATABASE_URL') or '').strip()
+    if explicit:
+        return explicit
+    host = (os.getenv('POSTGRES_HOST') or os.getenv('PGHOST') or 'localhost').strip()
+    port = (os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or '5432').strip()
+    user = (os.getenv('POSTGRES_USER') or os.getenv('PGUSER') or 'postgres').strip()
+    password = os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD') or ''
+    database = (os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE') or 'quickform').strip()
+    auth = user if password == '' else f"{user}:{password}"
+    return f"postgresql+psycopg://{auth}@{host}:{port}/{database}"
 
 
 def main() -> int:
