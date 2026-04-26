@@ -10,7 +10,8 @@ Agent note: tiny doc-only change committed on `cursor/doc-touch-e466` to verify 
 
 ### Running the dev server
 
-1. Ensure a `.env` file exists at the repo root with at least `SECRET_KEY=<strong-random-value>`. Without MySQL env vars (`MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`), the app falls back to SQLite automatically.
+1. Ensure a `.env` file exists at the repo root with at least `SECRET_KEY=<strong-random-value>`.
+   This repo is **PostgreSQL-only**. Configure either `DATABASE_URL` (preferred) or `POSTGRES_*` vars.
 2. For local development, also set `SESSION_COOKIE_SECURE=false`, `REMEMBER_COOKIE_SECURE=false`, `FLASK_HOST=0.0.0.0`, and `FLASK_DEBUG=true` in `.env`.
 3. Start the dev server: `python3 app.py` (listens on `FLASK_HOST:FLASK_PORT`, default `0.0.0.0:80`).
 4. Health check: `curl http://localhost/ping` should return `pong`.
@@ -30,6 +31,5 @@ No automated test suite exists in this repo. Manual testing via the web UI is th
 ### Key gotchas
 
 - The app raises `RuntimeError` on startup if `SECRET_KEY` is missing or set to the placeholder `your_secret_key_here`.
-- SQLite DB file is created at `core/quickform.db` (relative to the blueprint module). It is gitignored.
 - The `.env` file is gitignored and must be created manually.
 - `pip install` may install to `~/.local/bin`; ensure this is on `PATH` if running CLI tools like `flask`, `flake8`, etc.

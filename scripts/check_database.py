@@ -31,70 +31,18 @@ print("-" * 40)
 from dotenv import load_dotenv
 load_dotenv()
 
-DATABASE_TYPE = os.getenv('DATABASE_TYPE', 'sqlite')
-print(f"数据库类型: {DATABASE_TYPE}")
+db_url = (os.getenv('DATABASE_URL') or '').strip()
+if not db_url:
+    host = (os.getenv('POSTGRES_HOST') or os.getenv('PGHOST') or 'localhost').strip()
+    port = (os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or '5432').strip()
+    user = (os.getenv('POSTGRES_USER') or os.getenv('PGUSER') or 'postgres').strip()
+    password = os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD') or ''
+    database = (os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE') or 'quickform').strip()
+    auth = user if password == '' else f"{user}:{password}"
+    db_url = f"postgresql+psycopg://{auth}@{host}:{port}/{database}"
 
-if DATABASE_TYPE.lower() == 'mysql':
-    print("⚠ 当前配置为 MySQL")
-    print(f"  MYSQL_HOST: {os.getenv('MYSQL_HOST', '未设置')}")
-    print(f"  MYSQL_PORT: {os.getenv('MYSQL_PORT', '未设置')}")
-    print(f"  MYSQL_DATABASE: {os.getenv('MYSQL_DATABASE', '未设置')}")
-    print()
-    print("【检查MySQL服务】")
-    print("-" * 40)
-    
-    try:
-        import pymysql
-        print("✓ pymysql 已安装")
-        
-        # 尝试连接MySQL
-        try:
-            conn = pymysql.connect(
-                host=os.getenv('MYSQL_HOST', 'localhost'),
-                port=int(os.getenv('MYSQL_PORT', '3306')),
-                user=os.getenv('MYSQL_USER', ''),
-                password=os.getenv('MYSQL_PASSWORD', ''),
-                charset='utf8mb4'
-            )
-            print("✓ MySQL 连接成功")
-            
-            # 检查数据库是否存在
-            cursor = conn.cursor()
-            db_name = os.getenv('MYSQL_DATABASE', 'quickform')
-            cursor.execute("SHOW DATABASES")
-            databases = [row[0] for row in cursor.fetchall()]
-            
-            if db_name in databases:
-                print(f"✓ 数据库 '{db_name}' 存在")
-            else:
-                print(f"✗ 数据库 '{db_name}' 不存在")
-                print(f"  请执行: CREATE DATABASE {db_name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
-            
-            cursor.close()
-            conn.close()
-            
-        except pymysql.err.OperationalError as e:
-            print(f"✗ MySQL 连接失败: {e}")
-            print()
-            print("【解决方案】")
-            print("1. 确认MySQL服务已启动")
-            print("   - Windows: 服务管理器 -> 启动 MySQL")
-            print("   - 或执行: net start MySQL")
-            print("2. 或切换到SQLite（推荐）")
-            print("   - 修改 .env 中 DATABASE_TYPE=sqlite")
-            
-    except ImportError:
-        print("✗ pymysql 未安装")
-        print("  安装命令: pip install pymysql")
-        
-else:
-    print("✓ 当前配置为 SQLite（推荐）")
-    db_file = 'quickform.db'
-    if os.path.exists(db_file):
-        size = os.path.getsize(db_file) / 1024
-        print(f"✓ 数据库文件存在: {db_file} ({size:.1f} KB)")
-    else:
-        print(f"⚠ 数据库文件不存在（首次运行时会自动创建）")
+print("数据库类型: postgres")
+print("数据库连接: 使用 DATABASE_URL / POSTGRES_*（敏感信息已隐藏）")
 
 print()
 
@@ -201,45 +149,14 @@ print("=" * 60)
 print("【总结和建议】")
 print("=" * 60)
 
-if DATABASE_TYPE.lower() == 'mysql':
-    print()
-    print("⚠ MySQL连接失败的解决方案:")
-    print()
-    print("方案1: 启动MySQL服务（如果已安装）")
-    print("------")
-    print("Windows:")
-    print("  1. Win+R -> services.msc")
-    print("  2. 找到 MySQL 服务")
-    print("  3. 右键 -> 启动")
-    print()
-    print("或命令行:")
-    print("  net start MySQL")
-    print()
-    print("方案2: 切换到SQLite（推荐）")
-    print("------")
-    print("1. 编辑 .env 文件，修改:")
-    print("   DATABASE_TYPE=sqlite")
-    print()
-    print("2. 重新启动应用:")
-    print("   python app.py")
-    print()
-    print("SQLite优点:")
-    print("  - 无需安装配置")
-    print("  - 开箱即用")
-    print("  - 适合中小规模应用")
-else:
-    print()
-    print("✓ 当前使用SQLite，无需额外配置")
-    print()
-    print("启动应用:")
-    print("  python app.py")
-    print()
-    print("访问地址:")
-    print("  http://localhost:5001/quickform")
-    print()
-    print("管理员账号:")
-    print("  用户名: wzkjgz")
-    print("  密码: wzkjgz123!")
+print()
+print("✓ 数据库使用 PostgreSQL（建议通过 DATABASE_URL 或 POSTGRES_* 配置）")
+print()
+print("启动应用:")
+print("  python3 app.py")
+print()
+print("健康检查:")
+print("  curl http://localhost/ping  # 返回 pong")
 
 print()
 print("=" * 60)
