@@ -653,6 +653,16 @@ def parse_urlencoded(raw_data):
 from core.db import engine, SessionLocal  # noqa: E402
 
 
+def _ensure_schema_ready() -> None:
+    """确保数据库表结构存在（PostgreSQL-only 新库起步：直接 create_all）。"""
+    try:
+        # 仅在缺表时创建；SQLAlchemy 会自行判断已存在的表
+        Base.metadata.create_all(bind=engine)
+    except Exception:
+        logger.exception("数据库建表失败（create_all）")
+        raise
+
+
 def _init_database():
     """向后兼容：旧脚本曾调用以初始化库；现由 core.db 在 import 时完成。"""
     return SessionLocal, engine
@@ -8987,9 +8997,12 @@ def init_quickform(app, login_manager_instance=None, database_type=None):
             db.close()
     
     try:
+        _ensure_schema_ready()
         init_admin_account()
     except Exception as e:
-        logger.warning(f"初始化管理员账号警告: {str(e)}")
+        # schema 未就绪时不要把 ready 置为 1，否则前台会立刻查询触发 500
+        logger.exception("初始化失败（schema/admin）: %s", e)
+        raise
     
     # 确保uploads目录存在
     if not os.path.exists(UPLOAD_FOLDER):
@@ -9034,6 +9047,9 @@ def init_quickform_async(app, login_manager_instance=None, database_type=None):
         try:
             # 校园版（新库起步）：不执行历史迁移逻辑
 
+            # 先确保 schema 存在，再进行任何查询/写入
+            _ensure_schema_ready()
+
             # 初始化管理员账号（与同步 init_quickform 逻辑一致）
             def init_admin_account():
                 db = SessionLocal()
@@ -9063,10 +9079,7 @@ def init_quickform_async(app, login_manager_instance=None, database_type=None):
                 finally:
                     db.close()
 
-            try:
-                init_admin_account()
-            except Exception as e:
-                logger.warning(f"初始化管理员账号警告: {str(e)}")
+            init_admin_account()
 
             # 确保 uploads 目录存在
             try:
