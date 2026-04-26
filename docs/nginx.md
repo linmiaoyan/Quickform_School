@@ -1,6 +1,6 @@
 # Nginx 反向代理 QuickForm
 
-Flask 已改为**仅 HTTP、监听本机**（默认 `127.0.0.1:5000`），SSL 与对外端口由 Nginx 负责。
+Flask 已改为**仅 HTTP**（默认 `127.0.0.1:80`）。如需 HTTPS，请在网关/反向代理层自行终结 TLS。
 
 ## 1. 启动 Flask（内网服务）
 
@@ -13,7 +13,7 @@ python app.py
 或设置环境变量：
 
 - `FLASK_HOST`：监听地址，默认 `127.0.0.1`
-- `FLASK_PORT`：监听端口，默认 `5000`
+- `FLASK_PORT`：监听端口，默认 `80`
 
 ## 2. Nginx 配置示例
 
@@ -27,42 +27,7 @@ server {
     server_name your-domain.com;   # 改成你的域名或 IP
 
     location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-}
-```
-
-### HTTPS（443）+ HTTP 跳转（推荐）
-
-```nginx
-# HTTP 跳转到 HTTPS
-server {
-    listen 80;
-    server_name your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-
-# HTTPS
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-
-    # SSL 证书（路径按你实际放置位置改）
-    ssl_certificate     /path/to/your/cert.pem;      # 或 fullchain.pem
-    ssl_certificate_key /path/to/your/privkey.key;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-
-    location / {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:80;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -76,8 +41,7 @@ server {
 
 说明：
 
-- `proxy_pass http://127.0.0.1:5000` 对应 Flask 默认端口，若你改了 `FLASK_PORT`，这里要一起改。
-- `X-Forwarded-Proto` 必须为 `https`，Flask 里已用 ProxyFix，会据此生成正确的 https 链接和 `request.is_secure`。
+- `proxy_pass http://127.0.0.1:80` 对应 Flask 默认端口，若你改了 `FLASK_PORT`，这里要一起改。
 
 ## 3. 应用配置并重载 Nginx
 
@@ -91,6 +55,6 @@ server {
 
 ## 4. 流程小结
 
-1. 先启动 Flask：`python app.py`（监听 127.0.0.1:5000）。
+1. 先启动 Flask：`python app.py`（监听 127.0.0.1:80）。
 2. 再确保 Nginx 已加载上述配置并 reload。
-3. 用户访问 `http://your-domain.com` 或 `https://your-domain.com`，由 Nginx 转发到本机 5000，Flask 无需再配 SSL。
+3. 用户访问 `http://your-domain.com`，由 Nginx 转发到本机 80，Flask 无需再配 SSL。

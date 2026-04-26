@@ -918,7 +918,6 @@ def _public_site_base_url():
     生成对外站点根 URL（含 scheme://host，无末尾斜杠），用于一键生成里嵌入的 API 根地址等。
     优先顺序：PUBLIC_BASE_URL（或 QUICKFORM_PUBLIC_BASE_URL）环境变量/应用配置
     → X-Forwarded-Proto / X-Forwarded-Host
-    → 若配置了 PREFERRED_URL_SCHEME=https 且 Host 非本机，则把 http 升为 https（缓解 Nginx 未传 X-Forwarded-Proto 的情况）
     → request.host_url
     """
     cfg = (current_app.config.get('PUBLIC_BASE_URL') or '').strip().rstrip('/')
@@ -928,10 +927,7 @@ def _public_site_base_url():
     xf_proto = (req.headers.get('X-Forwarded-Proto') or req.scheme or 'http').split(',')[0].strip().lower()
     xf_host = (req.headers.get('X-Forwarded-Host') or req.headers.get('Host') or '').split(',')[0].strip()
     host = xf_host or (getattr(req, 'host', None) or '')
-    preferred = (current_app.config.get('PREFERRED_URL_SCHEME') or '').strip().lower()
     proto = xf_proto
-    if preferred == 'https' and proto == 'http' and host and not _is_local_request_host(host):
-        proto = 'https'
     if host:
         return f'{proto}://{host}'.rstrip('/')
     return (req.host_url or req.url_root or '').rstrip('/')

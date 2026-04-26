@@ -19,8 +19,8 @@ REM Watt Toolkit 代理（HTTP 代理，端口来自你截图：26561）
 set "WT_PROXY_HOST=127.0.0.1"
 set "WT_PROXY_PORT=26561"
 
-REM Waitress/Flask 监听端口（默认 5000；如你改过 .env 的 FLASK_PORT，可同步改这里）
-set "APP_PORT=5000"
+REM Waitress/Flask 监听端口（默认 80；如你改过 .env 的 FLASK_PORT，可同步改这里）
+set "APP_PORT=80"
 set "APP_HOST=127.0.0.1"
 
 REM Python 启动命令（若你的 python 不在 PATH，可改成绝对路径）

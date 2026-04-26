@@ -12,8 +12,8 @@ Agent note: tiny doc-only change committed on `cursor/doc-touch-e466` to verify 
 
 1. Ensure a `.env` file exists at the repo root with at least `SECRET_KEY=<strong-random-value>`. Without MySQL env vars (`MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`), the app falls back to SQLite automatically.
 2. For local development, also set `SESSION_COOKIE_SECURE=false`, `REMEMBER_COOKIE_SECURE=false`, `FLASK_HOST=0.0.0.0`, and `FLASK_DEBUG=true` in `.env`.
-3. Start the dev server: `python3 app.py` (listens on `FLASK_HOST:FLASK_PORT`, default `0.0.0.0:5000`).
-4. Health check: `curl http://localhost:5000/ping` should return `pong`.
+3. Start the dev server: `python3 app.py` (listens on `FLASK_HOST:FLASK_PORT`, default `0.0.0.0:80`).
+4. Health check: `curl http://localhost/ping` should return `pong`.
 
 ### Linting
 

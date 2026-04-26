@@ -108,8 +108,8 @@ if not _secret_key or _secret_key == 'your_secret_key_here':
     raise RuntimeError('SECRET_KEY 未配置或仍为弱默认值，请在环境变量中设置强随机 SECRET_KEY 后再启动。')
 app.secret_key = _secret_key
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB（教师认证上传等）；任务内 HTML 单文件限制 4MB 在业务层校验
-# 由 Nginx 做 HTTPS 时，仍生成 https 链接（依赖 ProxyFix 传递 X-Forwarded-Proto）
-app.config['PREFERRED_URL_SCHEME'] = 'https'
+# 站点对外 scheme 默认跟随请求/反代头；如需固定请用 PUBLIC_BASE_URL 显式配置
+app.config['PREFERRED_URL_SCHEME'] = os.getenv('PREFERRED_URL_SCHEME', 'http').strip().lower() or 'http'
 # 对外站点根 URL（无末尾斜杠），用于一键生成嵌入 API 地址等；不配置时从请求头推断，见 blueprint._public_site_base_url
 _app_public_base = (os.getenv('PUBLIC_BASE_URL') or os.getenv('QUICKFORM_PUBLIC_BASE_URL') or '').strip().rstrip('/')
 app.config['PUBLIC_BASE_URL'] = _app_public_base
@@ -360,9 +360,9 @@ def request_entity_too_large(error):
 
 
 if __name__ == '__main__':
-    # 供 Nginx 反向代理：仅 HTTP，监听本机；端口由环境变量指定，默认 5000
+    # 供直连/反向代理：仅 HTTP；端口由环境变量指定，默认 80
     host = os.getenv('FLASK_HOST', '127.0.0.1')
-    port = int(os.getenv('FLASK_PORT', '5000'))
+    port = int(os.getenv('FLASK_PORT', '80'))
     logger.info("Flask 启动: %s:%s（由 Nginx 转发时请使用此方式）", host, port)
     app.run(
         host=host,
