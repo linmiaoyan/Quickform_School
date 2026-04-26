@@ -16,6 +16,7 @@ import base64
 import uuid
 from urllib.parse import unquote_plus, quote as url_quote, urlsplit, urlunsplit, parse_qsl, urlencode
 import zipfile
+from urllib.parse import urlparse
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app, abort
 from werkzeug.datastructures import FileStorage
 from sqlalchemy import create_engine, or_, text, func
@@ -40,6 +41,12 @@ import smtplib
 from email.mime.text import MIMEText
 from email.utils import formataddr, parseaddr
 import csv
+import requests
+
+try:
+    import requests  # type: ignore
+except Exception:  # pragma: no cover
+    requests = None
 
 
 # 导入分离的模块
@@ -666,6 +673,10 @@ def _ensure_schema_ready() -> None:
 def _init_database():
     """向后兼容：旧脚本曾调用以初始化库；现由 core.db 在 import 时完成。"""
     return SessionLocal, engine
+
+
+ONLINE_CLI_BASE_URL = (os.getenv('ONLINE_CLI_BASE_URL') or 'https://quickform.cn').strip().rstrip('/')
+ONLINE_CLI_TIMEOUT_SECONDS = max(3, int(os.getenv('ONLINE_CLI_TIMEOUT_SECONDS', '20')))
 
 MODEL_LABELS = {
     'chat_server': '硅基流动',
@@ -2699,76 +2710,6 @@ def task_detail(task_id):
         db.close()
 
 
-@quickform_bp.route('/task/<int:task_id>/submission_manage_code/generate', methods=['POST'])
-@login_required
-def generate_submission_manage_code(task_id):
-    """为任务生成或重置删改认证码。"""
-    db = SessionLocal()
-    try:
-        task = db.get(Task, task_id)
-        if not task:
-            flash('任务不存在', 'danger')
-            return redirect(url_for('quickform.dashboard'))
-        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-        org_mem = db.query(OrganizationMember).filter_by(
-            organization_id=task.organization_id, user_id=current_user.id
-        ).first() if task.organization_id else None
-        can_edit = (
-            current_user.is_admin() or task.user_id == current_user.id or
-            (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
-            (share_rec and share_rec.can_edit)
-        )
-        if not can_edit:
-            flash('无权为该任务生成删改认证码', 'danger')
-            return redirect(url_for('quickform.task_detail', task_id=task.id))
-        task.submission_manage_code = _generate_submission_manage_code()
-        db.commit()
-        flash('已生成新的删改认证码。请妥善保存，后续可用于带码删改提交数据。', 'success')
-        return redirect(url_for('quickform.task_detail', task_id=task.id, show_manage_code_tip=1))
-    except Exception as e:
-        db.rollback()
-        logger.exception('generate_submission_manage_code failed: %s', e)
-        flash('生成删改认证码失败，请稍后重试。', 'danger')
-        return redirect(url_for('quickform.task_detail', task_id=task_id))
-    finally:
-        db.close()
-
-
-@quickform_bp.route('/task/<int:task_id>/submission_manage_code/disable', methods=['POST'])
-@login_required
-def disable_submission_manage_code(task_id):
-    """关闭/停用任务删改认证码（清空）。"""
-    db = SessionLocal()
-    try:
-        task = db.get(Task, task_id)
-        if not task:
-            flash('任务不存在', 'danger')
-            return redirect(url_for('quickform.dashboard'))
-        share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
-        org_mem = db.query(OrganizationMember).filter_by(
-            organization_id=task.organization_id, user_id=current_user.id
-        ).first() if task.organization_id else None
-        can_edit = (
-            current_user.is_admin() or task.user_id == current_user.id or
-            (org_mem and _org_members_can_edit_tasks(db, task.organization_id)) or
-            (share_rec and share_rec.can_edit)
-        )
-        if not can_edit:
-            flash('无权关闭该任务的删改认证码', 'danger')
-            return redirect(url_for('quickform.task_detail', task_id=task.id))
-        task.submission_manage_code = None
-        db.commit()
-        flash('已关闭删改认证码。后续带码删改请求将不再允许。', 'success')
-        return redirect(url_for('quickform.task_detail', task_id=task.id))
-    except Exception as e:
-        db.rollback()
-        logger.exception('disable_submission_manage_code failed: %s', e)
-        flash('关闭删改认证码失败，请稍后重试。', 'danger')
-        return redirect(url_for('quickform.task_detail', task_id=task_id))
-    finally:
-        db.close()
-
-
 ## 校园版：移除配额/加额相关功能（只统计不限制）
 
 
@@ -3710,27 +3651,10 @@ def _submit_duplicate_payload_check(task_id: str, client_fp: str, now_ts: float,
         return False
 
 
-def _generate_submission_manage_code() -> str:
-    """生成任务级删改认证码。"""
-    # 生成更长随机串，降低被猜测/爆破风险（约 32+ chars）
-    return secrets.token_urlsafe(24)
-
-
-def _extract_submission_manage_code() -> str:
-    """从查询参数、表单或请求头中提取删改认证码。"""
-    return (
-        (request.args.get('edit_code') or '').strip()
-        or (request.form.get('edit_code') or '').strip()
-        or (request.headers.get('X-QuickForm-Edit-Code') or '').strip()
-    )
-
-
-def _can_manage_task_submissions(db, task, auth_code: str = ''):
-    """是否允许删改任务提交：教师原有编辑权限，或提供正确的任务删改认证码。"""
+def _can_manage_task_submissions(db, task):
+    """是否允许删改任务提交：仅限拥有编辑权限的账号。"""
     if not task:
         return False
-    if auth_code and getattr(task, 'submission_manage_code', None):
-        return secrets.compare_digest((task.submission_manage_code or '').strip(), auth_code.strip())
     if not getattr(current_user, 'is_authenticated', False):
         return False
     share_rec = db.query(TaskShare).filter_by(task_id=task.id, user_id=current_user.id).first()
@@ -5121,12 +5045,16 @@ def export_data(task_id):
 
 
 # ---------- 任务迁移（导出 ZIP / 导入 JSON 或 ZIP）----------
-# 会议前临时关闭：改为 True 后恢复导出/导入（实现保留在 _task_migration_*_impl 中）。
-TASK_MIGRATION_ACTIVE = False
+# 校园版默认开放：导出/导入能力由 _task_migration_*_impl 提供。
+# 如需临时关闭，可通过环境变量 TASK_MIGRATION_ACTIVE=false 控制。
+TASK_MIGRATION_ACTIVE = (os.getenv('TASK_MIGRATION_ACTIVE', 'true').strip().lower() == 'true')
 TASK_MIGRATION_MANIFEST = 'quickform-task-migration.json'
 TASK_MIGRATION_DISABLED_FLASH = (
     '任务迁移功能将于 4 月 29 日会议正式发布，敬请期待。会议通知 PDF 可在任务详情页「任务迁移」旁的说明中下载。'
 )
+
+# 在线版（quickform.cn）对接：默认在线版根地址，可通过环境变量覆盖
+ONLINE_QUICKFORM_BASE_URL = (os.getenv('ONLINE_QUICKFORM_BASE_URL') or 'https://quickform.cn').strip().rstrip('/')
 
 
 def _migration_zip_max_bytes():
@@ -5139,6 +5067,193 @@ def _pick_unique_task_id(db):
         if not db.query(Task.id).filter(Task.task_id == tid).first():
             return tid
     raise RuntimeError('无法生成唯一任务 API ID')
+
+
+def _normalize_base_url(base: str) -> str:
+    """Normalize site base URL: scheme://host[:port], without trailing slash."""
+    b = (base or '').strip()
+    if not b:
+        return ''
+    b = b.rstrip('/')
+    # If user pastes a full api URL like https://x/api/abc, trim to origin.
+    try:
+        u = urlparse(b)
+        if u.scheme and u.netloc:
+            return f"{u.scheme}://{u.netloc}"
+    except Exception:
+        pass
+    return b
+
+
+def _extract_apiid_from_api_url(api_url: str) -> str:
+    """Accept forms like: https://host/api/<apiid> (with optional trailing parts)."""
+    s = (api_url or '').strip()
+    if not s:
+        return ''
+    try:
+        u = urlparse(s)
+        path = (u.path or '').strip('/')
+    except Exception:
+        path = s.strip().lstrip('/').split('?', 1)[0]
+    parts = [p for p in path.split('/') if p]
+    if len(parts) >= 2 and parts[0].lower() == 'api':
+        return parts[1].strip()
+    # Also allow raw apiid pasted
+    if len(parts) == 1 and re.fullmatch(r"[0-9a-z]{6,64}", parts[0]):
+        return parts[0]
+    return ''
+
+
+def _pick_task_id_keep_if_free(db, requested_apiid: str) -> str:
+    """Keep requested apiid if not exists, otherwise generate a new one."""
+    rid = (requested_apiid or '').strip()
+    if rid and not db.query(Task.id).filter(Task.task_id == rid).first():
+        return rid
+    return _pick_unique_task_id(db)
+
+
+def _download_url_bytes(url: str, timeout_seconds: int = 25) -> bytes:
+    """Download a URL as bytes (for importing attachments)."""
+    u = (url or '').strip()
+    if not u:
+        raise ValueError('empty url')
+    try:
+        # requests is already a dependency in requirements.txt
+        import requests as _rq  # type: ignore
+        resp = _rq.get(u, timeout=timeout_seconds)
+        resp.raise_for_status()
+        return resp.content
+    except Exception as e:
+        raise RuntimeError(f"download failed: {e}") from e
+
+
+def _online_cli_post_json(base: str, path: str, payload: dict, timeout_seconds: int = 20) -> dict:
+    """Call online edition CLI (POST JSON). Returns parsed JSON dict."""
+    b = _normalize_base_url(base)
+    if not b:
+        raise ValueError('missing base url')
+    url = b.rstrip('/') + path
+    try:
+        import requests as _rq  # type: ignore
+        r = _rq.post(url, json=payload, timeout=timeout_seconds)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        raise RuntimeError(f"online cli request failed: {e}") from e
+
+
+def _import_task_from_online_cli(db, online_base: str, online_username: str, online_password: str, apiid: str):
+    """Import a task definition + HTML attachments from online edition via /cli/show."""
+    apiid = (apiid or '').strip()
+    if not apiid:
+        raise ValueError('missing apiid')
+
+    show = _online_cli_post_json(
+        online_base,
+        '/cli/show',
+        {'username': online_username, 'password': online_password, 'apiid': apiid},
+        timeout_seconds=25,
+    )
+    if not isinstance(show, dict) or not show.get('success'):
+        msg = (show.get('message') if isinstance(show, dict) else '') or '在线版返回失败'
+        raise RuntimeError(msg)
+
+    title = (show.get('name') or '').strip()
+    intro = (show.get('intro') or '').strip()
+    tutorial_link = (show.get('tutorial') or '').strip()
+    share_url = (show.get('share_url') or '').strip()
+    attachments = show.get('attachments') or []
+    if not title:
+        raise RuntimeError('在线版任务缺少标题')
+
+    # Decide local apiid: keep if free, otherwise generate a new one.
+    new_apiid = _pick_task_id_keep_if_free(db, apiid)
+    online_base_norm = _normalize_base_url(online_base)
+    local_base = _public_site_base_url().rstrip('/')
+
+    static_uploads = _static_uploads_dir()
+    stored_list = []
+
+    # Download and rewrite all HTML attachments
+    for att in attachments:
+        if not isinstance(att, dict):
+            continue
+        url = (att.get('url') or '').strip()
+        name = (att.get('name') or '').strip() or 'page.html'
+        if not url:
+            continue
+        low = name.lower()
+        if not (low.endswith('.html') or low.endswith('.htm')):
+            # Only import HTML/HTM as task pages; other attachments are ignored for now.
+            continue
+        raw = _download_url_bytes(url, timeout_seconds=35)
+        try:
+            text = raw.decode('utf-8')
+        except UnicodeDecodeError:
+            text = raw.decode('utf-8', errors='replace')
+
+        # Rewrite api endpoint + base host if embedded.
+        text = _rewrite_html_migration_endpoints(text, apiid, new_apiid, online_base_norm, local_base)
+
+        if len(text.encode('utf-8')) > MAX_HTML_FILE_SIZE:
+            raise RuntimeError('某个 HTML 超过单文件大小限制（4MB）')
+
+        bio = io.BytesIO(text.encode('utf-8'))
+        fs = FileStorage(stream=bio, filename=name)
+        unique_filename, filepath = save_uploaded_file(fs, static_uploads, ALLOWED_EXTENSIONS)
+        if not unique_filename or not filepath:
+            raise RuntimeError('保存导入 HTML 失败')
+        stored_list.append({'original_name': name, 'saved_name': unique_filename})
+
+    new_task = Task(
+        title=title,
+        description=intro or None,
+        user_id=current_user.id,
+        task_id=new_apiid,
+        sharing_type='private',
+        organization_id=None,
+        file_name=None,
+        file_path=None,
+        html_files=None,
+        share_url=share_url or None,
+        tutorial_link=tutorial_link or None,
+    )
+    if stored_list:
+        new_task.html_files = json.dumps(stored_list, ensure_ascii=False)
+        new_task.file_name = stored_list[0]['original_name']
+        new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
+        if new_task.file_path and new_task.file_path.lower().endswith(('.html', '.htm')):
+            if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                new_task.html_approved = 1
+                new_task.html_approved_by = current_user.id
+                new_task.html_approved_at = datetime.now()
+                new_task.html_review_note = None
+            else:
+                new_task.html_approved = 0
+                new_task.html_approved_by = None
+                new_task.html_approved_at = None
+                new_task.html_review_note = None
+
+    db.add(new_task)
+    db.commit()
+
+    # Optional: kick off analysis for first HTML file (best-effort)
+    if new_task.file_path and str(new_task.file_path).lower().endswith(('.html', '.htm')):
+        try:
+            analyze_html_file(
+                new_task.id,
+                current_user.id,
+                new_task.file_path,
+                SessionLocal,
+                Task,
+                AIConfig,
+                read_file_content,
+                call_ai_model,
+            )
+        except Exception as ex:
+            logger.warning('在线导入后自动分析 HTML 未启动: %s', ex)
+
+    return new_task, apiid, new_apiid
 
 
 def _migration_resolve_html_absolute_path(task, saved_name):
@@ -5208,6 +5323,268 @@ def _rewrite_html_migration_endpoints(html, old_api_id, new_api_id, old_base='',
     out = out.replace('/api/%s/' % old_api_id, '/api/%s/' % new_api_id)
     out = out.replace('/api/%s' % old_api_id, '/api/%s' % new_api_id)
     return out
+
+
+def _normalize_base_url(base_url: str) -> str:
+    u = (base_url or '').strip().rstrip('/')
+    if not u:
+        return ONLINE_QUICKFORM_BASE_URL
+    if not (u.startswith('http://') or u.startswith('https://')):
+        # 默认 https
+        u = 'https://' + u
+    return u.rstrip('/')
+
+
+def _extract_apiid_from_api_url(api_url: str) -> str:
+    """从 https://host/api/<apiid> 或 /api/<apiid> 中提取 apiid。"""
+    u = (api_url or '').strip()
+    if not u:
+        return ''
+    try:
+        parts = urlsplit(u)
+        path = parts.path or ''
+    except Exception:
+        path = u
+    path = path.strip()
+    m = re.search(r'/api/([0-9a-z]{6,64})', path, flags=re.IGNORECASE)
+    if not m:
+        # 兼容直接输入 apiid
+        u2 = re.sub(r'\s+', '', u)
+        if re.fullmatch(r'[0-9a-z]{6,64}', u2, flags=re.IGNORECASE):
+            return u2
+        return ''
+    return (m.group(1) or '').strip()
+
+
+def _online_cli_post(base_url: str, path: str, payload: dict, timeout_sec: int = 15) -> dict:
+    base = _normalize_base_url(base_url)
+    url = base + path
+    r = requests.post(url, json=payload, timeout=timeout_sec)
+    r.raise_for_status()
+    data = r.json()
+    if not isinstance(data, dict):
+        raise RuntimeError('在线版返回格式异常')
+    return data
+
+
+def _download_bytes(url: str, max_bytes: int, timeout_sec: int = 25) -> bytes:
+    """下载远端附件，带体积限制。"""
+    u = (url or '').strip()
+    if not u:
+        raise RuntimeError('附件 URL 为空')
+    with requests.get(u, stream=True, timeout=timeout_sec) as r:
+        r.raise_for_status()
+        buf = io.BytesIO()
+        total = 0
+        for chunk in r.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise RuntimeError('附件过大，超过限制')
+            buf.write(chunk)
+        return buf.getvalue()
+
+
+def _campus_import_task_from_online(db, online_base_url: str, online_username: str, online_password: str, apiid: str):
+    """
+    从在线版导入一个任务：
+    - API 不冲突：沿用 apiid；冲突：生成新 apiid
+    - 下载 HTML 附件并改写接口地址为本地
+    """
+    apiid = (apiid or '').strip()
+    if not apiid:
+        raise ValueError('缺少 apiid')
+
+    # 1) 拉取在线版任务详情
+    show = _online_cli_post(
+        online_base_url,
+        '/cli/show',
+        {'username': online_username, 'password': online_password, 'apiid': apiid},
+        timeout_sec=20,
+    )
+    if not show.get('success'):
+        raise RuntimeError(show.get('message') or '在线版任务获取失败')
+
+    title = (show.get('name') or '').strip()
+    description = (show.get('intro') or '').strip()
+    share_url = (show.get('share_url') or '').strip() or None
+    tutorial_link = (show.get('tutorial') or '').strip() or None
+    attachments = show.get('attachments') or []
+
+    if not title:
+        title = f'导入任务 {apiid}'
+
+    # 2) 选定新 apiid（按冲突规则）
+    exists = db.query(Task.id).filter(Task.task_id == apiid).first()
+    new_apiid = apiid if not exists else _pick_unique_task_id(db)
+
+    # 3) 下载与保存 HTML 附件，并改写接口地址
+    static_uploads = _static_uploads_dir()
+    stored_list = []
+    local_base = _public_site_base_url().rstrip('/')
+    online_base_norm = _normalize_base_url(online_base_url)
+
+    for a in attachments:
+        if not isinstance(a, dict):
+            continue
+        name = (a.get('name') or '').strip() or 'form.html'
+        url = (a.get('url') or '').strip()
+        # 仅处理 html/htm；其它类型先跳过（避免下载图片/zip 造成体积与风险）
+        lower = name.lower()
+        if not (lower.endswith('.html') or lower.endswith('.htm')):
+            continue
+        body = _download_bytes(url, max_bytes=MAX_HTML_FILE_SIZE)
+        try:
+            text = body.decode('utf-8')
+        except UnicodeDecodeError:
+            text = body.decode('utf-8', errors='replace')
+        # 改写在线版接口 → 本地接口（若冲突导致 new_apiid != apiid，会替换 /api/old -> /api/new）
+        text = _rewrite_html_migration_endpoints(text, apiid, new_apiid, online_base_norm, local_base)
+        # 再兜底替换纯路径 /api/<id>
+        text = _rewrite_html_migration_endpoints(text, apiid, new_apiid, '', '')
+
+        bio = io.BytesIO(text.encode('utf-8'))
+        fs = FileStorage(stream=bio, filename=name)
+        unique_filename, filepath = save_uploaded_file(fs, static_uploads, ALLOWED_EXTENSIONS)
+        if not unique_filename or not filepath:
+            raise RuntimeError('保存附件失败')
+        stored_list.append({'original_name': name, 'saved_name': unique_filename})
+
+    # 4) 创建本地任务
+    new_task = Task(
+        title=title,
+        description=description or None,
+        user_id=current_user.id,
+        task_id=new_apiid,
+        sharing_type='private',
+        organization_id=None,
+        file_name=None,
+        file_path=None,
+        html_files=None,
+        share_url=share_url,
+        tutorial_link=tutorial_link,
+    )
+    if stored_list:
+        new_task.html_files = json.dumps(stored_list, ensure_ascii=False)
+        new_task.file_name = stored_list[0]['original_name']
+        new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
+        # 导入的 HTML 默认按教师/管理员规则设置审核状态
+        if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+            new_task.html_approved = 1
+            new_task.html_approved_by = current_user.id
+            new_task.html_approved_at = datetime.now()
+            new_task.html_review_note = None
+        else:
+            new_task.html_approved = 0
+            new_task.html_approved_by = None
+            new_task.html_approved_at = None
+            new_task.html_review_note = None
+
+    db.add(new_task)
+    db.commit()
+    return new_task, {'old_apiid': apiid, 'new_apiid': new_apiid, 'attachments_saved': len(stored_list)}
+
+
+@quickform_bp.route('/task/migration', methods=['GET'])
+@login_required
+def task_migration_import_page():
+    """任务迁移入口页：从在线版导入任务（列表选择 / 粘贴 API 地址）。"""
+    if not TASK_MIGRATION_ACTIVE:
+        flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
+        return redirect(url_for('quickform.dashboard'))
+    return render_template('task_migration_import.html')
+
+
+@quickform_bp.route('/task/migration/online/list', methods=['POST'])
+@login_required
+def api_online_tasks_list():
+    """从在线版获取当前账号下的任务列表（CLI list + show 轻量化）。"""
+    if not TASK_MIGRATION_ACTIVE:
+        return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    base_url = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
+    if not username or not password:
+        return jsonify({'success': False, 'message': '缺少在线版 username 或 password'}), 400
+    try:
+        res = _online_cli_post(base_url, '/cli/list', {'username': username, 'password': password}, timeout_sec=20)
+        if not res.get('success'):
+            return jsonify({'success': False, 'message': res.get('message') or '在线版认证失败'}), 401
+        tasks = []
+        for t in res.get('tasks') or []:
+            if not isinstance(t, dict):
+                continue
+            apiid = (t.get('apiid') or '').strip()
+            name = (t.get('name') or '').strip()
+            if not apiid:
+                continue
+            tasks.append({'apiid': apiid, 'title': name, 'description': ''})
+        return jsonify({'success': True, 'tasks': tasks}), 200
+    except requests.RequestException as e:
+        return jsonify({'success': False, 'message': f'连接在线版失败：{e}'}), 502
+    except Exception as e:
+        logger.exception('online list failed')
+        return jsonify({'success': False, 'message': str(e) or '获取失败'}), 500
+
+
+@quickform_bp.route('/task/migration/online/resolve', methods=['POST'])
+@login_required
+def api_online_tasks_one():
+    """输入在线版 API 地址，解析出 apiid（用于方式2）。"""
+    if not TASK_MIGRATION_ACTIVE:
+        return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
+    data = request.get_json(silent=True) or {}
+    api_url = (data.get('api_url') or '').strip()
+    apiid = _extract_apiid_from_api_url(api_url)
+    if not apiid:
+        return jsonify({'success': False, 'message': '无法从输入内容解析出 APIID（格式应为 https://quickform.cn/api/xxxxxx）'}), 400
+    return jsonify({'success': True, 'apiid': apiid}), 200
+
+
+@quickform_bp.route('/task/migration/online/import', methods=['POST'])
+@login_required
+def api_online_task_import():
+    """从在线版导入任务：按 apiid 或 api_url。"""
+    if not TASK_MIGRATION_ACTIVE:
+        return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    base_url = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
+    apiid = (data.get('apiid') or '').strip()
+    api_url = (data.get('api_url') or '').strip()
+    if not apiid and api_url:
+        apiid = _extract_apiid_from_api_url(api_url)
+    if not username or not password:
+        return jsonify({'success': False, 'message': '缺少在线版 username 或 password'}), 400
+    if not apiid:
+        return jsonify({'success': False, 'message': '缺少 apiid 或 api_url'}), 400
+
+    db = SessionLocal()
+    try:
+        task, meta = _campus_import_task_from_online(db, base_url, username, password, apiid)
+        msg = '导入成功'
+        if meta.get('old_apiid') != meta.get('new_apiid'):
+            msg = f"导入成功：原 APIID 已存在，已重新分配为 {meta.get('new_apiid')}"
+        return jsonify({
+            'success': True,
+            'message': msg,
+            'old_apiid': meta.get('old_apiid'),
+            'new_apiid': meta.get('new_apiid'),
+            'redirect': url_for('quickform.task_detail', task_id=task.id),
+        }), 200
+    except requests.HTTPError as e:
+        return jsonify({'success': False, 'message': f'在线版返回错误：{e}'}), 502
+    except requests.RequestException as e:
+        return jsonify({'success': False, 'message': f'连接在线版失败：{e}'}), 502
+    except Exception as e:
+        db.rollback()
+        logger.exception('online import failed')
+        return jsonify({'success': False, 'message': str(e) or '导入失败'}), 500
+    finally:
+        db.close()
 
 
 def _migration_validate_zip(zf):
@@ -5423,7 +5800,8 @@ def _task_migration_import_impl():
             nb = new_base
 
             try:
-                new_api_id = _pick_unique_task_id(db)
+                # 按规则：若本地不存在该 APIID，则沿用；若已存在则重新生成一个。
+                new_api_id = _pick_task_id_keep_if_free(db, old_api_id)
             except RuntimeError:
                 flash('无法分配新的 API ID，请稍后重试', 'danger')
                 return redirect(next_url)
@@ -8541,7 +8919,6 @@ def remove_submission(task_id):
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
     submission_id = request.args.get('submission_id', type=int)
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -8551,7 +8928,7 @@ def remove_submission(task_id):
 
     logger.info(
         f"[remove_submission] GET user={getattr(current_user, 'id', None)} "
-        f"task={task_id} submission={submission_id} ip={client_ip} code={'yes' if auth_code else 'no'}"
+        f"task={task_id} submission={submission_id} ip={client_ip}"
     )
     try:
         if not _manage_rate_limit_check(task_id):
@@ -8559,15 +8936,15 @@ def remove_submission(task_id):
         task = db.get(Task, task_id)
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
-        can_edit = _can_manage_task_submissions(db, task, auth_code)
+        can_edit = _can_manage_task_submissions(db, task)
         if not can_edit:
             logger.warning(
                 f"[remove_submission] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
             )
-            return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
-        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
-        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+            return make_response({'success': False, 'message': '无权删除此任务的数据，请使用有编辑权限的账号在页面内操作。'}, 403)
+        # 降低 CSRF 风险：要求 XHR 头
+        if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
         if not submission_id:
             logger.warning(f"[remove_submission] missing submission_id task={task_id}")
             return make_response({'success': False, 'message': '缺少提交ID'}, 400)
@@ -8602,7 +8979,6 @@ def remove_submissions_batch(task_id):
     """批量删除提交数据（用于页面多选删除）。"""
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -8617,16 +8993,16 @@ def remove_submissions_batch(task_id):
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
 
-        can_edit = _can_manage_task_submissions(db, task, auth_code)
+        can_edit = _can_manage_task_submissions(db, task)
         if not can_edit:
             logger.warning(
                 f"[remove_submissions_batch] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
             )
-            return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
+            return make_response({'success': False, 'message': '无权删除此任务的数据，请使用有编辑权限的账号在页面内操作。'}, 403)
 
-        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
-        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+        # 降低 CSRF 风险：要求 XHR 头
+        if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
 
         submission_ids = []
         if request.is_json:
@@ -8663,8 +9039,8 @@ def remove_submissions_batch(task_id):
         _invalidate_task_read_cache(task.task_id)
         _invalidate_task_data_cache(task.id)
         logger.info(
-            "[remove_submissions_batch] success user=%s task=%s count=%s ip=%s code=%s",
-            getattr(current_user, 'id', None), task_id, len(to_del), client_ip, 'yes' if auth_code else 'no'
+            "[remove_submissions_batch] success user=%s task=%s count=%s ip=%s",
+            getattr(current_user, 'id', None), task_id, len(to_del), client_ip
         )
         return make_response({'success': True, 'message': f'已删除 {len(to_del)} 条提交记录', 'deleted': len(to_del)})
     except Exception as e:
@@ -8677,10 +9053,9 @@ def remove_submissions_batch(task_id):
 
 @quickform_bp.route('/task/<int:task_id>/submission/update', methods=['POST'])
 def update_submission(task_id):
-    """修改单条提交数据（允许编辑权限账号或携带任务删改认证码）。"""
+    """修改单条提交数据（仅允许编辑权限账号）。"""
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -8695,16 +9070,16 @@ def update_submission(task_id):
         if not task:
             return make_response({'success': False, 'message': '任务不存在'}, 404)
 
-        can_edit = _can_manage_task_submissions(db, task, auth_code)
+        can_edit = _can_manage_task_submissions(db, task)
         if not can_edit:
             logger.warning(
-                "[update_submission] forbidden task=%s ip=%s code=%s",
-                task_id, client_ip, 'yes' if auth_code else 'no'
+                "[update_submission] forbidden task=%s ip=%s",
+                task_id, client_ip
             )
-            return make_response({'success': False, 'message': '无权修改此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
-        # 降低 CSRF 风险：若使用登录态权限而非认证码，则要求 XHR 头
-        if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-            return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+            return make_response({'success': False, 'message': '无权修改此任务的数据，请使用有编辑权限的账号在页面内操作。'}, 403)
+        # 降低 CSRF 风险：要求 XHR 头
+        if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+            return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
 
         payload = None
         if request.is_json:
@@ -8774,7 +9149,6 @@ def clear_all_submissions(task_id):
     """删除任务的所有提交数据（支持DELETE与GET降级）"""
     db = SessionLocal()
     client_ip = get_request_client_ip(request)
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -8783,7 +9157,7 @@ def clear_all_submissions(task_id):
         return resp
 
     logger.info(
-        f"[clear_all_submissions] GET user={getattr(current_user, 'id', None)} task={task_id} ip={client_ip} code={'yes' if auth_code else 'no'}"
+        f"[clear_all_submissions] GET user={getattr(current_user, 'id', None)} task={task_id} ip={client_ip}"
     )
     task_clear_lock = _get_submission_clear_lock(task_id)
     try:
@@ -8793,14 +9167,14 @@ def clear_all_submissions(task_id):
             task = db.get(Task, task_id)
             if not task:
                 return make_response({'success': False, 'message': '任务不存在'}, 404)
-            can_edit = _can_manage_task_submissions(db, task, auth_code)
+            can_edit = _can_manage_task_submissions(db, task)
             if not can_edit:
                 logger.warning(
                     f"[clear_all_submissions] forbidden user={getattr(current_user, 'id', None)} task={task_id}"
                 )
-                return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
-            if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-                return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+                return make_response({'success': False, 'message': '无权删除此任务的数据，请使用有编辑权限的账号。'}, 403)
+            if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+                return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
 
             submission_ids = [
                 row[0]
@@ -8860,7 +9234,6 @@ def clear_submissions_by_date_range(task_id):
     db = SessionLocal()
     date_start_s = request.args.get('date_start', '').strip()
     date_end_s = request.args.get('date_end', '').strip()
-    auth_code = _extract_submission_manage_code()
 
     def make_response(payload, status_code=200):
         resp = jsonify(payload)
@@ -8876,11 +9249,11 @@ def clear_submissions_by_date_range(task_id):
             task = db.get(Task, task_id)
             if not task:
                 return make_response({'success': False, 'message': '任务不存在'}, 404)
-            can_edit = _can_manage_task_submissions(db, task, auth_code)
+            can_edit = _can_manage_task_submissions(db, task)
             if not can_edit:
-                return make_response({'success': False, 'message': '无权删除此任务的数据，请提供任务删改认证码或使用有编辑权限的账号。', 'detail': '如果你在脚本/大模型里操作，请在请求中携带删改认证码（请求头或 edit_code 参数）。'}, 403)
-            if not auth_code and (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
-                return make_response({'success': False, 'message': '非法请求。请在页面内操作，或使用删改认证码调用接口。', 'detail': '登录态删改需要从本页面发起（XHR）。若从外部脚本调用，请改用删改认证码。'}, 400)
+                return make_response({'success': False, 'message': '无权删除此任务的数据，请使用有编辑权限的账号。'}, 403)
+            if (request.headers.get('X-Requested-With') or '') != 'XMLHttpRequest':
+                return make_response({'success': False, 'message': '非法请求。请在页面内操作。'}, 400)
             if not date_start_s or not date_end_s:
                 return make_response({'success': False, 'message': '请填写开始日期和结束日期'}, 400)
             try:
