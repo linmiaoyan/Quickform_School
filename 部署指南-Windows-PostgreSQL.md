@@ -51,6 +51,8 @@ DATABASE_URL=postgresql+psycopg://quickform:强密码@127.0.0.1:5432/quickform
 SESSION_COOKIE_SECURE=false
 REMEMBER_COOKIE_SECURE=false
 FLASK_HOST=0.0.0.0
+FLASK_PORT=80
+FLASK_HOST=0.0.0.0
 FLASK_DEBUG=false
 ```
 
