@@ -65,6 +65,11 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
+首次启动会自动建表，并自动确保存在一个默认管理员账号：
+
+- **用户名**：`wzkjgz`
+- **密码**：`wzkjgz123!`
+
 健康检查（本机）：
 
 - 浏览器访问 `http://127.0.0.1/ping` 应返回 `pong`
