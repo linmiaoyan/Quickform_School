@@ -1,4 +1,0 @@
-Quickform_School repo smoke test
-
-Branch: cursor/home-ai-step3-highlight-54a0
-Commit: 9860c2b317a180e7f11c59522ab4b365e8ab7901
