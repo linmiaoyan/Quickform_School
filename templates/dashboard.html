@@ -56,14 +56,10 @@
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
                         <li><a class="dropdown-item" href="{{ url_for('quickform.profile') }}">{{ translate('nav.profile') }}</a></li>
-                        <li class="dropdown-item-text p-0">
-                            <span class="qf-migration-soon-wrap d-block w-100 px-3 py-2 text-muted" tabindex="0" style="cursor: default;">
+                        <li>
+                            <a class="dropdown-item" href="#" onclick="openImportTaskModal(); return false;">
                                 <i class="bi bi-box-arrow-in-down me-2"></i>{{ translate('dashboard.import_task') }}
-                                <div class="qf-migration-soon-tip">
-                                    该功能将于4月29日的会议中正式发布，敬请期待。<br>
-                                    <a href="{{ url_for('quickform.meeting_notice_download') }}" class="link-primary" rel="noopener">会议文件</a>
-                                </div>
-                            </span>
+                            </a>
                         </li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{{ url_for('quickform.logout') }}">{{ translate('nav.logout') }}</a></li>
@@ -581,7 +577,7 @@ a.qf-btn-create-task.btn-primary:active {
 <div class="modal fade" id="importTaskTemplateModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('quickform.import_task_template') }}" enctype="multipart/form-data" onsubmit="return false;">
+            <form method="POST" action="{{ url_for('quickform.import_task_template') }}" enctype="multipart/form-data">
                 <div class="modal-header">
                     <h5 class="modal-title">{{ translate('task_detail.import_template_title') }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -589,16 +585,61 @@ a.qf-btn-create-task.btn-primary:active {
                 <div class="modal-body">
                     <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
                     <div class="mb-3">
+                        <div class="small text-muted mb-2">方式 1：上传迁移包（ZIP）或模板（JSON）导入</div>
                         <label class="form-label">{{ translate('task_detail.import_template_file_label') }}</label>
-                        <input class="form-control" type="file" name="template_file" accept=".json,application/json" disabled>
+                        <input class="form-control" type="file" name="template_file" accept=".zip,application/zip,.json,application/json" required>
+                        <div class="form-text">{{ translate('task_detail.import_template_hint') }}</div>
                     </div>
-                    <div class="alert alert-info mb-0 small">
-                        任务迁移将于4月29日会议后开放；当前无法导入。会议通知：<a href="{{ url_for('quickform.meeting_notice_download') }}" class="alert-link" rel="noopener">下载 PDF</a>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="1" id="rewriteHostCheckDash" name="migration_rewrite_host">
+                        <label class="form-check-label" for="rewriteHostCheckDash">
+                            {{ translate('task_detail.migration_rewrite_host') }}
+                        </label>
+                        <div class="form-text">{{ translate('task_detail.migration_rewrite_help') }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ translate('task_detail.migration_old_api_base') }}</label>
+                        <input class="form-control" type="text" name="migration_old_api_base" placeholder="https://quickform.cn">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ translate('task_detail.migration_new_api_base') }}</label>
+                        <input class="form-control" type="text" name="migration_new_api_base" value="{{ request.url_root.rstrip('/') }}" readonly>
+                    </div>
+
+                    <hr>
+
+                    <div class="mb-2 small text-muted">方式 2：从在线版导入（需要在线版账号密码）</div>
+                    <div class="mb-3">
+                        <label class="form-label">quickform.cn 用户名</label>
+                        <input class="form-control" type="text" id="qfOnlineUserDash" placeholder="请输入在线版用户名">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">quickform.cn 密码</label>
+                        <input class="form-control" type="password" id="qfOnlinePassDash" placeholder="请输入在线版密码">
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-outline-primary" onclick="qfFetchOnlineTasksDash()">获取全部任务</button>
+                        <button type="button" class="btn btn-outline-success" onclick="qfPromptApiUrlDash()">输入 API 地址导入</button>
+                    </div>
+                    <div id="qfOnlineTasksDashWrap" class="mt-3" style="display:none;">
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>任务名称</th>
+                                        <th class="text-muted">任务描述</th>
+                                        <th style="width: 140px;">API ID</th>
+                                        <th style="width: 100px;">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="qfOnlineTasksDashBody"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
-                    <button type="button" class="btn btn-primary" disabled>{{ translate('task_detail.start_import') }}</button>
+                    <button type="submit" class="btn btn-primary">{{ translate('task_detail.start_import') }}</button>
                 </div>
             </form>
         </div>
@@ -609,6 +650,78 @@ a.qf-btn-create-task.btn-primary:active {
 <script src="{{ url_for('static', filename='vendor/introjs/intro.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/onboarding.js') }}"></script>
 <script>
+    function openImportTaskModal() {
+        try {
+            var el = document.getElementById('importTaskTemplateModal');
+            if (!el || !window.bootstrap || !bootstrap.Modal) return;
+            var modal = bootstrap.Modal.getOrCreateInstance(el);
+            modal.show();
+        } catch (e) {}
+    }
+
+    async function qfFetchOnlineTasksDash() {
+        var u = (document.getElementById('qfOnlineUserDash') || {}).value || '';
+        var p = (document.getElementById('qfOnlinePassDash') || {}).value || '';
+        u = (u || '').trim();
+        if (!u || !p) { alert('请填写在线版用户名和密码'); return; }
+        var resp = await fetch('/task/migration/online/list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ username: u, password: p })
+        });
+        var data = await resp.json().catch(function(){ return {}; });
+        if (!data || !data.success) { alert((data && data.message) || '获取任务失败'); return; }
+        var items = data.tasks || [];
+        var body = document.getElementById('qfOnlineTasksDashBody');
+        var wrap = document.getElementById('qfOnlineTasksDashWrap');
+        if (!body || !wrap) return;
+        body.innerHTML = '';
+        items.forEach(function(it) {
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + (it.title || it.name || '-') + '</td>' +
+                           '<td class="text-muted small">' + ((it.description || '') || '无') + '</td>' +
+                           '<td><code>' + (it.api_id || it.apiid || '-') + '</code></td>' +
+                           '<td><button type=\"button\" class=\"btn btn-sm btn-primary\">导入</button></td>';
+            tr.querySelector('button').addEventListener('click', function() {
+                qfImportOnlineByApiIdDash((it.api_id || it.apiid || '').trim(), u, p);
+            });
+            body.appendChild(tr);
+        });
+        wrap.style.display = '';
+    }
+
+    async function qfImportOnlineByApiIdDash(apiid, username, password) {
+        if (!apiid) { alert('缺少 API ID'); return; }
+        var resp = await fetch('/task/migration/online/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ username: username, password: password, apiid: apiid })
+        });
+        var data = await resp.json().catch(function(){ return {}; });
+        if (!data || !data.success) { alert((data && data.message) || '导入失败'); return; }
+        window.location.href = data.redirect || '/dashboard';
+    }
+
+    function qfPromptApiUrlDash() {
+        var url = prompt('输入数据任务的API地址\\n格式如：https://quickform.cn/api/xxxxxxx', 'https://quickform.cn/api/');
+        if (!url) return;
+        var u = (document.getElementById('qfOnlineUserDash') || {}).value || '';
+        var p = (document.getElementById('qfOnlinePassDash') || {}).value || '';
+        u = (u || '').trim();
+        if (!u || !p) { alert('请先填写在线版用户名和密码'); return; }
+        fetch('/task/migration/online/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ username: u, password: p, api_url: url })
+        }).then(function(r){ return r.json(); }).then(function(data){
+            if (!data || !data.success) { alert((data && data.message) || '导入失败'); return; }
+            window.location.href = data.redirect || '/dashboard';
+        }).catch(function(){ alert('导入失败'); });
+    }
+
     function copyToClipboard(elementId) {
         const element = document.getElementById(elementId);
         element.select();
