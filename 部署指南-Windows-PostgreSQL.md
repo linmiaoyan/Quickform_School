@@ -34,7 +34,11 @@ ALTER USER quickform WITH PASSWORD '新密码';
 
 ## 3) 配置 QuickForm 的 `.env`
 
-在仓库根目录（与 `app.py` 同级）新建 `.env`，至少写入：
+在仓库根目录（与 `app.py` 同级）新建 `.env`。
+
+推荐做法：复制本仓库提供的 `example.env` 为 `.env`，再按你的实际密码/端口修改。
+
+最少需要包含（示例）：
 
 ```env
 SECRET_KEY=请填强随机值
