@@ -1367,7 +1367,7 @@ def community():
                 joinedload(Post.replies).joinedload(PostReply.user),
             )
             .order_by(
-                func.coalesce(Post.is_pinned, 0).desc(),
+                func.coalesce(Post.is_pinned, False).desc(),
                 func.coalesce(Post.pinned_at, Post.created_at).desc(),
                 Post.created_at.desc(),
             )
