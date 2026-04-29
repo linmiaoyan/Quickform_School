@@ -46,6 +46,7 @@ CREATE DATABASE quickform OWNER quickform;
 |------|------|
 | `CHAT_SERVER_API_TOKEN` | 硅基流动等：用户未在个人中心配置 API 时的默认 Token（一键内测）。 |
 | `API_READ_CACHE_TTL` / `API_READ_CACHE_MAX_KEYS` | 只读 API 内存缓存，一般可保持默认。 |
+| `DB_DELETE_BATCH_SIZE` / `DB_DELETE_MAX_RETRIES` / `DB_DELETE_RETRY_SLEEP` | 管理端批量清空等逻辑的分批与重试；`example.env` 已与代码默认一致，`cp example.env .env` 后**无需单独调整**即可用。仅在并发很高或大批量删除仍遇锁等待时再酌情调小批次或加大间隔。 |
 
 最小可运行示例（仍需把密码、域名改成你的实际值）：
 
