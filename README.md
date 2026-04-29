@@ -81,8 +81,8 @@ python app.py
 
 首次启动会尝试自动创建/确保管理员账号存在：
 
-- 用户名：`wzkjgz`
-- 密码：`wzkjgz123!`
+- 用户名：`DEFAULT_ADMIN_USERNAME`（默认 `wst`）
+- 密码：`DEFAULT_ADMIN_PASSWORD`（默认 `quickform`）
 
 建议首次登录后立刻修改密码。
 
