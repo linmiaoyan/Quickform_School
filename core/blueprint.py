@@ -9344,10 +9344,11 @@ def init_quickform(app, login_manager_instance=None, database_type=None):
     def init_admin_account():
         db = SessionLocal()
         try:
-            admin_username = 'wst'
+            admin_username = (os.getenv('DEFAULT_ADMIN_USERNAME') or 'wst').strip() or 'wst'
+            admin_password = (os.getenv('DEFAULT_ADMIN_PASSWORD') or 'quickform').strip() or 'quickform'
             admin_user = db.query(User).filter_by(username=admin_username).first()
             if not admin_user:
-                hashed_password = bcrypt.generate_password_hash('quickform').decode('utf-8')
+                hashed_password = bcrypt.generate_password_hash(admin_password).decode('utf-8')
                 admin_user = User(
                     username=admin_username,
                     email='wzlinmiaoyan@163.com',
@@ -9358,12 +9359,12 @@ def init_quickform(app, login_manager_instance=None, database_type=None):
                 )
                 db.add(admin_user)
                 db.commit()
-                logger.info("成功创建管理员账号：wst")
+                logger.info("成功创建管理员账号：%s", admin_username)
             elif admin_user.role != 'admin':
                 admin_user.role = 'admin'
-                admin_user.password = bcrypt.generate_password_hash('quickform').decode('utf-8')
+                admin_user.password = bcrypt.generate_password_hash(admin_password).decode('utf-8')
                 db.commit()
-                logger.info("成功更新管理员账号：wst")
+                logger.info("成功更新管理员账号：%s", admin_username)
         except Exception as e:
             logger.error(f"初始化管理员账号失败: {str(e)}")
         finally:
@@ -9427,10 +9428,11 @@ def init_quickform_async(app, login_manager_instance=None, database_type=None):
             def init_admin_account():
                 db = SessionLocal()
                 try:
-                    admin_username = 'wst'
+                    admin_username = (os.getenv('DEFAULT_ADMIN_USERNAME') or 'wst').strip() or 'wst'
+                    admin_password = (os.getenv('DEFAULT_ADMIN_PASSWORD') or 'quickform').strip() or 'quickform'
                     admin_user = db.query(User).filter_by(username=admin_username).first()
                     if not admin_user:
-                        hashed_password = bcrypt.generate_password_hash('quickform').decode('utf-8')
+                        hashed_password = bcrypt.generate_password_hash(admin_password).decode('utf-8')
                         admin_user = User(
                             username=admin_username,
                             email='wzlinmiaoyan@163.com',
@@ -9441,12 +9443,12 @@ def init_quickform_async(app, login_manager_instance=None, database_type=None):
                         )
                         db.add(admin_user)
                         db.commit()
-                        logger.info("成功创建管理员账号：wst")
+                        logger.info("成功创建管理员账号：%s", admin_username)
                     elif admin_user.role != 'admin':
                         admin_user.role = 'admin'
-                        admin_user.password = bcrypt.generate_password_hash('quickform').decode('utf-8')
+                        admin_user.password = bcrypt.generate_password_hash(admin_password).decode('utf-8')
                         db.commit()
-                        logger.info("成功更新管理员账号：wst")
+                        logger.info("成功更新管理员账号：%s", admin_username)
                 except Exception as e:
                     logger.error(f"初始化管理员账号失败: {str(e)}")
                 finally:
