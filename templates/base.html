@@ -579,7 +579,7 @@
     <!-- 导航栏 -->
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('quickform.index') }}">QuickForm</a>
+            <a class="navbar-brand" href="{{ url_for('quickform.index') }}">{{ (system_config.system_name if system_config else 'QuickForm') }}</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="{{ translate('base.toggle_nav') }}">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -634,9 +634,11 @@
                         </ul>
                     </li>
                     {% else %}
+                    {% if system_config and system_config.registration_enabled %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.register') }}">{{ translate('nav.register') }}</a>
                     </li>
+                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.login') }}">{{ translate('nav.login') }}</a>
                     </li>

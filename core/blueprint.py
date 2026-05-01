@@ -48,6 +48,10 @@ try:
 except Exception:  # pragma: no cover
     requests = None
 
+# Campus admin-config (file-based)
+from .system_config import load_system_config, save_system_config, SystemConfig
+from .pending_users import is_user_pending, load_pending_users, set_user_pending
+
 
 # 导入分离的模块
 from .models import (
@@ -1086,6 +1090,17 @@ def inject_upload_url():
     return dict(get_upload_file_url=get_upload_file_url)
 
 
+@quickform_bp.context_processor
+def inject_system_config():
+    """向所有模板注入系统配置（用于导航栏系统名、注册开关等）。"""
+    try:
+        cfg = load_system_config()
+    except Exception:
+        cfg = SystemConfig()
+    # 同时提供 syscfg 兼容变量名（用于部分模板/旧逻辑）
+    return {"system_config": cfg, "syscfg": cfg}
+
+
 def _task_has_any_html(task) -> bool:
     """任务是否已上传至少一个 HTML 文件（用于公开项目申请前置校验）。"""
     if not task:
@@ -1526,6 +1541,12 @@ def delete_post(post_id):
 def register():
     """注册"""
     try:
+        cfg = load_system_config()
+        if not cfg.registration_enabled:
+            flash('当前系统已关闭用户注册，请联系管理员开通。', 'warning')
+            # “页面关闭”：统一跳转到首页或登录页
+            return redirect(url_for('quickform.login'))
+
         if request.method == 'POST':
             username = request.form.get('username', '').strip()
             email = (request.form.get('email') or '').strip()  # 注册可不填，空时用占位邮箱避免违反唯一约束
@@ -1533,8 +1554,15 @@ def register():
             school = request.form.get('school', '').strip()
             phone = (request.form.get('phone') or '').strip() or None
             
+            # 默认学校：配置不为空时自动预填；配置为空时要求用户必填
+            if not school and (cfg.default_school or '').strip():
+                school = (cfg.default_school or '').strip()
+
             if not username or not password or not school:
-                flash('请填写用户名、学校与密码', 'danger')
+                if not (cfg.default_school or '').strip():
+                    flash('请填写用户名、学校与密码', 'danger')
+                else:
+                    flash('请填写用户名与密码', 'danger')
                 return redirect(url_for('quickform.register'))
 
             if not request.form.get('agree_disclaimer'):
@@ -1603,12 +1631,19 @@ def register():
                     return redirect(url_for('quickform.register'))
 
                 flash('注册成功，请登录', 'success')
+                if cfg.registration_requires_approval:
+                    try:
+                        set_user_pending(username, True, meta={"created_at": datetime.now().isoformat()})
+                    except Exception:
+                        pass
+                    flash('注册成功：账号需要管理员审核后才能登录。', 'warning')
                 return redirect(url_for('quickform.login'))
             finally:
                 db.close()
         else:
             # GET请求，显示注册页面
-            return render_template('register.html')
+            default_school = (cfg.default_school or '').strip()
+            return render_template('register.html', default_school=default_school)
     except Exception as e:
         logger.exception("注册页面异常")
         flash(MSG_PAGE_LOAD, 'danger')
@@ -1698,6 +1733,14 @@ def login():
             ).first()
             
             if user and bcrypt.check_password_hash(user.password, password):
+                # 注册审核：被标记为 pending 的账号不可登录
+                try:
+                    if is_user_pending(user.username):
+                        flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
+                        return render_template('login.html')
+                except Exception:
+                    pass
+
                 # 登录成功，清除失败次数与 IP 限流计数
                 from flask import session
                 session.pop('login_fail_count', None)
@@ -6760,6 +6803,8 @@ def admin_panel():
         org_pending_with_creator = []
         open_source_tasks_with_author = []
         tutorials_json_content = '[]'
+        syscfg = None
+        pending_users = {}
         oneclick_prompt_rows = []
         submit_quota_base_c = None
         submit_quota_base_b = None
@@ -6896,6 +6941,18 @@ def admin_panel():
             except Exception as e:
                 logger.warning(f"读取 tutorials.json 失败: {e}")
 
+        elif current_tab == 'system-config':
+            try:
+                syscfg = load_system_config()
+            except Exception:
+                syscfg = SystemConfig()
+            try:
+                pending_users = load_pending_users()
+                if not isinstance(pending_users, dict):
+                    pending_users = {}
+            except Exception:
+                pending_users = {}
+
         # campus edition: quota-review/quota-settings removed
 
         # campus edition: oneclick-prompts removed
@@ -6994,6 +7051,8 @@ def admin_panel():
             org_pending_with_creator=org_pending_with_creator,
             open_source_tasks_with_author=open_source_tasks_with_author,
             tutorials_json_content=tutorials_json_content,
+            syscfg=syscfg,
+            pending_users=pending_users,
             api_traffic=api_traffic,
             oneclick_prompt_rows=[],
             submit_quota_base_c=submit_quota_base_c,
@@ -7015,6 +7074,170 @@ def admin_panel():
 def admin_save_oneclick_prompt_options():
     """校园版：已移除「一键生成说明」后台功能。"""
     abort(404)
+
+
+@quickform_bp.route('/admin/system_config/save', methods=['POST'])
+@admin_required
+def admin_system_config_save():
+    """保存系统配置（系统名称/默认学校/是否开启注册/注册是否需审核）。"""
+    try:
+        system_name = (request.form.get('system_name') or '').strip()
+        default_school = (request.form.get('default_school') or '').strip()
+        registration_enabled = (request.form.get('registration_enabled') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+        registration_requires_approval = (request.form.get('registration_requires_approval') or '').strip().lower() in (
+            '1',
+            'true',
+            'yes',
+            'on',
+        )
+        cfg = SystemConfig(
+            system_name=system_name or SystemConfig.system_name,
+            default_school=default_school,
+            registration_enabled=registration_enabled,
+            registration_requires_approval=registration_requires_approval,
+        )
+        save_system_config(cfg)
+        flash('系统配置已保存。', 'success')
+    except Exception as e:
+        logger.exception('保存系统配置失败: %s', e)
+        flash('保存失败，请稍后重试。', 'danger')
+    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+
+@quickform_bp.route('/admin/pending_users/approve', methods=['POST'])
+@admin_required
+def admin_pending_user_approve():
+    """审批注册用户：通过/拒绝（拒绝仅移除 pending 标记，不删库数据）。"""
+    username = (request.form.get('username') or '').strip()
+    action = (request.form.get('action') or '').strip().lower()
+    if not username:
+        flash('缺少用户名', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+    try:
+        if action == 'approve':
+            set_user_pending(username, False)
+            flash(f'已通过用户「{username}」审核。', 'success')
+        elif action == 'reject':
+            set_user_pending(username, False)
+            flash(f'已拒绝用户「{username}」审核（已移除待审核标记）。', 'warning')
+        else:
+            flash('未知操作', 'danger')
+    except Exception as e:
+        logger.exception('审批待审核用户失败: %s', e)
+        flash('操作失败，请稍后重试。', 'danger')
+    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+
+@quickform_bp.route('/admin/users/bulk_import', methods=['POST'])
+@admin_required
+def admin_users_bulk_import():
+    """批量导入用户（CSV 上传）。"""
+    cfg = load_system_config()
+    file = request.files.get('csv_file')
+    if not file:
+        flash('请上传 CSV 文件', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+    try:
+        raw = file.read()
+        # Try UTF-8 then GBK for Windows CSV
+        try:
+            text = raw.decode('utf-8-sig')
+        except Exception:
+            text = raw.decode('gbk', errors='replace')
+        rows = list(csv.DictReader(text.splitlines()))
+    except Exception as e:
+        logger.exception('解析 CSV 失败: %s', e)
+        flash('CSV 解析失败，请检查格式/编码（推荐 UTF-8）。', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+    if not rows:
+        flash('CSV 文件为空或无数据行', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+    created = 0
+    skipped = 0
+    failed = 0
+    errors = []
+
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func
+        for i, r in enumerate(rows, start=2):  # header line is 1
+            try:
+                username = (r.get('username') or r.get('用户名') or '').strip()
+                password = (r.get('password') or r.get('密码') or '').strip() or 'quickform'
+                school = (r.get('school') or r.get('学校') or '').strip()
+                phone = (r.get('phone') or r.get('手机号') or '').strip()
+                email = (r.get('email') or r.get('邮箱') or '').strip()
+
+                if not username:
+                    skipped += 1
+                    errors.append(f'第{i}行：缺少 username')
+                    continue
+                if not school and (cfg.default_school or '').strip():
+                    school = (cfg.default_school or '').strip()
+                if not school:
+                    skipped += 1
+                    errors.append(f'第{i}行：缺少 school（系统默认学校为空时必须提供）')
+                    continue
+
+                username_norm = username.lower()
+                if db.query(User.id).filter(func.lower(User.username) == username_norm).first():
+                    skipped += 1
+                    continue
+
+                hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+                email_value = email.strip() if email else f"{username}@noreply.local"
+                if db.query(User.id).filter(User.email == email_value).first():
+                    # Avoid occupying existing account's email
+                    email_value = f"{username}_{secrets.token_hex(3)}@noreply.local"
+
+                user = User(
+                    username=username,
+                    email=email_value,
+                    password=hashed_password,
+                    school=school,
+                    phone=phone or '',
+                )
+                db.add(user)
+                db.flush()
+                db.add(AIConfig(user=user, selected_model='chat_server'))
+                created += 1
+                if cfg.registration_requires_approval:
+                    try:
+                        set_user_pending(username, True, meta={"created_at": datetime.now().isoformat(), "source": "bulk_import"})
+                    except Exception:
+                        pass
+            except Exception as e:
+                db.rollback()
+                failed += 1
+                errors.append(f'第{i}行：导入失败：{str(e)}')
+            else:
+                # keep batching; commit at end
+                pass
+        db.commit()
+    finally:
+        db.close()
+
+    msg = f'批量导入完成：新增 {created}，跳过 {skipped}，失败 {failed}。'
+    if errors:
+        msg += f'（部分提示：{ "；".join(errors[:5]) }）'
+    flash(msg, 'success' if failed == 0 else 'warning')
+    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+
+@quickform_bp.route('/admin/users/bulk_import/sample.csv', methods=['GET'])
+@admin_required
+def admin_users_bulk_import_sample():
+    """下载批量导入 CSV 示例。"""
+    sample = "username,password,school,phone,email\n" \
+             "teacher01,quickform,温州科技高级中学,13800000000,teacher01@example.com\n" \
+             "teacher02,quickform,,13800000001,\n"
+    return Response(
+        sample,
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename=\"quickform_users_sample.csv\"'},
+    )
 
 
 @quickform_bp.route('/admin/public_approve/<int:task_id>', methods=['POST'])
