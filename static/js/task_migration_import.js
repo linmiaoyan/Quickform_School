@@ -78,7 +78,7 @@
       const password = qs('#qf-online-password')?.value || '';
       const baseUrl = (qs('#qf-online-base-url')?.value || '').trim();
       const apiUrl = (qs('#qf-online-api-url')?.value || '').trim();
-      const endpoint = window.QF_TASK_MIGRATION?.endpoints?.resolveOne || '/task/migration/online/resolve';
+      const endpoint = window.QF_TASK_MIGRATION?.endpoints?.listOne || '/task/migration/online/resolve';
       const data = await postJson(endpoint, { username, password, base_url: baseUrl, api_url: apiUrl });
       if (data.apiid) {
         await importByApiId(data.apiid);

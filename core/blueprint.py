@@ -5049,9 +5049,7 @@ def export_data(task_id):
 # 如需临时关闭，可通过环境变量 TASK_MIGRATION_ACTIVE=false 控制。
 TASK_MIGRATION_ACTIVE = (os.getenv('TASK_MIGRATION_ACTIVE', 'true').strip().lower() == 'true')
 TASK_MIGRATION_MANIFEST = 'quickform-task-migration.json'
-TASK_MIGRATION_DISABLED_FLASH = (
-    '任务迁移功能将于 4 月 29 日会议正式发布，敬请期待。会议通知 PDF 可在任务详情页「任务迁移」旁的说明中下载。'
-)
+TASK_MIGRATION_DISABLED_FLASH = '任务迁移功能已关闭（TASK_MIGRATION_ACTIVE=false）。'
 
 # 在线版（quickform.cn）对接：默认在线版根地址，可通过环境变量覆盖
 ONLINE_QUICKFORM_BASE_URL = (os.getenv('ONLINE_QUICKFORM_BASE_URL') or 'https://quickform.cn').strip().rstrip('/')
