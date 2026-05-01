@@ -21,10 +21,6 @@
         </a>
 
         <div class="px-3 pt-3 pb-1 text-muted small fw-semibold">审核</div>
-        <a href="{{ url_for('quickform.admin_panel', tab='cert-review') }}" class="sidebar-item {{ 'active' if current_tab == 'cert-review' else '' }}" data-tab="cert-review">
-            <i class="bi bi-shield-check" style="margin-right: 0.75rem;"></i> {{ translate('admin.cert_review') }}
-            {% if pending_cert_sidebar and pending_cert_sidebar > 0 %}<span class="badge bg-danger ms-auto">{{ pending_cert_sidebar }}</span>{% endif %}
-        </a>
         <a href="{{ url_for('quickform.admin_panel', tab='other-review') }}" class="sidebar-item {{ 'active' if current_tab == 'other-review' else '' }}" data-tab="other-review">
             <i class="bi bi-ui-checks-grid" style="margin-right: 0.75rem;"></i> 其他审核
             {% if pending_other_sidebar and pending_other_sidebar > 0 %}<span class="badge bg-warning text-dark ms-auto">{{ pending_other_sidebar }}</span>{% endif %}
@@ -37,10 +33,7 @@
             <i class="bi bi-book" style="margin-right: 0.75rem;"></i> {{ translate('admin.tutorials_edit') }}
         </a>
 
-        <div class="px-3 pt-3 pb-1 text-muted small fw-semibold">配置</div>
-        <a href="{{ url_for('quickform.admin_panel', tab='oneclick-prompts') }}" class="sidebar-item {{ 'active' if current_tab == 'oneclick-prompts' else '' }}" data-tab="oneclick-prompts">
-            <i class="bi bi-magic" style="margin-right: 0.75rem;"></i> 一键生成说明
-        </a>
+        {# 校园版：去除“一键生成说明”等配置项 #}
     </div>
     
     <!-- 主内容区 -->
@@ -77,12 +70,6 @@
                 </div>
             </div>
             <div class="col">
-                <div class="stat-card" style="border-left: 4px solid #8b5cf6;">
-                    <div class="stat-label">已认证教师数</div>
-                    <div class="stat-number">{{ stats.certified_users }}</div>
-                </div>
-            </div>
-            <div class="col">
                 <div class="stat-card" style="border-left: 4px solid #06b6d4;">
                     <div class="stat-label">网页活跃用户</div>
                     <div class="stat-number">{{ stats.online_active }}</div>
@@ -111,11 +98,6 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="cert-review-tab" data-bs-toggle="tab" data-bs-target="#cert-review" type="button" role="tab">
-                    {{ translate('admin.cert_audit') }}
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="open-source-tab" data-bs-toggle="tab" data-bs-target="#open-source" type="button" role="tab">
                     {{ translate('admin.open_source') }}
                 </button>
@@ -140,9 +122,6 @@
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0" style="color: white;">{{ translate('admin.user_list_title') }}</h5>
                         <div>
-                            <a href="{{ url_for('quickform.admin_users_statistics') }}" class="btn btn-sm me-2" style="font-weight: 500; background-color: #3b82f6; color: white; border: none;">
-                                <i class="bi bi-graph-up"></i> {{ translate('admin.user_region_analysis') }}
-                            </a>
                             <a href="{{ url_for('quickform.admin_export_users') }}" class="btn btn-sm" style="font-weight: 500; background-color: #10b981; color: white; border: none;">
                                 <i class="bi bi-download"></i> {{ translate('admin.export_excel') }}
                             </a>
@@ -173,10 +152,8 @@
                                         <th style="width: 100px;">用户名</th>
                                         <th style="width: 180px;">邮箱</th>
                                         <th style="width: 220px; min-width: 180px;">{{ translate('admin.school') }}</th>
-                                        <th style="width: 160px; min-width: 140px;">{{ translate('admin.province') }}</th>
                                         <th style="width: 120px;">手机号</th>
                                         <th style="width: 80px;">角色</th>
-                                        <th style="width: 90px;">{{ translate('admin.auth_status') }}</th>
                                         <th style="width: 100px;">{{ translate('admin.task_limit') }}</th>
                                         <th style="width: 150px;">{{ translate('admin.register_time') }}</th>
                                         <th style="width: 100px;">{{ translate('admin.actions') }}</th>
@@ -189,29 +166,11 @@
                                         <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.username }}">{{ user.username }}</td>
                                         <td style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.email }}">{{ user.email }}</td>
                                         <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.school or translate('admin.not_filled') }}">{{ user.school or translate('admin.not_filled') }}</td>
-                                        <td style="white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;">
-                                            {{ user.school_province or translate('admin.not_filled') }}
-                                            {% if user.school_province_source == 'admin' %}
-                                                <span class="badge bg-warning text-dark ms-1">{{ translate('admin.province_manual') }}</span>
-                                            {% elif user.school_province_source == 'auto' %}
-                                                <span class="badge bg-secondary ms-1">{{ translate('admin.province_auto') }}</span>
-                                            {% endif %}
-                                        </td>
                                         <td style="white-space: nowrap;">{{ user.phone or translate('admin.not_filled') }}</td>
                                         <td>
                                             <span class="badge {% if user.role == 'admin' %}bg-danger{% else %}bg-secondary{% endif %}">
                                                 {% if user.role == 'admin' %}{{ translate('admin.admin_role') }}{% else %}{{ translate('admin.user_role') }}{% endif %}
                                             </span>
-                                        </td>
-                                        <td>
-                                            {% set pending_req = user.certification_requests | selectattr('status', 'equalto', 0) | list %}
-                                            {% if user.is_certified %}
-                                            <span class="status-badge featured">{{ translate('admin.certified') }}</span>
-                                            {% elif pending_req %}
-                                            <span class="status-badge pending">{{ translate('admin.reviewing') }}</span>
-                                            {% else %}
-                                            <span class="badge bg-secondary">{{ translate('admin.unverified') }}</span>
-                                            {% endif %}
                                         </td>
                                         <td>
                                             {{ user.tasks|length }} /
@@ -252,22 +211,14 @@
                                                         </a>
                                                     </li>
                                                     <li>
-                                                        <a class="dropdown-item" href="#"
-                                                           onclick="setUserProvincePrompt(this); return false;"
-                                                           data-set-province-url="{{ url_for('quickform.admin_set_school_province', user_id=user.id) }}"
-                                                           data-current-province="{{ user.school_province or '' }}">
-                                                            <i class="bi bi-geo-alt text-info"></i> {{ translate('admin.set_province') }}
-                                                        </a>
-                                                    </li>
-                                                    {% if user.role != 'admin' %}
-                                                    <li><hr class="dropdown-divider"></li>
-                                                    <li>
                                                         <form action="{{ url_for('quickform.admin_delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('{{ translate('admin.confirm_delete_user').format(username=user.username) }}\n\n这将同时删除该用户的：\n- 所有任务\n- 所有提交数据\n- AI配置\n- 认证申请\n\n此操作不可恢复！')">
                                                             <button type="submit" class="dropdown-item text-danger">
                                                                 <i class="bi bi-trash"></i> 删除用户
                                                             </button>
                                                         </form>
                                                     </li>
+                                                    {% if user.role != 'admin' %}
+                                                    {% else %}
                                                     {% endif %}
                                                 </ul>
                                             </div>
@@ -290,7 +241,7 @@
                         <nav aria-label="用户分页" class="mt-3">
                             <ul class="pagination pagination-sm justify-content-center mb-0">
                                 <li class="page-item {% if user_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_page-1, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_page-1, task_page=task_page, html_review_page=html_review_page, tab='users', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
                                         <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
@@ -298,7 +249,7 @@
                                 {% set end_page = [user_pages, user_page + 2]|min %}
 
                                 {% if start_page > 1 %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=1, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}">1</a></li>
+                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=1, task_page=task_page, html_review_page=html_review_page, tab='users', q=user_search if user_search else None) }}">1</a></li>
                                 {% if start_page > 2 %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                                 {% endif %}
@@ -306,7 +257,7 @@
 
                                 {% for page_num in range(start_page, end_page + 1) %}
                                 <li class="page-item {% if page_num|int == user_page|int %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=page_num, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}">{{ page_num }}</a>
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=page_num, task_page=task_page, html_review_page=html_review_page, tab='users', q=user_search if user_search else None) }}">{{ page_num }}</a>
                                 </li>
                                 {% endfor %}
 
@@ -314,11 +265,11 @@
                                 {% if end_page < user_pages - 1 %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                                 {% endif %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_pages, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}">{{ user_pages }}</a></li>
+                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_pages, task_page=task_page, html_review_page=html_review_page, tab='users', q=user_search if user_search else None) }}">{{ user_pages }}</a></li>
                                 {% endif %}
 
                                 <li class="page-item {% if user_page >= user_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_page+1, task_page=task_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='users', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', user_page=user_page+1, task_page=task_page, html_review_page=html_review_page, tab='users', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
                                         <span aria-hidden="true">&raquo;</span>
                                     </a>
                                 </li>
@@ -437,7 +388,7 @@
                         <nav aria-label="任务列表分页" class="mt-3">
                             <ul class="pagination pagination-sm justify-content-center mb-0">
                                 <li class="page-item {% if task_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page-1, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page-1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
                                         <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
@@ -445,7 +396,7 @@
                                 {% set end_page = [task_pages, task_page + 2]|min %}
 
                                 {% if start_page > 1 %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=1, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}">1</a></li>
+                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}">1</a></li>
                                 {% if start_page > 2 %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                                 {% endif %}
@@ -453,7 +404,7 @@
 
                                 {% for page_num in range(start_page, end_page + 1) %}
                                 <li class="page-item {% if page_num|int == task_page|int %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=page_num, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}">{{ page_num }}</a>
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=page_num, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}">{{ page_num }}</a>
                                 </li>
                                 {% endfor %}
 
@@ -461,11 +412,11 @@
                                 {% if end_page < task_pages - 1 %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                                 {% endif %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_pages, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}">{{ task_pages }}</a></li>
+                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_pages, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}">{{ task_pages }}</a></li>
                                 {% endif %}
 
                                 <li class="page-item {% if task_page >= task_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page+1, user_page=user_page, html_review_page=html_review_page, cert_review_page=cert_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page+1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
                                         <span aria-hidden="true">&raquo;</span>
                                     </a>
                                 </li>
@@ -556,6 +507,12 @@
                             当前使用的是 <strong>仓库默认版本</strong>。点击保存后会生成管理员覆盖版本，后续代码更新不会覆盖。
                         </div>
                         {% endif %}
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                            <form method="POST" action="{{ url_for('quickform.admin_tutorials_sync_official') }}" class="m-0" onsubmit="return confirm('确定同步官方教程为最新吗？\\n\\n同步后：会写入管理员覆盖版本，立即生效；可随时点“恢复默认”撤销。');">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">同步官方教程</button>
+                            </form>
+                            <span class="text-muted small">从 quickform.cn 获取最新版 tutorials.json</span>
+                        </div>
                         <form method="POST" action="{{ url_for('quickform.admin_tutorials_json_save') }}">
                             <div class="mb-3">
                                 <label for="tutorials_json" class="form-label">tutorials.json 内容</label>
@@ -749,9 +706,6 @@
                                             <td class="align-middle" style="padding: 14px 12px;">
                                                 <div>
                                                     {{ item.author.username if item.author else '未知' }}
-                                                    {% if item.author and item.author.is_certified %}
-                                                    <span class="badge bg-success ms-1">{{ translate('admin.certified') }}</span>
-                                                    {% endif %}
                                                 </div>
                                             </td>
                                             <td class="align-middle" style="padding: 14px 12px;">
@@ -849,7 +803,7 @@
                         <nav aria-label="HTML审核分页" class="mt-3">
                             <ul class="pagination justify-content-center">
                                 <li class="page-item {% if html_review_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page-1, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit" aria-label="{{ translate('admin.prev_page') }}">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page-1, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit" aria-label="{{ translate('admin.prev_page') }}">
                                         <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
@@ -857,7 +811,7 @@
                                 {% set end_page = [html_review_pages, html_review_page + 2]|min %}
 
                                 {% if start_page > 1 %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=1, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">1</a></li>
+                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=1, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">1</a></li>
                                 {% if start_page > 2 %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                                 {% endif %}
@@ -865,7 +819,7 @@
 
                                 {% for p in range(start_page, end_page + 1) %}
                                 <li class="page-item {% if p|int == html_review_page|int %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=p, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">{{ p }}</a>
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=p, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">{{ p }}</a>
                                 </li>
                                 {% endfor %}
 
@@ -873,11 +827,11 @@
                                 {% if end_page < html_review_pages - 1 %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                                 {% endif %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_pages, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">{{ html_review_pages }}</a></li>
+                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_pages, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">{{ html_review_pages }}</a></li>
                                 {% endif %}
 
                                 <li class="page-item {% if html_review_page >= html_review_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page+1, user_page=user_page, task_page=task_page, cert_review_page=cert_review_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit" aria-label="{{ translate('admin.next_page') }}">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page+1, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit" aria-label="{{ translate('admin.next_page') }}">
                                         <span aria-hidden="true">&raquo;</span>
                                     </a>
                                 </li>
@@ -933,191 +887,6 @@
                 {% endfor %}
             </div>
             </div>
-
-            <!-- 认证审核标签页 -->
-            <div class="tab-pane fade {{ 'show active' if current_tab == 'cert-review' else '' }}" id="cert-review" role="tabpanel">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">{{ translate('admin.cert_audit') }}</h5>
-                    </div>
-                    <div class="card-body">
-                        <p class="text-muted small mb-3">认证材料上传允许最大 10MB（PNG / JPG / PDF 等）。</p>
-                        <div class="alert alert-primary mb-4">
-                            <strong>{{ translate('admin.pending_cert') }}：</strong> {{ pending_cert_count }}
-                        </div>
-                        {% if cert_requests %}
-                        {% include 'partials/cert_material_preview_styles.html' %}
-                        {% set has_pending_cert = (cert_requests | selectattr('status','equalto',0) | list | length) > 0 %}
-                        {% set cert_page_material_count = cert_requests | selectattr('status','equalto',0) | selectattr('file_path') | list | length %}
-                        <form id="certBatchForm" method="POST" action="{{ url_for('quickform.admin_cert_batch_approve') }}">
-                            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-3">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="certSelectAll" {% if not has_pending_cert %}disabled{% endif %}>
-                                    <label class="form-check-label" for="certSelectAll">
-                                        {{ translate('admin.select_all_list') }}
-                                    </label>
-                                </div>
-                                <div class="d-flex align-items-center gap-2">
-                                    <button
-                                        type="button"
-                                        id="openCertPageMaterialsBtn"
-                                        class="btn btn-sm"
-                                        style="background-color: #2563eb; color: white; border: none;"
-                                        {% if cert_page_material_count == 0 %}disabled{% endif %}
-                                    >
-                                        <i class="bi bi-folder2-open" style="margin-right: 0.25rem;"></i>
-                                        一键查看本页材料（{{ cert_page_material_count }}）
-                                    </button>
-                                    <button type="submit" id="certBatchApproveBtn" class="btn btn-sm" 
-                                            style="background-color: #10b981; color: white; border: none;"
-                                            {% if not has_pending_cert %}disabled{% endif %}>
-                                        <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
-                                        {{ translate('admin.batch_pass') }}
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                            <div class="table-responsive">
-                                <table class="table table-striped align-middle">
-                                    <thead>
-                                        <tr>
-                                            <th style="width: 40px;">选择</th>
-                                            <th>{{ translate('admin.applicant') }}</th>
-                                            <th>{{ translate('admin.school') }}</th>
-                                            <th>{{ translate('common.submit') }}时间</th>
-                                            <th>{{ translate('admin.status') }}</th>
-                                            <th>{{ translate('admin.audit_time') }}</th>
-                                            <th>{{ translate('admin.materials') }}</th>
-                                            <th>{{ translate('admin.audit_note') }}</th>
-                                            <th style="width: 240px;">{{ translate('admin.actions') }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for req in cert_requests %}
-                                        <tr class="{% if req.status == 0 %}cert-review-row-selectable{% endif %}" id="cert-row-{{ req.id }}">
-                                            <td>
-                                                {% if req.status == 0 %}
-                                                <input type="checkbox" id="cert-check-{{ req.id }}" class="form-check-input cert-check" form="certBatchForm" name="request_ids" value="{{ req.id }}">
-                                                {% endif %}
-                                            </td>
-                                            <td>{{ req.user.username if req.user else translate('admin.unknown_user') }}</td>
-                                            <td>{{ req.user.school if req.user else '-' }}</td>
-                                            <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                                            <td>
-                                                {% if req.status == 1 %}
-                                                <span class="status-badge featured">{{ translate('admin.passed') }}</span>
-                                                {% elif req.status == -1 %}
-                                                <span class="status-badge rejected">{{ translate('admin.rejected') }}</span>
-                                                {% else %}
-                                                <span class="status-badge pending">{{ translate('admin.pending') }}</span>
-                                                {% endif %}
-                                            </td>
-                                            <td>
-                                                {% if req.reviewed_at %}
-                                                    {{ req.reviewed_at.strftime('%Y-%m-%d %H:%M') }}
-                                                {% else %}
-                                                    -
-                                                {% endif %}
-                                            </td>
-                                            <td>
-                                                {% if req.file_path %}
-                                                <div class="d-flex flex-wrap align-items-center gap-2">
-                                                    {% with cert_req=req, size='sm' %}{% include 'partials/cert_material_preview.html' %}{% endwith %}
-                                                    <a class="btn btn-sm {% if req.status == 0 %}cert-material-link{% endif %}" 
-                                                       style="background-color: #2563eb; color: white; border: none; white-space: nowrap;"
-                                                       href="{{ url_for('quickform.admin_view_certification_file', request_id=req.id) }}" target="_blank" rel="noopener">
-                                                        <i class="bi bi-eye" style="margin-right: 0.25rem;"></i>
-                                                        {{ translate('admin.view_materials') }}
-                                                    </a>
-                                                </div>
-                                                {% else %}
-                                                -
-                                                {% endif %}
-                                            </td>
-                                            <td>{{ req.review_note or '-' }}</td>
-                                            <td>
-                                                {% if req.status == 0 %}
-                                                <div class="d-flex align-items-center gap-2 flex-nowrap">
-                                                    <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="m-0">
-                                                        <button type="submit" name="action" value="approve" 
-                                                                class="btn btn-sm" 
-                                                                style="background-color: #10b981; color: white; border: none; white-space: nowrap;">
-                                                            <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
-                                                            {{ translate('admin.approve') }}
-                                                        </button>
-                                                    </form>
-                                                    <form method="POST" action="{{ url_for('quickform.admin_handle_certification', request_id=req.id) }}" class="m-0 cert-reject-form d-inline" data-default-reject-reason="{{ translate('admin.default_reject_reason') }}">
-                                                        <input type="hidden" name="action" value="reject">
-                                                        <input type="hidden" name="note" value="">
-                                                        <button type="button"
-                                                                class="btn btn-sm"
-                                                                style="background-color: #ef4444; color: white; border: none; white-space: nowrap;"
-                                                                onclick="handleCertReject(this)">
-                                                            <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>
-                                                            {{ translate('admin.reject') }}
-                                                        </button>
-                                                    </form>
-                                                </div>
-                                                {% else %}
-                                                <span class="text-muted">—</span>
-                                                {% endif %}
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        
-                        <!-- 分页 -->
-                        {% if cert_review_pages > 1 %}
-                        <nav aria-label="认证审核分页" class="mt-3">
-                            <ul class="pagination justify-content-center">
-                                <li class="page-item {% if cert_review_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=cert_review_page-1, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
-                                        <span aria-hidden="true">&laquo;</span>
-                                    </a>
-                                </li>
-                                {% set start_page = [1, cert_review_page - 2]|max %}
-                                {% set end_page = [cert_review_pages, cert_review_page + 2]|min %}
-
-                                {% if start_page > 1 %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=1, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}">1</a></li>
-                                {% if start_page > 2 %}
-                                <li class="page-item disabled"><span class="page-link">…</span></li>
-                                {% endif %}
-                                {% endif %}
-
-                                {% for p in range(start_page, end_page + 1) %}
-                                <li class="page-item {% if p|int == cert_review_page|int %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=p, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}">{{ p }}</a>
-                                </li>
-                                {% endfor %}
-
-                                {% if end_page < cert_review_pages %}
-                                {% if end_page < cert_review_pages - 1 %}
-                                <li class="page-item disabled"><span class="page-link">…</span></li>
-                                {% endif %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=cert_review_pages, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}">{{ cert_review_pages }}</a></li>
-                                {% endif %}
-
-                                <li class="page-item {% if cert_review_page >= cert_review_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', cert_review_page=cert_review_page+1, user_page=user_page, task_page=task_page, html_review_page=html_review_page, tab='cert-review', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
-                                        <span aria-hidden="true">&raquo;</span>
-                                    </a>
-                                </li>
-                            </ul>
-                        </nav>
-                        {% endif %}
-                        {% else %}
-                        <div class="text-center text-muted py-4">
-                            {{ translate('admin.no_cert_records') }}。
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-
             <!-- 数据报表标签页 -->
             <div class="tab-pane fade {{ 'show active' if current_tab == 'data' else '' }}" id="data" role="tabpanel">
                 <div class="card">
@@ -1221,44 +990,6 @@
                     </div>
                 </div>
             </div>
-
-            <!-- 一键生成：追加到需求后的说明 -->
-            <div class="tab-pane fade {{ 'show active' if current_tab == 'oneclick-prompts' else '' }}" id="oneclick-prompts" role="tabpanel">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0" style="color: white;">一键生成 · 追加说明文案</h5>
-                    </div>
-                    <div class="card-body">
-                        <p class="text-muted small mb-3">
-                            教师在「一键生成新任务」页面勾选的选项，会把下方对应正文追加进发给模型的提示词。
-                            正文中请保留占位符 <code>API地址</code>（或「API地址」），系统在生成时会替换为当前任务的接口根 URL（如 <code>https://你的域名/api/任务码</code>）。
-                            若生成的页面里接口仍是 <code>http://</code>，请在服务器环境变量中设置 <code>PUBLIC_BASE_URL=https://你的域名</code>，并确保 Nginx 传递 <code>X-Forwarded-Proto</code>。
-                        </p>
-                        {% if oneclick_prompt_rows and oneclick_prompt_rows|length > 0 %}
-                        <form method="post" action="{{ url_for('quickform.admin_save_oneclick_prompt_options') }}" class="vstack gap-4">
-                            {% for row in oneclick_prompt_rows %}
-                            <div class="border rounded p-3 bg-light">
-                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                    <span class="badge bg-secondary">{{ row.opt_key }}</span>
-                                    <label class="form-label mb-0 flex-grow-1" for="label_{{ row.opt_key }}">选项名称（页面勾选旁显示）</label>
-                                </div>
-                                <input type="text" class="form-control mb-2" id="label_{{ row.opt_key }}" name="label_{{ row.opt_key }}" maxlength="200" required value="{{ row.label }}">
-                                <label class="form-label" for="body_{{ row.opt_key }}">追加正文</label>
-                                <textarea class="form-control font-monospace small" id="body_{{ row.opt_key }}" name="body_{{ row.opt_key }}" rows="5">{{ row.body }}</textarea>
-                            </div>
-                            {% endfor %}
-                            <div>
-                                <button type="submit" class="btn btn-primary">保存</button>
-                            </div>
-                        </form>
-                        {% else %}
-                        <div class="alert alert-warning mb-0">
-                            数据库中尚未有一键生成选项记录。请<strong>重启应用</strong>以执行数据库迁移并写入默认文案；若已重启仍如此，请查看服务端日志中的迁移信息。
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 </div>
@@ -1275,14 +1006,6 @@
 }
 .html-review-table .html-review-actions {
     min-width: 240px;
-}
-
-/* 认证审核：整行可点选（待审核记录） */
-#cert-review tr.cert-review-row-selectable {
-    cursor: pointer;
-}
-#cert-review tr.cert-review-row-selectable:hover {
-    background-color: rgba(37, 99, 235, 0.06);
 }
 
 /* 公开项目待审：整行点选勾选 */
@@ -1601,92 +1324,7 @@
         });
     })();
 
-    // 认证审核：点击行（非按钮/链接/复选框）切换勾选，扩大可操作区域
-    (function () {
-        var certTbody = document.querySelector('#cert-review table tbody');
-        if (!certTbody) return;
-        certTbody.addEventListener('click', function (e) {
-            var tr = e.target.closest('tr.cert-review-row-selectable');
-            if (!tr || !certTbody.contains(tr)) return;
-            if (e.target.closest('a, button, input, label, textarea, select')) return;
-            var cb = tr.querySelector('input.cert-check[type="checkbox"]');
-            if (!cb || cb.disabled) return;
-            cb.checked = !cb.checked;
-            cb.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-    })();
-
-    // 教师认证材料：一键查看当前页全部材料（同 URL 只打开一次；onclick 避免重复 addEventListener）
-    (function () {
-        var openBtn = document.getElementById('openCertPageMaterialsBtn');
-        if (!openBtn) return;
-        openBtn.onclick = function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            var root = document.getElementById('cert-review');
-            if (!root) return;
-            var links = root.querySelectorAll('a.cert-material-link');
-            var seen = new Set();
-            links.forEach(function (link) {
-                var href = link.href || '';
-                if (!href || seen.has(href)) return;
-                seen.add(href);
-                window.open(href, '_blank', 'noopener');
-            });
-        };
-    })();
-
-    // 教师认证单条拒绝：点击时选择默认理由，并可补充备注覆盖
-    function handleCertReject(button) {
-        var options = [
-            { value: 'more_info', label: '{{ translate('admin.default_reject_reason') }}' },
-            { value: 'complete_org_info', label: '请在个人中心完善单位信息' }
-        ];
-        var choiceText = options.map(function (o, idx) { return (idx + 1) + '. ' + o.label; }).join('\n');
-        var selected = prompt('请选择拒绝默认理由（输入序号 1/2，取消则不操作）：\n' + choiceText, '1');
-        if (selected === null) return;
-        selected = (selected || '').trim();
-        var idx = parseInt(selected, 10);
-        if (!(idx === 1 || idx === 2)) {
-            alert('请选择 1 或 2');
-            return;
-        }
-        var chosen = options[idx - 1];
-        var note = prompt('可选：补充备注（留空则使用所选默认理由）：', '');
-        if (note === null) return;
-        note = (note || '').trim();
-        if (!confirm('{{ translate('admin.confirm_reject_cert') }}')) {
-            return;
-        }
-        var form = button.closest('form');
-        if (!form) return;
-        var reasonInput = form.querySelector('input[name="reject_reason"]');
-        if (!reasonInput) {
-            reasonInput = document.createElement('input');
-            reasonInput.type = 'hidden';
-            reasonInput.name = 'reject_reason';
-            form.appendChild(reasonInput);
-        }
-        reasonInput.value = chosen.value;
-        var noteInput = form.querySelector('input[name="note"]');
-        if (!noteInput) {
-            noteInput = document.createElement('input');
-            noteInput.type = 'hidden';
-            noteInput.name = 'note';
-            form.appendChild(noteInput);
-        }
-        noteInput.value = note;
-        var actionInput = form.querySelector('input[name="action"]');
-        if (!actionInput) {
-            actionInput = document.createElement('input');
-            actionInput.type = 'hidden';
-            actionInput.name = 'action';
-            actionInput.value = 'reject';
-            form.appendChild(actionInput);
-        }
-        actionInput.value = 'reject';
-        form.submit();
-    }
+    // 教师认证相关逻辑已从校园版移除
     // HTML审核批量选择功能
     (function(){
         const selectAll = document.getElementById('selectAllTasks');
@@ -2064,7 +1702,6 @@
                 } else if (section === 'others') {
                     li('已生成报告任务数', d.tasks_with_reports ?? '—');
                     li('报告生成率', (typeof d.report_generation_rate === 'number') ? d.report_generation_rate.toFixed(1) + '%' : (d.report_generation_rate ?? '—'));
-                    li('认证用户数', d.certified_users ?? '—');
                     li('公开任务数', d.public_tasks ?? '—');
                     li('已审核公开任务数', d.public_approved_tasks ?? '—');
                     li('任务共享记录数', d.total_task_shares ?? '—');
@@ -2085,35 +1722,6 @@
                     btn.textContent = '重新加载';
                 }
             });
-    }
-
-    // 手动设置用户学校省份（管理员覆盖，用于统计地区编码）
-    function setUserProvincePrompt(trigger) {
-        const url = trigger.getAttribute('data-set-province-url');
-        const current = trigger.getAttribute('data-current-province') || '';
-        const provincePromptText = {{ translate('admin.province_prompt')|tojson }};
-
-        const province = window.prompt(provincePromptText, current);
-        if (province === null) return;
-
-        const body = new URLSearchParams();
-        body.append('school_province', province.trim());
-
-        fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body,
-            credentials: 'same-origin'
-        })
-        .then(r => r.json().catch(() => ({ success: false })))
-        .then(data => {
-            if (data && data.success) {
-                window.location.reload();
-            } else {
-                alert((data && data.message) ? data.message : '设置失败');
-            }
-        })
-        .catch(() => alert('设置失败：网络错误'));
     }
 
     // 所有任务列表：任务标题导出/缓存/词云/分类（零依赖轻量分析）

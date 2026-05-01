@@ -81,7 +81,7 @@ print("【4】测试Python模块导入")
 print("-" * 40)
 
 try:
-    from models import Base, User, Task, Submission, AIConfig, CertificationRequest
+    from models import Base, User, Task, Submission, AIConfig
     print("✓ models.py 导入成功")
 except Exception as e:
     print(f"✗ models.py 导入失败: {e}")

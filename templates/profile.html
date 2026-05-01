@@ -27,37 +27,7 @@
                     {% endif %}
                 {% endwith %}
                 
-                {% if user.is_certified %}
-                <div class="alert alert-success d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>{{ translate('profile.certified') }}</strong> {{ translate('profile.certified_desc') }}
-                        {% if user.certified_at %}
-                        <span class="ms-2 text-muted">{{ translate('profile.certified_at') }}{{ user.certified_at.strftime('%Y-%m-%d %H:%M') }}</span>
-                        {% endif %}
-                    </div>
-                </div>
-                {% elif pending_cert_request %}
-                <div class="alert alert-warning d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>{{ translate('profile.cert_reviewing') }}</strong> {{ translate('profile.cert_reviewing_desc')|replace('{time}', pending_cert_request.created_at.strftime('%Y-%m-%d %H:%M')) }}
-                    </div>
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('quickform.certification_request') }}">{{ translate('profile.view_detail') }}</a>
-                </div>
-                {% elif last_cert_request and last_cert_request.status == -1 %}
-                <div class="alert alert-danger d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>{{ translate('profile.cert_rejected') }}</strong> {{ translate('profile.cert_rejected_desc')|replace('{note}', last_cert_request.review_note or translate('profile.cert_rejected')) }}
-                    </div>
-                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('quickform.certification_request') }}">{{ translate('profile.reapply') }}</a>
-                </div>
-                {% else %}
-                <div class="alert alert-info d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>{{ translate('profile.not_certified') }}</strong> {{ translate('profile.not_certified_desc') }}
-                    </div>
-                    <a class="btn btn-sm btn-primary" href="{{ url_for('quickform.certification_request') }}">{{ translate('profile.apply_cert') }}</a>
-                </div>
-                {% endif %}
+                {# 校园版：移除教师认证入口与状态提示 #}
                 
                 <ul class="nav nav-tabs mb-4">
                     <li class="nav-item">

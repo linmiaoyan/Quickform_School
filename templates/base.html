@@ -589,7 +589,7 @@
                         <a class="nav-link" href="{{ url_for('quickform.tutorials') }}"><i class="bi bi-book"></i> {{ translate('nav.tutorials') if translate('nav.tutorials') != 'nav.tutorials' else '开源教程' }}</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('quickform.community') }}"><i class="bi bi-people"></i> {{ translate('nav.community') if translate('nav.community') != 'nav.community' else '项目交流' }}</a>
+                        <a class="nav-link" href="{{ url_for('quickform.community') }}"><i class="bi bi-people"></i> 灵感广场</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.teams_list') }}"><i class="bi bi-building"></i> 入驻团队</a>
@@ -672,15 +672,13 @@
                 <span class="qf-footer-slogan" tabindex="0" role="note" data-bs-toggle="tooltip" data-bs-placement="top" title="不锁死在自家编辑器里——任意网页、大模型生成的 HTML、扣子/豆包等页面，只要改一行提交地址，就能把数据收进同一后台；开放接口、自由组合，这是多数「封闭式表单工具」做不到的。">QuickForm：打通AI赋能教育的最后一公里</span>
             </p>
             <p class="mb-2 small">
-                <a href="https://quickform.readthedocs.io/" target="_blank" rel="noopener" class="text-decoration-none me-3">官方文档</a>
-                <a href="https://quickform.readthedocs.io/zh-cn/latest/guide/deploy.html" target="_blank" rel="noopener" class="text-decoration-none me-3">本地部署</a>
+                <a href="https://quickform.cn" target="_blank" rel="noopener" class="text-decoration-none me-3">QuickForm官方网站</a>
                 <a href="{{ url_for('quickform.cli_doc') }}" class="text-decoration-none me-3">CLI</a>
                 <a href="https://github.com/quickform_school" target="_blank" rel="noopener" class="text-decoration-none me-3">GitHub</a>
-                <a href="{{ url_for('quickform.changelog_page') }}" class="text-decoration-none me-3">更新日志</a>
                 <a href="{{ url_for('quickform.index') }}#about" class="text-decoration-none me-3">关于我们</a>
                 <a href="https://my.feishu.cn/docx/KYlJdyq3wojmwox8KJTcnKORnob" target="_blank" rel="noopener" class="text-decoration-none me-3">免责声明</a>
             </p>
-            <p class="mb-0 small text-muted">联系我们：<span class="footer-helper-wrap">QuickForm小助手<span class="footer-helper-popup"><img src="{{ url_for('static', filename='us/helper.jpg') }}" alt="QuickForm小助手" loading="lazy"></span></span> / 投稿邮箱 <a href="mailto:xiezuoru@vip.qq.com">xiezuoru@vip.qq.com</a></p>
+            <p class="mb-0 small text-muted">联系我们：<span class="footer-helper-wrap">QuickForm小助手<span class="footer-helper-popup"><img src="{{ url_for('static', filename='us/helper.jpg') }}" alt="QuickForm小助手" loading="lazy"></span></span></p>
         </div>
     </footer>
 

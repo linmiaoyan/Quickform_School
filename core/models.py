@@ -34,18 +34,9 @@ class User(UserMixin, Base):
     role = Column(String(20), default='user')
     task_limit = Column(Integer, default=3)  # 任务创建上限，-1表示无限制
     email_verified = Column(Boolean, default=False)  # 创建第二个任务前需验证邮箱
-    is_certified = Column(Boolean, default=False)
-    certified_at = Column(DateTime)
-    certification_note = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
     tasks = relationship('Task', back_populates='author', foreign_keys='Task.user_id', cascade='all, delete-orphan')
     ai_config = relationship('AIConfig', back_populates='user', uselist=False, cascade='all, delete-orphan')
-    certification_requests = relationship(
-        'CertificationRequest',
-        foreign_keys='CertificationRequest.user_id',
-        back_populates='user',
-        cascade='all, delete-orphan'
-    )
     
     def is_admin(self):
         """检查用户是否为管理员"""
@@ -170,22 +161,6 @@ class AIConfig(Base):
     ernie_api_key = Column(Text)
     ernie_secret_key = Column(Text)
     openrouter_api_key = Column(Text)
-
-
-class CertificationRequest(Base):
-    __tablename__ = 'certification_request'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('user.id'), nullable=False)
-    status = Column(Integer, default=0)  # 0=待审核 1=已通过 -1=已拒绝
-    file_name = Column(String(255))
-    file_path = Column(String(500))
-    created_at = Column(DateTime, default=datetime.now)
-    reviewed_at = Column(DateTime)
-    reviewed_by = Column(Integer, ForeignKey('user.id'))
-    review_note = Column(Text)
-
-    user = relationship('User', back_populates='certification_requests', foreign_keys=[user_id])
-    reviewer = relationship('User', foreign_keys=[reviewed_by], backref='processed_certification_requests')
 
 
 class Post(Base):
