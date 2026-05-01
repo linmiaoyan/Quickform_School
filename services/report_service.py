@@ -111,6 +111,7 @@ def save_analysis_report(task_id, report_content, SessionLocal, Task, upload_fol
     try:
         task = db.query(Task).filter_by(id=task_id).first()
         if task:
+            safe_title = (getattr(task, 'title', None) or f'任务{task_id}').strip() or f'任务{task_id}'
             if not report_content or not report_content.strip():
                 report_content = "<div class='alert alert-info' role='alert'><h4>报告内容为空</h4><p>本次分析未能生成有效内容。可能是由于以下原因：</p><ul><li>提交的数据量不足</li><li>数据质量问题</li><li>AI模型处理异常</li></ul><p>请尝试提交更多数据或修改提示词后重新分析。</p></div>"
                 body_html = report_content
@@ -122,7 +123,7 @@ def save_analysis_report(task_id, report_content, SessionLocal, Task, upload_fol
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>分析报告 - {task.title}</title>
+    <title>分析报告 - {safe_title}</title>
     <!-- Bootstrap CSS已通过base.html引入，此处不再重复引入 -->
     <style>
         body {{
@@ -220,7 +221,8 @@ def build_report_html(task, report_content, for_pdf=False):
         body_html = "<div class='alert alert-info' role='alert'><h4>报告内容为空</h4><p>暂无有效报告内容。</p></div>"
     else:
         body_html = markdown_to_html(report_content)
-    created_str = task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else '未知'
+    safe_title = (getattr(task, 'title', None) or f'任务{getattr(task, "id", "") or ""}').strip() or '任务'
+    created_str = task.created_at.strftime('%Y-%m-%d %H:%M:%S') if getattr(task, 'created_at', None) else '未知'
     # PDF 导出需指定支持中文的字体：xhtml2pdf 内置 STSong-Light
     if for_pdf:
         font_css = (
@@ -237,7 +239,7 @@ def build_report_html(task, report_content, for_pdf=False):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>分析报告 - {task.title}</title>
+    <title>分析报告 - {safe_title}</title>
     <style>
         {font_css}
         .container {{ background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }}
@@ -253,7 +255,7 @@ def build_report_html(task, report_content, for_pdf=False):
 <body>
     <div class="container">
         <h1 class="mb-4">数据分析报告</h1>
-        <p><strong>任务标题：</strong>{task.title}</p>
+        <p><strong>任务标题：</strong>{safe_title}</p>
         <p><strong>创建时间：</strong>{created_str}</p>
         <div class="markdown-body">{body_html}</div>
         <div class="footer"><p>由 QuickForm 智能分析功能生成</p></div>
@@ -267,6 +269,7 @@ def generate_report_image(task, report_content):
     img_width = 1200
     padding = 50
     max_width = img_width - 2 * padding
+    task_title = (getattr(task, 'title', None) or '').strip() or f"task_{getattr(task, 'id', 'unknown')}"
     
     # 尝试加载字体（如果系统有中文字体）
     try:
@@ -336,7 +339,7 @@ def generate_report_image(task, report_content):
     
     # 任务信息
     info_lines = [
-        f"任务标题：{task.title}",
+        f"任务标题：{task_title}",
         f"创建时间：{task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else '未知'}"
     ]
     for line in info_lines:
@@ -407,7 +410,7 @@ def generate_report_image(task, report_content):
             x = padding
         draw.text((x, y), text, font=font, fill=fill)
     
-    safe_title = re.sub(r'[^a-zA-Z0-9_]', '_', task.title)
+    safe_title = re.sub(r'[^a-zA-Z0-9_]', '_', task_title)
     buffers = []
     filenames = []
     
