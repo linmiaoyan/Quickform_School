@@ -405,7 +405,7 @@
                                         <td>{{ task.id }}</td>
                                         <td>{{ task.title }}</td>
                                         <td>{{ task.author.username }}</td>
-                                        <td>{{ task.submission|length }}</td>
+                                        <td>{{ used_c }}</td>
                                         <td>
                                             <span class="text-nowrap">{{ used_c }} / {% if lim_c <= 0 %}不限{% else %}{{ lim_c }}{% endif %}</span>
                                         </td>
