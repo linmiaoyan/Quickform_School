@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ translate('analyze.title') }} - {{ task.title }} - QuickForm{% endblock %}
+{% block page_title %}{{ translate('analyze.title') }} - {{ task.title }}{% endblock %}
 
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}">

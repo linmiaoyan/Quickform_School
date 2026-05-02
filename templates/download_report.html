@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ translate('download_report.title') }} - {{ task.title }}</title>
+    <title>{{ translate('download_report.title') }} - {{ task.title }} · {{ (system_config.system_name if system_config else 'QuickForm') }}{% if app_version %} · v{{ app_version }}{% endif %}</title>
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <style>
         body {

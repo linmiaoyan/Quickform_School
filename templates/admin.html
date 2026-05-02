@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ translate('admin.title') }} - QuickForm{% endblock %}
+{% block page_title %}{{ translate('admin.title') }}{% endblock %}
 
 {% block content %}
 <div class="admin-layout">
@@ -546,7 +546,7 @@
                                 <div class="col-12 col-lg-6">
                                     <label class="form-label">系统名称</label>
                                     <input class="form-control" name="system_name" value="{{ (syscfg.system_name if syscfg else '') }}" placeholder="QuickForm校园版演示">
-                                    <div class="form-text text-muted">推荐：QuickForm温州科技高中版</div>
+                                    <div class="form-text text-muted">将显示在<strong>顶部导航</strong>与<strong>浏览器标题栏</strong>（每个页面标题后）。推荐：QuickForm温州科技高中版</div>
                                 </div>
                                 <div class="col-12 col-lg-6">
                                     <label class="form-label">默认学校</label>

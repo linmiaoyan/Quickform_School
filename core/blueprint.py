@@ -1090,17 +1090,6 @@ def inject_upload_url():
     return dict(get_upload_file_url=get_upload_file_url)
 
 
-@quickform_bp.context_processor
-def inject_system_config():
-    """向所有模板注入系统配置（用于导航栏系统名、注册开关等）。"""
-    try:
-        cfg = load_system_config()
-    except Exception:
-        cfg = SystemConfig()
-    # 同时提供 syscfg 兼容变量名（用于部分模板/旧逻辑）
-    return {"system_config": cfg, "syscfg": cfg}
-
-
 def _task_has_any_html(task) -> bool:
     """任务是否已上传至少一个 HTML 文件（用于公开项目申请前置校验）。"""
     if not task:
