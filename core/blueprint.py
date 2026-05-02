@@ -5104,6 +5104,50 @@ def _extract_apiid_from_api_url(api_url: str) -> str:
     return ''
 
 
+def _extract_public_task_id_from_url(api_url: str) -> int:
+    """Accept forms like: https://host/task/<id> and return <id>."""
+    s = (api_url or '').strip()
+    if not s:
+        return 0
+    try:
+        u = urlparse(s)
+        path = (u.path or '').strip('/')
+    except Exception:
+        path = s.strip().lstrip('/').split('?', 1)[0]
+    parts = [p for p in path.split('/') if p]
+    if len(parts) >= 2 and parts[0].lower() == 'task':
+        try:
+            return int(parts[1])
+        except (ValueError, TypeError):
+            return 0
+    return 0
+
+
+def _resolve_apiid_from_public_task_page(base_url: str, task_public_id: int) -> str:
+    """Resolve a public task page (/task/<id>) to its apiid by scraping page HTML."""
+    if not task_public_id:
+        return ''
+    b = _normalize_base_url(base_url)
+    url = b.rstrip('/') + f'/task/{int(task_public_id)}'
+    try:
+        import requests as _rq  # type: ignore
+        r = _rq.get(url, timeout=20)
+        r.raise_for_status()
+        html_text = r.text or ''
+    except Exception as e:
+        raise RuntimeError(f'获取任务信息失败: {e}') from e
+
+    # Look for /api/<apiid> in page HTML
+    m = re.search(r"/api/([0-9a-z]{6,64})", html_text, flags=re.IGNORECASE)
+    if m:
+        return (m.group(1) or '').strip()
+    # Fallback: full URL
+    m2 = re.search(r"https?://[^\\s\"']+/api/([0-9a-z]{6,64})", html_text, flags=re.IGNORECASE)
+    if m2:
+        return (m2.group(1) or '').strip()
+    return ''
+
+
 def _pick_task_id_keep_if_free(db, requested_apiid: str) -> str:
     """Keep requested apiid if not exists, otherwise generate a new one."""
     rid = (requested_apiid or '').strip()
@@ -5537,9 +5581,18 @@ def api_online_tasks_one():
         return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
     data = request.get_json(silent=True) or {}
     api_url = (data.get('api_url') or '').strip()
+    base_url = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
+
     apiid = _extract_apiid_from_api_url(api_url)
     if not apiid:
-        return jsonify({'success': False, 'message': '无法从输入内容解析出 APIID（格式应为 https://quickform.cn/api/xxxxxx）'}), 400
+        # Also accept public project URL: /task/<id>
+        public_tid = _extract_public_task_id_from_url(api_url)
+        if public_tid:
+            apiid = _resolve_apiid_from_public_task_page(base_url, public_tid)
+            if not apiid:
+                return jsonify({'success': False, 'message': '无法从公开项目页解析 APIID（请改为粘贴该项目的 API 地址：.../api/<apiid>）'}), 400
+        else:
+            return jsonify({'success': False, 'message': '无法从输入内容解析出 APIID（格式应为 https://quickform.cn/api/xxxxxx 或 https://quickform.cn/task/12345）'}), 400
     return jsonify({'success': True, 'apiid': apiid}), 200
 
 
