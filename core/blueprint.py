@@ -6735,6 +6735,7 @@ def report_status(task_id):
         logger.exception("report_status 异常: %s", e)
         return jsonify({'status': 'error', 'message': MSG_API_INTERNAL}), 500
 
+
 @quickform_bp.route('/admin')
 @admin_required
 def admin_panel():
@@ -6806,8 +6807,6 @@ def admin_panel():
         syscfg = None
         pending_users = {}
         oneclick_prompt_rows = []
-        submit_quota_base_c = None
-        submit_quota_base_b = None
 
         # ---------- 仅当前 tab 才执行对应查询 ----------
         if current_tab == 'users':
@@ -6840,7 +6839,6 @@ def admin_panel():
             task_page = max(1, task_page)
             task_total_pages = max(math.ceil(total_tasks / task_per_page), 1) if total_tasks else 1
             task_page = min(task_page, task_total_pages)
-            submit_quota_base_c, submit_quota_base_b = _get_site_submit_quota_defaults(db)
             all_tasks = (
                 db.query(Task)
                 .options(joinedload(Task.author))
@@ -7055,8 +7053,6 @@ def admin_panel():
             pending_users=pending_users,
             api_traffic=api_traffic,
             oneclick_prompt_rows=[],
-            submit_quota_base_c=submit_quota_base_c,
-            submit_quota_base_b=submit_quota_base_b,
             tutorials_json_is_admin_override=(
                 (lambda p: os.path.exists(p))(
                     os.path.join(current_app.static_folder, 'tutorials', 'tutorials_admin.json')
