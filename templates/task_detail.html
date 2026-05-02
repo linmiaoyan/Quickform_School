@@ -200,7 +200,6 @@
                                 <a href="{{ file.url }}" target="_blank" class="text-decoration-none me-2">
                                     {{ file.original_name }}
                                 </a>
-                                {% if task.html_approved == 1 %}
                                 <div class="position-relative d-inline-block">
                                     <button 
                                         type="button" 
@@ -214,19 +213,9 @@
                                         <div id="qrcode-{{ task.id }}-{{ loop.index0 }}" style="width: 360px; height: 360px;"></div>
                                     </div>
                                 </div>
-                                {% endif %}
                             </div>
                             {% endfor %}
                         </div>
-                        {% if task.html_approved == -1 %}
-                        <div class="alert alert-danger mt-2 mb-0" role="alert">
-                            {{ translate('task_detail.review_rejected') }}{{ task.html_review_note or translate('task_detail.review_rejected') }}。
-                        </div>
-                        {% elif task.html_approved != 1 %}
-                        <div class="alert alert-warning mt-2 mb-0" role="alert">
-                            {{ translate('task_detail.review_pending') }}
-                        </div>
-                        {% endif %}
                     </div>
                     {% else %}
                     <div class="alert alert-info mb-2">

@@ -32,7 +32,7 @@ class User(UserMixin, Base):
     school_province_source = Column(String(20), default='auto')
     phone = Column(String(20))
     role = Column(String(20), default='user')
-    task_limit = Column(Integer, default=3)  # 任务创建上限，-1表示无限制
+    task_limit = Column(Integer, default=-1)  # 校园版：不限制任务数；-1 表示无限制
     email_verified = Column(Boolean, default=False)  # 创建第二个任务前需验证邮箱
     created_at = Column(DateTime, default=datetime.now)
     tasks = relationship('Task', back_populates='author', foreign_keys='Task.user_id', cascade='all, delete-orphan')
@@ -43,22 +43,8 @@ class User(UserMixin, Base):
         return self.role == 'admin'
     
     def can_create_task(self, SessionLocal, Task):
-        """检查用户是否可以创建新任务"""
-        db = SessionLocal()
-        try:
-            # 重新获取最新的用户数据，避免使用登录时旧的 task_limit
-            refreshed_user = db.get(User, self.id)
-            task_limit = refreshed_user.task_limit if refreshed_user else self.task_limit
-            
-            if self.is_admin():
-                return True
-            if task_limit == -1:
-                return True
-            
-            task_count = db.query(Task).filter_by(user_id=self.id).count()
-            return task_count < task_limit
-        finally:
-            db.close()
+        """校园版：不限制每人可创建任务数量（仍可能受邮箱绑定/验证等业务规则约束）。"""
+        return True
 
 
 class Task(Base):
