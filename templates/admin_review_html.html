@@ -58,9 +58,6 @@
                                     <td>{{ item.task.title }}</td>
                                     <td>
                                         {{ item.author.username if item.author else '未知' }}
-                                        {% if item.author and item.author.is_certified %}
-                                        <span class="badge bg-success ms-1">{{ translate('admin.certified') }}</span>
-                                        {% endif %}
                                     </td>
                                     <td>
                                         {% if item.task.file_name and item.task.file_path %}

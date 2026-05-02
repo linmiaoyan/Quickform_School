@@ -66,22 +66,15 @@
                                 {% endfor %}
                             </select>
                             {% endif %}
-                            {% if current_user.is_admin() or current_user.is_certified %}
                             {% set has_html_for_public = (task.file_name and task.file_name.lower().endswith('.html')) or (task.file_name and task.file_name.lower().endswith('.htm')) or (html_files and html_files|length > 0) %}
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="share_scope" id="edit_share_public" value="public" {% if not has_html_for_public %}disabled{% endif %} {% if scope_public %}checked{% endif %}>
                                 <label class="form-check-label {% if not has_html_for_public %}text-muted{% endif %}" for="edit_share_public">
-                                    公开（出现在项目交流，所有人可浏览）{% if not has_html_for_public %}（需先上传HTML）{% endif %}
+                                    公开（出现在灵感广场，所有人可浏览）{% if not has_html_for_public %}（需先上传HTML）{% endif %}
                                 </label>
                             </div>
-                            {% else %}
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="share_scope" id="edit_share_public" value="public" disabled>
-                                <label class="form-check-label text-muted" for="edit_share_public">公开（需通过教师认证后可用）</label>
-                            </div>
-                            {% endif %}
                         </div>
-                        <div class="form-text">保存修改后生效。公开项目需管理员审核通过后才会在项目交流展示。</div>
+                        <div class="form-text">保存修改后生效。公开项目需管理员审核通过后才会在灵感广场展示。</div>
                     </div>
                     {% if user_organizations and user_organizations|length > 0 %}
                     <script>

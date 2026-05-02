@@ -48,10 +48,14 @@ try:
 except Exception:  # pragma: no cover
     requests = None
 
+# Campus admin-config (file-based)
+from .system_config import load_system_config, save_system_config, SystemConfig
+from .pending_users import is_user_pending, load_pending_users, set_user_pending
+
 
 # 导入分离的模块
 from .models import (
-    Base, User, Task, Submission, AIConfig, CertificationRequest, Post, PostReply,
+    Base, User, Task, Submission, AIConfig, Post, PostReply,
     Organization, OrganizationMember, TaskShare, TaskLike, ApiAccessLog,
     OneclickPromptOption, DEFAULT_ONECLICK_PROMPT_OPTIONS, _generate_task_id,
 )
@@ -61,7 +65,7 @@ from .i18n import translate
 from .login_throttle import login_blocked, record_login_failure, clear_login_throttle
 from .project_usage import get_top_projects, evaluate_project_alerts
 from .client_ip import get_request_client_ip
-from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file, CERTIFICATION_ALLOWED_EXTENSIONS
+from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file
 from services.ai_service import (
     call_ai_model,
     generate_analysis_prompt,
@@ -75,6 +79,9 @@ from services.report_service import (
     analysis_progress, analysis_results, completed_reports, progress_lock, timeout, markdown_to_html,
     _to_user_friendly_ai_error,
 )
+
+# 校园版：去除教师认证功能（兼容旧链接：相关路由将返回 404）
+CERTIFICATION_ACTIVE = False
 
 # 配置日志
 logging.basicConfig(
@@ -623,10 +630,11 @@ def _static_uploads_dir():
         pass
     return STATIC_UPLOADS
 
-CERTIFICATION_FOLDER = os.path.join(UPLOAD_FOLDER, 'certifications')
 MAX_HTML_FILE_SIZE = 4 * 1024 * 1024  # 任务内单个 HTML 文件最大 4MB
-if not os.path.exists(CERTIFICATION_FOLDER):
-    os.makedirs(CERTIFICATION_FOLDER)
+#
+# 校园版：移除「教师认证」功能后不再使用 certifications 目录。
+# 保留常量名避免历史代码引用时 NameError（但不再创建目录）。
+CERTIFICATION_FOLDER = os.path.join(UPLOAD_FOLDER, 'certifications')
 
 # 允许的文件扩展名（仅HTML格式）
 ALLOWED_EXTENSIONS = {'html', 'htm'}
@@ -867,13 +875,11 @@ def _get_admin_data_stats_cached(db, today_start, total_users, admin_users, tota
     total_organizations = db.query(Organization).count()
     total_org_members = db.query(OrganizationMember).count()
     tasks_in_organizations = db.query(Task).filter(Task.organization_id.isnot(None)).count()
-    certified_users = db.query(User).filter(User.is_certified == True).count()
     public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
     public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
     total_task_shares = db.query(TaskShare).count()
     total_task_likes = db.query(TaskLike).count()
     ai_generated_tasks = db.query(Task).filter(Task.ai_generated == True).count()
-    cert_requests_pending = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
     total_posts = db.query(Post).count()
     total_post_replies = db.query(PostReply).count()
 
@@ -889,13 +895,13 @@ def _get_admin_data_stats_cached(db, today_start, total_users, admin_users, tota
         'total_organizations': total_organizations,
         'total_org_members': total_org_members,
         'tasks_in_organizations': tasks_in_organizations,
-        'certified_users': certified_users,
+        'certified_users': 0,  # campus: removed teacher certification feature
         'public_tasks': public_tasks,
         'public_approved_tasks': public_approved_tasks,
         'total_task_shares': total_task_shares,
         'total_task_likes': total_task_likes,
         'ai_generated_tasks': ai_generated_tasks,
-        'cert_requests_pending': cert_requests_pending,
+        'cert_requests_pending': 0,  # campus: removed teacher certification feature
         'total_posts': total_posts,
         'total_post_replies': total_post_replies,
     }
@@ -1084,6 +1090,17 @@ def inject_upload_url():
     return dict(get_upload_file_url=get_upload_file_url)
 
 
+@quickform_bp.context_processor
+def inject_system_config():
+    """向所有模板注入系统配置（用于导航栏系统名、注册开关等）。"""
+    try:
+        cfg = load_system_config()
+    except Exception:
+        cfg = SystemConfig()
+    # 同时提供 syscfg 兼容变量名（用于部分模板/旧逻辑）
+    return {"system_config": cfg, "syscfg": cfg}
+
+
 def _task_has_any_html(task) -> bool:
     """任务是否已上传至少一个 HTML 文件（用于公开项目申请前置校验）。"""
     if not task:
@@ -1206,74 +1223,8 @@ def index():
 
 @quickform_bp.route('/changelog')
 def changelog_page():
-    """更新日志：不依赖部署环境 .git，使用写死的摘要（避免生产环境无 git 时空白/报错）。"""
-    # 说明：此页内容由维护者定期根据 GitHub 提交整理后写入。
-    # 仓库迁移说明：校园版部署仓库为 quickform_school，commit_url 仅用于跳转查看详情。
-    groups = [
-        {
-            'date': '2026-04-16',
-            'items': [
-                {'subject': 'CLI/接口侧能力更新（api 邀请）。', 'hash': '1f80870', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/1f808700c65901c736f5188e8472248392729fe7'},
-                {'subject': '接口相关调整（interface）。', 'hash': 'f082167', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/f082167a0accbd73250cd234a3173a12d555f490'},
-                {'subject': '管理员面板与统计卡片相关更新（admin dashboard）。', 'hash': 'f5d806c', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/f5d806c8dc163d927391ec1b2b7455030881c641'},
-                {'subject': '任务防护与批量删除相关更新（multi-del taskdefend）。', 'hash': 'fcf0437', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/fcf0437693f0984b77fa038fbc1cf971a2bf9921'},
-            ],
-        },
-        {
-            'date': '2026-04-15',
-            'items': [
-                {'subject': '社区与认证流程相关更新（qfcode community certification）。', 'hash': '2f3068a', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/2f3068aefdb51707b1b7f8893e3f24162f966276'},
-            ],
-        },
-        {
-            'date': '2026-04-12',
-            'items': [
-                {'subject': '首页/入口与展示细节调整（index）。', 'hash': '6ac361c', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/6ac361c54d069321aa0bd8fb96ff664d6049202a'},
-                {'subject': '随机展示与阴影等 UI 细节优化（random shadow）。', 'hash': '5e65b05', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/5e65b054cb08af57b9e432b0b77a10fcc29d2464'},
-            ],
-        },
-        {
-            'date': '2026-04-10',
-            'items': [
-                {'subject': '数据详情页与展示修复（data detail update bug）。', 'hash': '87a9bff', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/87a9bffb1c4af5209ac48383a1d72a1ba955e904'},
-                {'subject': '注册/登录相关测试与修复（sign up）。', 'hash': '47b7b3f', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/47b7b3f5c7cae8a3c4f335ccc29ce30f56323ca8'},
-                {'subject': 'API Key 长度与配置兼容（api key longer）。', 'hash': 'f62147f', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/f62147fdd2515017fb8f9bf4fb61885cc237440a'},
-                {'subject': '免责声明页面/文案更新（disclainer）。', 'hash': '81a608a', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/81a608afb29b8c4cbac3c830710a2ca3ca5517d3'},
-            ],
-        },
-        {
-            'date': '2026-04-09',
-            'items': [
-                {'subject': '全站 https 相关调整与修复。', 'hash': 'de1a52f', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/de1a52fad4af9712b45cf7473ef2400a84736f1c'},
-                {'subject': '用户指纹/风控与异常禁止修复（user fingerprint）。', 'hash': 'fd87ffa', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/fd87ffadccdcc0f89faae13fda5591c3b4a6f8d1'},
-                {'subject': '一键操作与错误修复（one click / error fix）。', 'hash': '71f922b', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/71f922b8bff7190e3a79d00c92be7e6056458999'},
-                {'subject': 'waitress 与按钮灰度等细节修复。', 'hash': '1ac9681', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/1ac9681a7f39ab85dbcf7ebd8861341bc8f5be54'},
-            ],
-        },
-        {
-            'date': '2026-04-08',
-            'items': [
-                {'subject': '主色渐变与 UI 更新（UI gradient / UI update）。', 'hash': 'bb24de2', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/bb24de2632eb0e5288fc26b2d4a994270ff47e45'},
-                {'subject': '服务端运行与 waitress 相关更新。', 'hash': '5750c89', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/5750c899d1eb697b1118d4c407f7b2a8ace6a642'},
-            ],
-        },
-        {
-            'date': '2026-04-07',
-            'items': [
-                {'subject': '页面布局与多处 bugfix；社区选择与懒加载修复。', 'hash': '7cb72d0', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/7cb72d06f6ddb05062af1902a7eba081beba32f2'},
-                {'subject': '任务详情与加载优化（task detail / lazyload）。', 'hash': '3909a73', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/3909a73d9df64706e171c592bd97be9c01ead87e'},
-                {'subject': '管理员 UI 与 SQL 缓存等更新。', 'hash': 'd8d20c8', 'commit_url': 'https://github.com/linmiaoyan/quickform_school/commit/d8d20c86e843186e84af847c7a5d4bd65c4cbea6'},
-            ],
-        },
-    ]
-
-    return render_template(
-        'changelog.html',
-        groups=groups,
-        error='',
-        limit=len(groups),
-        now=datetime.now(),
-    )
+    """校园版：移除更新日志功能。"""
+    abort(404)
 
 @quickform_bp.route('/switch_lang/<lang>')
 def switch_lang(lang):
@@ -1590,6 +1541,12 @@ def delete_post(post_id):
 def register():
     """注册"""
     try:
+        cfg = load_system_config()
+        if not cfg.registration_enabled:
+            flash('当前系统已关闭用户注册，请联系管理员开通。', 'warning')
+            # “页面关闭”：统一跳转到首页或登录页
+            return redirect(url_for('quickform.login'))
+
         if request.method == 'POST':
             username = request.form.get('username', '').strip()
             email = (request.form.get('email') or '').strip()  # 注册可不填，空时用占位邮箱避免违反唯一约束
@@ -1597,8 +1554,15 @@ def register():
             school = request.form.get('school', '').strip()
             phone = (request.form.get('phone') or '').strip() or None
             
+            # 默认学校：配置不为空时自动预填；配置为空时要求用户必填
+            if not school and (cfg.default_school or '').strip():
+                school = (cfg.default_school or '').strip()
+
             if not username or not password or not school:
-                flash('请填写用户名、学校与密码', 'danger')
+                if not (cfg.default_school or '').strip():
+                    flash('请填写用户名、学校与密码', 'danger')
+                else:
+                    flash('请填写用户名与密码', 'danger')
                 return redirect(url_for('quickform.register'))
 
             if not request.form.get('agree_disclaimer'):
@@ -1667,12 +1631,19 @@ def register():
                     return redirect(url_for('quickform.register'))
 
                 flash('注册成功，请登录', 'success')
+                if cfg.registration_requires_approval:
+                    try:
+                        set_user_pending(username, True, meta={"created_at": datetime.now().isoformat()})
+                    except Exception:
+                        pass
+                    flash('注册成功：账号需要管理员审核后才能登录。', 'warning')
                 return redirect(url_for('quickform.login'))
             finally:
                 db.close()
         else:
             # GET请求，显示注册页面
-            return render_template('register.html')
+            default_school = (cfg.default_school or '').strip()
+            return render_template('register.html', default_school=default_school)
     except Exception as e:
         logger.exception("注册页面异常")
         flash(MSG_PAGE_LOAD, 'danger')
@@ -1762,6 +1733,14 @@ def login():
             ).first()
             
             if user and bcrypt.check_password_hash(user.password, password):
+                # 注册审核：被标记为 pending 的账号不可登录
+                try:
+                    if is_user_pending(user.username):
+                        flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
+                        return render_template('login.html')
+                except Exception:
+                    pass
+
                 # 登录成功，清除失败次数与 IP 限流计数
                 from flask import session
                 session.pop('login_fail_count', None)
@@ -2136,14 +2115,10 @@ def dashboard():
         
         user_record = db.get(User, current_user.id)
         task_count = len(own_tasks)  # 只统计自己创建的任务数
-        task_limit = None
-        is_certified = False
         if user_record:
             task_limit = user_record.task_limit
-            is_certified = bool(user_record.is_certified)
         else:
             task_limit = getattr(current_user, 'task_limit', None)
-            is_certified = bool(getattr(current_user, 'is_certified', False))
         # 含一键生成与「AI 继续修改」后台任务；去重（同一任务可能同时出现在我的任务与团队任务中）
         _pending_ids = set()
         pending_oneclick_tasks = []
@@ -2165,7 +2140,6 @@ def dashboard():
             task_access=task_access,
             task_count=task_count,
             task_limit=task_limit,
-            is_certified=is_certified,
             pending_oneclick_tasks=pending_oneclick_tasks,
             api_base_url=_public_site_base_url(),
         )
@@ -2200,7 +2174,7 @@ def _run_oneclick_generation_background(task_id: int, user_id: int, full_prompt:
         task.oneclick_generation_status = None
         task.oneclick_generation_error = None
         user_rec = db.get(User, user_id)
-        if user_rec and (user_rec.is_admin() or getattr(user_rec, 'is_certified', False)):
+        if user_rec and user_rec.is_admin():
             task.html_approved = 1
             task.html_approved_by = user_id
             task.html_approved_at = datetime.now()
@@ -2264,7 +2238,7 @@ def _run_ai_revise_html_background(task_id: int, user_id: int, instructions: str
         if rem is not None and rem > 0:
             task.html_ai_edit_remaining = rem - 1
         user_rec = db.get(User, user_id)
-        if user_rec and (user_rec.is_admin() or getattr(user_rec, 'is_certified', False)):
+        if user_rec and user_rec.is_admin():
             task.html_approved = 1
             task.html_approved_by = user_id
             task.html_approved_at = datetime.now()
@@ -2426,18 +2400,12 @@ def create_task():
                     task.file_path = filepath
                     task.html_files = json.dumps([{'original_name': file_name_base64, 'saved_name': unique_filename}])
                     
-                    # 如果是HTML文件，设置审核状态
+                    # 如果是 HTML 文件：校园版不做教师认证，任务拥有者可直接通过审核
                     if filepath.lower().endswith(('.html', '.htm')):
-                        if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                            task.html_approved = 1
-                            task.html_approved_by = current_user.id
-                            task.html_approved_at = datetime.now()
-                            task.html_review_note = None
-                        else:
-                            task.html_approved = 0
-                            task.html_approved_by = None
-                            task.html_approved_at = None
-                            task.html_review_note = None
+                        task.html_approved = 1
+                        task.html_approved_by = current_user.id
+                        task.html_approved_at = datetime.now()
+                        task.html_review_note = None
                 except Exception as e:
                     logger.error(f"Base64文件上传失败: {str(e)}", exc_info=True)
                     flash('文件上传失败，请重试。', 'danger')
@@ -2461,18 +2429,12 @@ def create_task():
                     task.file_path = filepath
                     task.html_files = json.dumps([{'original_name': file.filename, 'saved_name': unique_filename}])
                     
-                    # 如果是HTML文件，设置审核状态
+                    # 如果是 HTML 文件：校园版不做教师认证，任务拥有者可直接通过审核
                     if filepath and filepath.lower().endswith(('.html', '.htm')):
-                        if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                            task.html_approved = 1
-                            task.html_approved_by = current_user.id
-                            task.html_approved_at = datetime.now()
-                            task.html_review_note = None
-                        else:
-                            task.html_approved = 0
-                            task.html_approved_by = None
-                            task.html_approved_at = None
-                            task.html_review_note = None
+                        task.html_approved = 1
+                        task.html_approved_by = current_user.id
+                        task.html_approved_at = datetime.now()
+                        task.html_review_note = None
             
             db.add(task)
             db.commit()
@@ -2493,19 +2455,9 @@ def create_task():
         # GET 渲染创建页面
         user_record = db.get(User, current_user.id)
         task_count = db.query(Task).filter_by(user_id=current_user.id).count()
-        task_limit = None
-        is_certified = False
-        if user_record:
-            task_limit = user_record.task_limit
-            is_certified = bool(user_record.is_certified)
-        else:
-            task_limit = getattr(current_user, 'task_limit', None)
-            is_certified = bool(getattr(current_user, 'is_certified', False))
-        
-        return render_template('create_task.html', 
-                             task_limit=task_limit, 
-                             is_certified=is_certified, 
-                             task_count=task_count)
+        task_limit = (user_record.task_limit if user_record else getattr(current_user, 'task_limit', None))
+
+        return render_template('create_task.html', task_limit=task_limit, is_certified=False, task_count=task_count)
     finally:
         db.close()
 
@@ -2997,8 +2949,8 @@ def edit_task(task_id):
                     task.file_name = f.filename
                     task.file_path = target_path
 
-                # 审核/分析与普通上传保持一致
-                if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                # 审核/分析与普通上传保持一致（校园版：移除教师认证，管理员外均需审核）
+                if current_user.is_admin():
                     task.html_approved = 1
                     task.html_approved_by = current_user.id
                     task.html_approved_at = datetime.now()
@@ -3102,7 +3054,8 @@ def edit_task(task_id):
                         first_saved = existing_files[0]['saved_name']
                         task.file_path = os.path.join(static_uploads, first_saved)
                         task.file_name = existing_files[0]['original_name']
-                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                    # 校园版：移除教师认证后，HTML 审核仅管理员可直通
+                    if current_user.is_admin():
                         task.html_approved = 1
                         task.html_approved_by = current_user.id
                         task.html_approved_at = datetime.now()
@@ -3143,7 +3096,7 @@ def edit_task(task_id):
                             f.write(file_content)
                         existing_files.append({'original_name': file_name, 'saved_name': unique_filename})
                     task.html_files = json.dumps(existing_files)
-                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                    if current_user.is_admin():
                         task.html_approved = 1
                         task.html_approved_by = current_user.id
                         task.html_approved_at = datetime.now()
@@ -3187,7 +3140,7 @@ def edit_task(task_id):
                     
                     # 如果是HTML文件，设置审核状态
                     if filepath.lower().endswith(('.html', '.htm')):
-                        if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                        if current_user.is_admin():
                             task.html_approved = 1
                             task.html_approved_by = current_user.id
                             task.html_approved_at = datetime.now()
@@ -3233,7 +3186,7 @@ def edit_task(task_id):
                     
                     # 如果是HTML文件，设置审核状态
                     if filepath.lower().endswith(('.html', '.htm')):
-                        if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                        if current_user.is_admin():
                             task.html_approved = 1
                             task.html_approved_by = current_user.id
                             task.html_approved_at = datetime.now()
@@ -3263,7 +3216,7 @@ def edit_task(task_id):
                 share_scope = (request.form.get('share_scope') or 'private').strip()
                 organization_id = request.form.get('organization_id')
                 if share_scope == 'public':
-                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+                    if current_user.is_admin():
                         if not _task_has_any_html(task):
                             flash('该任务尚未上传 HTML 网页文件，无法申请公开到项目交流。请先上传 HTML 后再试。', 'warning')
                             task.sharing_type = 'organization' if task.organization_id else 'private'
@@ -3273,7 +3226,7 @@ def edit_task(task_id):
                             task.organization_id = None
                             task.public_approved = 0
                     else:
-                        flash('只有通过教师认证的用户才能公开项目到共享区', 'warning')
+                        flash('只有管理员可以公开项目到共享区', 'warning')
                         task.sharing_type = 'organization' if task.organization_id else 'private'
                         task.public_approved = 0
                 elif share_scope == 'organization' and organization_id and str(organization_id).strip() and str(organization_id).strip() != 'none':
@@ -3394,18 +3347,13 @@ def set_task_visibility(task_id):
         message = None
 
         if visibility == 'public':
-            # 只有管理员或通过教师认证的用户可以公开到项目交流；公开后需管理员审核通过才会在项目交流展示
-            if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                if not _task_has_any_html(task):
-                    flash('该任务尚未上传 HTML 网页文件，无法申请公开到项目交流。请先上传 HTML 后再试。', 'warning')
-                    return redirect(url_for('quickform.task_detail', task_id=task.id))
-                task.sharing_type = 'public'
-                task.public_approved = 0  # 待管理员审核
-                message = '已申请公开到项目交流，审核通过后将展示在项目交流页。'
-            else:
-                flash('只有通过教师认证的用户才能公开项目到共享区', 'warning')
-                # 回退为私有/组织可见
-                task.sharing_type = 'organization' if task.organization_id else 'private'
+            # 校园版：移除教师认证限制；允许任务所有者/管理员申请公开（仍要求先上传 HTML）
+            if not _task_has_any_html(task):
+                flash('该任务尚未上传 HTML 网页文件，无法申请公开到项目交流。请先上传 HTML 后再试。', 'warning')
+                return redirect(url_for('quickform.task_detail', task_id=task.id))
+            task.sharing_type = 'public'
+            task.public_approved = 0  # 待管理员审核
+            message = '已申请公开到项目交流，审核通过后将展示在项目交流页。'
         else:
             # 设置为仅自己/组织内部可见
             task.sharing_type = 'organization' if task.organization_id else 'private'
@@ -3782,42 +3730,9 @@ def _mcp_authenticate(username, password):
         db.close()
 
 
-def _cert_apply_approve(db, cert_request, reviewer_user_id, note=''):
-    """教师认证「通过」：与网页管理员审核逻辑一致（单条，未 commit）。"""
-    user = cert_request.user
-    if not user:
-        return False, 'no_applicant'
-    if cert_request.status == 1:
-        return True, 'already_approved'
-    note = (note or '').strip()
-    cert_request.status = 1
-    cert_request.reviewed_at = datetime.now()
-    cert_request.reviewed_by = reviewer_user_id
-    cert_request.review_note = note
-    user.is_certified = True
-    user.certified_at = datetime.now()
-    user.certification_note = note
-    if user.task_limit != -1:
-        user.task_limit = -1
-    pending_tasks = db.query(Task).filter(Task.user_id == user.id, Task.html_approved != 1).all()
-    for task in pending_tasks:
-        task.html_approved = 1
-        task.html_approved_by = reviewer_user_id
-        task.html_approved_at = datetime.now()
-        task.html_review_note = None
-    return True, 'ok'
-
-
-def _cert_apply_reject(db, cert_request, reviewer_user_id, note=''):
-    """教师认证「拒绝」：与网页管理员审核逻辑一致（单条，未 commit）。"""
-    if cert_request.status == -1:
-        return True, 'already_rejected'
-    note = (note or '').strip()
-    cert_request.status = -1
-    cert_request.reviewed_at = datetime.now()
-    cert_request.reviewed_by = reviewer_user_id
-    cert_request.review_note = note
-    return True, 'ok'
+#
+# 校园版：移除「教师认证」功能（不再支持认证申请/审核/CLI 认证接口）。
+#
 
 
 def _cli_login_throttle_reject_if_blocked(request, login_name: Optional[str]):
@@ -4067,165 +3982,13 @@ def cli_set_user_email():
 
 @quickform_bp.route('/cli/cert_pending', methods=['POST'])
 @quickform_bp.route('/mcp/cert_pending', methods=['POST'])
-def cli_cert_pending():
-    """
-    管理员：列出待审核的教师认证申请（材料元数据）。
-    参数：username, password, limit（可选，默认 50，最大 200）。
-    下载原文件请用 POST /cli/cert_material（管理员账号 + request_id）。
-    """
-    data = _mcp_parse_body()
-    _admin, err = _cli_require_admin(data)
-    if err:
-        return err
-    limit = data.get('limit', 50)
-    try:
-        limit = int(limit)
-    except (TypeError, ValueError):
-        limit = 50
-    limit = max(1, min(limit, 200))
-
-    db = SessionLocal()
-    try:
-        rows = (
-            db.query(CertificationRequest)
-            .filter(CertificationRequest.status == 0)
-            .order_by(CertificationRequest.created_at.asc())
-            .limit(limit)
-            .all()
-        )
-        base = (request.url_root or '').rstrip('/')
-        material_path = url_for('quickform.cli_cert_material')
-        material_url = base + material_path
-        items = []
-        for r in rows:
-            u = r.user
-            fn = (r.file_name or '')
-            fp = (r.file_path or '')
-            ext = ''
-            if fn and '.' in fn:
-                ext = fn.rsplit('.', 1)[-1].lower()
-            elif fp and '.' in fp:
-                ext = os.path.basename(fp).rsplit('.', 1)[-1].lower()
-            items.append({
-                'request_id': r.id,
-                'user_id': r.user_id,
-                'username': u.username if u else None,
-                'school': (u.school if u else None) or '',
-                'phone': (u.phone if u else None) or '',
-                'email': (u.email if u else None) or '',
-                'file_name': r.file_name or '',
-                'file_ext': ext,
-                'has_file': bool(r.file_path and os.path.exists(r.file_path)),
-                'created_at': r.created_at.strftime('%Y-%m-%d %H:%M:%S') if r.created_at else '',
-            })
-        return jsonify({
-            'success': True,
-            'count': len(items),
-            'items': items,
-            'material_hint': '使用相同管理员凭据 POST /cli/cert_material，JSON 字段 request_id 下载对应材料文件。',
-            'material_url': material_url,
-        }), 200
-    finally:
-        db.close()
-
-
 @quickform_bp.route('/cli/cert_material', methods=['POST'])
 @quickform_bp.route('/mcp/cert_material', methods=['POST'])
-def cli_cert_material():
-    """管理员：按 request_id 下载教师认证上传的原始文件（附件形式，便于 curl -o）。"""
-    data = _mcp_parse_body()
-    _admin, err = _cli_require_admin(data)
-    if err:
-        return err
-    rid = data.get('request_id')
-    try:
-        rid_int = int(rid)
-    except (TypeError, ValueError):
-        return jsonify({'success': False, 'message': '缺少或无效的 request_id'}), 400
-
-    db = SessionLocal()
-    try:
-        cert_request = db.get(CertificationRequest, rid_int)
-        if not cert_request or not cert_request.file_path or not os.path.exists(cert_request.file_path):
-            return jsonify({'success': False, 'message': '认证材料不存在或文件已删除'}), 404
-        filename = os.path.basename(cert_request.file_path)
-        try:
-            return send_file(
-                cert_request.file_path,
-                download_name=filename or 'certification.bin',
-                as_attachment=True,
-            )
-        except TypeError:
-            return send_file(
-                cert_request.file_path,
-                attachment_filename=filename or 'certification.bin',
-                as_attachment=True,
-            )
-    finally:
-        db.close()
-
-
 @quickform_bp.route('/cli/cert_decide', methods=['POST'])
 @quickform_bp.route('/mcp/cert_decide', methods=['POST'])
-def cli_cert_decide():
-    """
-    管理员：通过或拒绝一条待审核的教师认证申请。
-    参数：username, password, request_id, action（approve 或 reject）, note（可选，备注）。
-    """
-    data = _mcp_parse_body()
-    admin, err = _cli_require_admin(data)
-    if err:
-        return err
-    rid = data.get('request_id')
-    action = (data.get('action') or '').strip().lower()
-    note = (data.get('note') or '').strip()
-    try:
-        rid_int = int(rid)
-    except (TypeError, ValueError):
-        return jsonify({'success': False, 'message': '缺少或无效的 request_id'}), 400
-    if action not in ('approve', 'reject'):
-        return jsonify({'success': False, 'message': 'action 须为 approve 或 reject'}), 400
-
-    db = SessionLocal()
-    try:
-        cert_request = db.get(CertificationRequest, rid_int)
-        if not cert_request:
-            return jsonify({'success': False, 'message': '认证申请不存在'}), 404
-        if cert_request.status != 0:
-            return jsonify({
-                'success': False,
-                'message': '该申请已处理，非待审核状态',
-                'status': cert_request.status,
-            }), 409
-
-        applicant = cert_request.user
-        if action == 'approve':
-            ok, _code = _cert_apply_approve(db, cert_request, admin.id, note)
-            if not ok:
-                return jsonify({'success': False, 'message': '无法通过（申请人数据异常）'}), 400
-            db.commit()
-            return jsonify({
-                'success': True,
-                'message': '已通过该教师认证申请',
-                'request_id': cert_request.id,
-                'username': applicant.username if applicant else None,
-                'user_id': applicant.id if applicant else None,
-            }), 200
-
-        _cert_apply_reject(db, cert_request, admin.id, note)
-        db.commit()
-        return jsonify({
-            'success': True,
-            'message': '已拒绝该认证申请',
-            'request_id': cert_request.id,
-            'username': applicant.username if applicant else None,
-        }), 200
-    except Exception:
-        db.rollback()
-        logger.exception('CLI cert_decide failed')
-        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
-    finally:
-        db.close()
+def cli_cert_removed():
+    """校园版：移除教师认证相关 CLI 接口。"""
+    return jsonify({'success': False, 'message': '校园版已移除教师认证功能'}), 404
 
 
 @quickform_bp.route('/cli/list', methods=['POST'])
@@ -5049,9 +4812,7 @@ def export_data(task_id):
 # 如需临时关闭，可通过环境变量 TASK_MIGRATION_ACTIVE=false 控制。
 TASK_MIGRATION_ACTIVE = (os.getenv('TASK_MIGRATION_ACTIVE', 'true').strip().lower() == 'true')
 TASK_MIGRATION_MANIFEST = 'quickform-task-migration.json'
-TASK_MIGRATION_DISABLED_FLASH = (
-    '任务迁移功能将于 4 月 29 日会议正式发布，敬请期待。会议通知 PDF 可在任务详情页「任务迁移」旁的说明中下载。'
-)
+TASK_MIGRATION_DISABLED_FLASH = '任务迁移功能已关闭（TASK_MIGRATION_ACTIVE=false）。'
 
 # 在线版（quickform.cn）对接：默认在线版根地址，可通过环境变量覆盖
 ONLINE_QUICKFORM_BASE_URL = (os.getenv('ONLINE_QUICKFORM_BASE_URL') or 'https://quickform.cn').strip().rstrip('/')
@@ -5267,7 +5028,8 @@ def _import_task_from_online_cli(db, online_base: str, online_username: str, onl
         new_task.file_name = stored_list[0]['original_name']
         new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
         if new_task.file_path and new_task.file_path.lower().endswith(('.html', '.htm')):
-            if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+            # campus: removed teacher certification gating; keep admin auto-approve
+            if current_user.is_admin():
                 new_task.html_approved = 1
                 new_task.html_approved_by = current_user.id
                 new_task.html_approved_at = datetime.now()
@@ -5513,8 +5275,8 @@ def _campus_import_task_from_online(db, online_base_url: str, online_username: s
         new_task.html_files = json.dumps(stored_list, ensure_ascii=False)
         new_task.file_name = stored_list[0]['original_name']
         new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
-        # 导入的 HTML 默认按教师/管理员规则设置审核状态
-        if current_user.is_admin() or getattr(current_user, 'is_certified', False):
+        # 校园版：移除教师认证后，仅管理员自动通过 HTML；普通用户仍需审核
+        if current_user.is_admin():
             new_task.html_approved = 1
             new_task.html_approved_by = current_user.id
             new_task.html_approved_at = datetime.now()
@@ -5923,16 +5685,10 @@ def _task_migration_import_impl():
                 new_task.file_name = stored_list[0]['original_name']
                 new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
                 if new_task.file_path and new_task.file_path.lower().endswith(('.html', '.htm')):
-                    if current_user.is_admin() or getattr(current_user, 'is_certified', False):
-                        new_task.html_approved = 1
-                        new_task.html_approved_by = current_user.id
-                        new_task.html_approved_at = datetime.now()
-                        new_task.html_review_note = None
-                    else:
-                        new_task.html_approved = 0
-                        new_task.html_approved_by = None
-                        new_task.html_approved_at = None
-                        new_task.html_review_note = None
+                    new_task.html_approved = 0
+                    new_task.html_approved_by = None
+                    new_task.html_approved_at = None
+                    new_task.html_review_note = None
 
             db.add(new_task)
             db.commit()
@@ -6031,8 +5787,8 @@ def profile():
         ai_config = db.query(AIConfig).filter_by(user_id=current_user.id).first()
         decrypt_ai_config_inplace(ai_config)
         user_record = db.get(User, current_user.id)
-        pending_cert_request = db.query(CertificationRequest).filter_by(user_id=current_user.id, status=0).order_by(CertificationRequest.created_at.desc()).first()
-        last_cert_request = db.query(CertificationRequest).filter_by(user_id=current_user.id).order_by(CertificationRequest.created_at.desc()).first()
+        pending_cert_request = None
+        last_cert_request = None
         
         if request.method == 'POST':
             # 恢复默认：设为「空」即使用系统/管理员配置的 API（如硅基流动 Token），方便老师先试用
@@ -6188,78 +5944,15 @@ def profile():
 @quickform_bp.route('/certification/request', methods=['GET', 'POST'])
 @login_required
 def certification_request():
-    """教师认证申请"""
-    db = SessionLocal()
-    try:
-        user = db.get(User, current_user.id)
-        if not user:
-            flash('用户不存在', 'danger')
-            return redirect(url_for('quickform.dashboard'))
-
-        pending_request = db.query(CertificationRequest).filter_by(user_id=user.id, status=0).order_by(CertificationRequest.created_at.desc()).first()
-        requests = db.query(CertificationRequest).filter_by(user_id=user.id).order_by(CertificationRequest.created_at.desc()).all()
-
-        if request.method == 'POST':
-            if user.is_certified:
-                flash('您已完成认证，无需重复提交。', 'info')
-                return redirect(url_for('quickform.profile'))
-            if pending_request:
-                flash('您已有待审核的认证申请，请耐心等待结果。', 'warning')
-                return redirect(url_for('quickform.certification_request'))
-
-            file = request.files.get('certificate_file')
-            if not file or not file.filename.strip():
-                flash('请上传能够证明教师身份的材料（允许图片或PDF）。', 'danger')
-                return redirect(url_for('quickform.certification_request'))
-
-            unique_filename, filepath = save_uploaded_file(file, CERTIFICATION_FOLDER, CERTIFICATION_ALLOWED_EXTENSIONS)
-            if not unique_filename:
-                flash('文件上传失败或格式不支持，请重试。支持 PNG / JPG / JPEG / PDF 格式。', 'danger')
-                return redirect(url_for('quickform.certification_request'))
-
-            cert_request = CertificationRequest(
-                user_id=user.id,
-                file_name=file.filename,
-                file_path=filepath,
-                status=0,
-                created_at=datetime.now()
-            )
-            db.add(cert_request)
-            db.commit()
-            flash('认证申请已提交，请等待管理员审核。', 'success')
-            return redirect(url_for('quickform.profile'))
-
-        return render_template('certification_request.html', user=user, requests=requests, pending_request=pending_request)
-    finally:
-        db.close()
+    """校园版已移除教师认证功能。"""
+    abort(404)
 
 
 @quickform_bp.route('/certification/file/<int:request_id>')
 @login_required
 def user_view_certification_file(request_id):
-    """
-    教师查看自己提交的认证材料（图片或 PDF）。
-    仅限提交该申请的用户或管理员访问。
-    """
-    db = SessionLocal()
-    try:
-        cert_request = db.get(CertificationRequest, request_id)
-        if not cert_request:
-            flash('认证申请不存在', 'danger')
-            return redirect(request.referrer or url_for('quickform.certification_request'))
-
-        if (cert_request.user_id != current_user.id) and (not current_user.is_admin()):
-            flash('无权查看该认证材料', 'danger')
-            return redirect(request.referrer or url_for('quickform.certification_request'))
-
-        if not cert_request.file_path or not os.path.exists(cert_request.file_path):
-            flash('认证材料文件不存在', 'danger')
-            return redirect(request.referrer or url_for('quickform.certification_request'))
-
-        directory, filename = os.path.split(cert_request.file_path)
-        return send_from_directory(directory, filename)
-    finally:
-        db.close()
+    """校园版已移除教师认证功能。"""
+    abort(404)
 
 # ai_service 已集成支持的模型（moonshot/glm/ernie/openrouter 待后续集成）
 SUPPORTED_AI_MODELS = {'chat_server', 'deepseek', 'doubao', 'qwen'}
@@ -7124,15 +6817,15 @@ def admin_panel():
         user_per_page = 20
         task_per_page = 20
         html_review_per_page = 20
-        cert_review_per_page = 20
+        # campus edition: removed teacher certification feature (kept legacy vars removed below)
 
         # 顶部统计：用户/管理员/任务始终 count；提交总数不在后台首页自动查询（避免全表扫 submission）
         total_users = db.query(User).count()
         admin_users = db.query(User).filter_by(role='admin').count()
-        certified_users_top = db.query(User).filter(User.is_certified == True).count()
+        certified_users_top = 0  # campus: removed teacher certification feature
         total_tasks = db.query(Task).count()
         total_submissions = None
-        pending_cert_sidebar = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
+        pending_cert_sidebar = 0  # campus: removed teacher certification feature
         pending_html_sidebar = db.query(Task).filter(Task.html_approved != 1).count()
         pending_public_sidebar = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 0).count()
         pending_org_sidebar = db.query(Organization).filter(
@@ -7159,17 +6852,13 @@ def admin_panel():
         html_review_page = 1
         total_html_tasks = 0
 
-        cert_requests = []
-        pending_cert_count = 0
-        cert_review_total_pages = 1
-        cert_review_page = 1
-        total_cert_requests = 0
-
         public_pending_with_author = []
         public_pending_html_urls = []
         org_pending_with_creator = []
         open_source_tasks_with_author = []
         tutorials_json_content = '[]'
+        syscfg = None
+        pending_users = {}
         oneclick_prompt_rows = []
         submit_quota_base_c = None
         submit_quota_base_b = None
@@ -7278,24 +6967,7 @@ def admin_panel():
             creators_map = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
             org_pending_with_creator = [{'org': o, 'creator': creators_map.get(o.creator_id)} for o in org_pending]
 
-        elif current_tab == 'cert-review':
-            cert_review_page = request.args.get('cert_review_page', 1, type=int) or 1
-            cert_review_page = max(1, cert_review_page)
-            total_cert_requests = db.query(CertificationRequest).count()
-            cert_review_total_pages = max(math.ceil(total_cert_requests / cert_review_per_page), 1) if total_cert_requests else 1
-            cert_review_page = min(cert_review_page, cert_review_total_pages)
-            cert_requests = (
-                db.query(CertificationRequest)
-                .order_by(CertificationRequest.created_at.desc())
-                .offset((cert_review_page - 1) * cert_review_per_page)
-                .limit(cert_review_per_page)
-                .all()
-            )
-            pending_cert_count = (
-                db.query(CertificationRequest)
-                .filter(CertificationRequest.status == 0)
-                .count()
-            )
+        # campus edition: removed teacher certification review tab
 
         elif current_tab == 'data':
             pass  # stats 在下方按 tab 计算
@@ -7323,14 +6995,21 @@ def admin_panel():
             except Exception as e:
                 logger.warning(f"读取 tutorials.json 失败: {e}")
 
+        elif current_tab == 'system-config':
+            try:
+                syscfg = load_system_config()
+            except Exception:
+                syscfg = SystemConfig()
+            try:
+                pending_users = load_pending_users()
+                if not isinstance(pending_users, dict):
+                    pending_users = {}
+            except Exception:
+                pending_users = {}
+
         # campus edition: quota-review/quota-settings removed
 
-        elif current_tab == 'oneclick-prompts':
-            oneclick_prompt_rows = (
-                db.query(OneclickPromptOption)
-                .order_by(OneclickPromptOption.sort_order.asc(), OneclickPromptOption.id.asc())
-                .all()
-            )
+        # campus edition: oneclick-prompts removed
 
         # 流量预估：仅当前 tab 为 traffic 时使用
         api_traffic = []
@@ -7356,7 +7035,7 @@ def admin_panel():
             'admin_users': admin_users,
             'total_tasks': total_tasks,
             'total_submissions': total_submissions,
-            'certified_users': certified_users_top,
+            'certified_users': 0,  # campus: removed teacher certification feature
             'online_now': (lambda: (lambda x: x)(0))(),  # placeholder, overwritten below
             'normal_users': 0,
             'new_users_today': 0,
@@ -7419,20 +7098,17 @@ def admin_panel():
             html_review_pages=html_review_total_pages,
             html_review_total=total_html_tasks,
             html_review_per_page=html_review_per_page,
-            cert_requests=cert_requests,
-            pending_cert_count=pending_cert_count,
-            cert_review_page=cert_review_page,
-            cert_review_pages=cert_review_total_pages,
-            cert_review_total=total_cert_requests,
-            cert_review_per_page=cert_review_per_page,
+            # campus edition: removed teacher certification review feature
             current_tab=current_tab,
             public_pending_with_author=public_pending_with_author,
             public_pending_html_urls=public_pending_html_urls,
             org_pending_with_creator=org_pending_with_creator,
             open_source_tasks_with_author=open_source_tasks_with_author,
             tutorials_json_content=tutorials_json_content,
+            syscfg=syscfg,
+            pending_users=pending_users,
             api_traffic=api_traffic,
-            oneclick_prompt_rows=oneclick_prompt_rows,
+            oneclick_prompt_rows=[],
             submit_quota_base_c=submit_quota_base_c,
             submit_quota_base_b=submit_quota_base_b,
             tutorials_json_is_admin_override=(
@@ -7440,7 +7116,7 @@ def admin_panel():
                     os.path.join(current_app.static_folder, 'tutorials', 'tutorials_admin.json')
                 )
             ) if current_tab == 'tutorials-edit' else False,
-            pending_cert_sidebar=pending_cert_sidebar,
+            pending_cert_sidebar=0,
             pending_other_sidebar=pending_other_sidebar,
         )
     finally:
@@ -7450,35 +7126,172 @@ def admin_panel():
 @quickform_bp.route('/admin/oneclick_prompt_options/save', methods=['POST'])
 @admin_required
 def admin_save_oneclick_prompt_options():
-    """保存一键生成任务时勾选追加的说明文案（管理员）。"""
+    """校园版：已移除「一键生成说明」后台功能。"""
+    abort(404)
+
+
+@quickform_bp.route('/admin/system_config/save', methods=['POST'])
+@admin_required
+def admin_system_config_save():
+    """保存系统配置（系统名称/默认学校/是否开启注册/注册是否需审核）。"""
+    try:
+        system_name = (request.form.get('system_name') or '').strip()
+        default_school = (request.form.get('default_school') or '').strip()
+        registration_enabled = (request.form.get('registration_enabled') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+        registration_requires_approval = (request.form.get('registration_requires_approval') or '').strip().lower() in (
+            '1',
+            'true',
+            'yes',
+            'on',
+        )
+        cfg = SystemConfig(
+            system_name=system_name or SystemConfig.system_name,
+            default_school=default_school,
+            registration_enabled=registration_enabled,
+            registration_requires_approval=registration_requires_approval,
+        )
+        save_system_config(cfg)
+        flash('系统配置已保存。', 'success')
+    except Exception as e:
+        logger.exception('保存系统配置失败: %s', e)
+        flash('保存失败，请稍后重试。', 'danger')
+    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+
+@quickform_bp.route('/admin/pending_users/approve', methods=['POST'])
+@admin_required
+def admin_pending_user_approve():
+    """审批注册用户：通过/拒绝（拒绝仅移除 pending 标记，不删库数据）。"""
+    username = (request.form.get('username') or '').strip()
+    action = (request.form.get('action') or '').strip().lower()
+    if not username:
+        flash('缺少用户名', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+    try:
+        if action == 'approve':
+            set_user_pending(username, False)
+            flash(f'已通过用户「{username}」审核。', 'success')
+        elif action == 'reject':
+            set_user_pending(username, False)
+            flash(f'已拒绝用户「{username}」审核（已移除待审核标记）。', 'warning')
+        else:
+            flash('未知操作', 'danger')
+    except Exception as e:
+        logger.exception('审批待审核用户失败: %s', e)
+        flash('操作失败，请稍后重试。', 'danger')
+    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+
+@quickform_bp.route('/admin/users/bulk_import', methods=['POST'])
+@admin_required
+def admin_users_bulk_import():
+    """批量导入用户（CSV 上传）。"""
+    cfg = load_system_config()
+    file = request.files.get('csv_file')
+    if not file:
+        flash('请上传 CSV 文件', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+    try:
+        raw = file.read()
+        # Try UTF-8 then GBK for Windows CSV
+        try:
+            text = raw.decode('utf-8-sig')
+        except Exception:
+            text = raw.decode('gbk', errors='replace')
+        rows = list(csv.DictReader(text.splitlines()))
+    except Exception as e:
+        logger.exception('解析 CSV 失败: %s', e)
+        flash('CSV 解析失败，请检查格式/编码（推荐 UTF-8）。', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+    if not rows:
+        flash('CSV 文件为空或无数据行', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+    created = 0
+    skipped = 0
+    failed = 0
+    errors = []
+
     db = SessionLocal()
     try:
-        rows = (
-            db.query(OneclickPromptOption)
-            .order_by(OneclickPromptOption.sort_order.asc(), OneclickPromptOption.id.asc())
-            .all()
-        )
-        if not rows:
-            flash('数据库中尚无一键生成选项记录，请重启应用以完成数据库迁移后再试。', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='oneclick-prompts'))
-        for row in rows:
-            lab = (request.form.get(f'label_{row.opt_key}') or '').strip()
-            bod = (request.form.get(f'body_{row.opt_key}') or '').strip()
-            if not lab:
-                flash(f'选项「{row.opt_key}」的显示名称不能为空', 'warning')
-                return redirect(url_for('quickform.admin_panel', tab='oneclick-prompts'))
-            row.label = lab[:200]
-            row.body = bod
-            row.updated_at = datetime.now()
+        from sqlalchemy import func
+        for i, r in enumerate(rows, start=2):  # header line is 1
+            try:
+                username = (r.get('username') or r.get('用户名') or '').strip()
+                password = (r.get('password') or r.get('密码') or '').strip() or 'quickform'
+                school = (r.get('school') or r.get('学校') or '').strip()
+                phone = (r.get('phone') or r.get('手机号') or '').strip()
+                email = (r.get('email') or r.get('邮箱') or '').strip()
+
+                if not username:
+                    skipped += 1
+                    errors.append(f'第{i}行：缺少 username')
+                    continue
+                if not school and (cfg.default_school or '').strip():
+                    school = (cfg.default_school or '').strip()
+                if not school:
+                    skipped += 1
+                    errors.append(f'第{i}行：缺少 school（系统默认学校为空时必须提供）')
+                    continue
+
+                username_norm = username.lower()
+                if db.query(User.id).filter(func.lower(User.username) == username_norm).first():
+                    skipped += 1
+                    continue
+
+                hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+                email_value = email.strip() if email else f"{username}@noreply.local"
+                if db.query(User.id).filter(User.email == email_value).first():
+                    # Avoid occupying existing account's email
+                    email_value = f"{username}_{secrets.token_hex(3)}@noreply.local"
+
+                user = User(
+                    username=username,
+                    email=email_value,
+                    password=hashed_password,
+                    school=school,
+                    phone=phone or '',
+                )
+                db.add(user)
+                db.flush()
+                db.add(AIConfig(user=user, selected_model='chat_server'))
+                created += 1
+                if cfg.registration_requires_approval:
+                    try:
+                        set_user_pending(username, True, meta={"created_at": datetime.now().isoformat(), "source": "bulk_import"})
+                    except Exception:
+                        pass
+            except Exception as e:
+                db.rollback()
+                failed += 1
+                errors.append(f'第{i}行：导入失败：{str(e)}')
+            else:
+                # keep batching; commit at end
+                pass
         db.commit()
-        flash('已保存一键生成「追加到需求后的说明」文案。', 'success')
-    except Exception as e:
-        db.rollback()
-        logger.exception('admin_save_oneclick_prompt_options: %s', e)
-        flash('保存失败', 'danger')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='oneclick-prompts'))
+
+    msg = f'批量导入完成：新增 {created}，跳过 {skipped}，失败 {failed}。'
+    if errors:
+        msg += f'（部分提示：{ "；".join(errors[:5]) }）'
+    flash(msg, 'success' if failed == 0 else 'warning')
+    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+
+@quickform_bp.route('/admin/users/bulk_import/sample.csv', methods=['GET'])
+@admin_required
+def admin_users_bulk_import_sample():
+    """下载批量导入 CSV 示例。"""
+    sample = "username,password,school,phone,email\n" \
+             "teacher01,quickform,温州科技高级中学,13800000000,teacher01@example.com\n" \
+             "teacher02,quickform,,13800000001,\n"
+    return Response(
+        sample,
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename=\"quickform_users_sample.csv\"'},
+    )
 
 
 @quickform_bp.route('/admin/public_approve/<int:task_id>', methods=['POST'])
@@ -7697,6 +7510,31 @@ def admin_tutorials_json_reset():
     return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
 
 
+@quickform_bp.route('/admin/tutorials_json/sync_official', methods=['POST'])
+@admin_required
+def admin_tutorials_sync_official():
+    """同步官方教程（quickform.cn）到管理员覆盖文件，使校园版默认展示最新。"""
+    url = 'https://quickform.cn/static/tutorials/tutorials.json'
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, list):
+            flash('同步失败：官方教程 JSON 不是数组格式', 'danger')
+            return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
+
+        tutorials_dir = os.path.join(current_app.static_folder, 'tutorials')
+        os.makedirs(tutorials_dir, exist_ok=True)
+        json_path = os.path.join(tutorials_dir, 'tutorials_admin.json')
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        flash('已同步官方教程为最新（已写入管理员覆盖版本）。', 'success')
+    except Exception as e:
+        logger.exception('同步官方教程失败: %s', e)
+        flash('同步失败，请稍后重试。', 'danger')
+    return redirect(url_for('quickform.admin_panel', tab='tutorials-edit'))
+
+
 @quickform_bp.route('/admin/change_role/<int:user_id>', methods=['POST'])
 @admin_required
 def admin_change_role(user_id):
@@ -7889,7 +7727,8 @@ def admin_export_users():
                 '学校': user.school or '',
                 '手机': user.phone or '',
                 '角色': '管理员' if user.role == 'admin' else '普通用户',
-                '认证状态': '已认证' if user.is_certified else '未认证',
+                # campus edition: teacher certification removed
+                '认证状态': '—',
                 '任务上限': '无限制' if user.task_limit == -1 else user.task_limit,
                 '任务数量': task_count,
                 '数据提交数': submission_count,
@@ -8147,13 +7986,13 @@ def admin_api_data_stats(section: str):
             total_tasks = db.query(Task).count()
             tasks_with_reports = db.query(Task).filter(Task.analysis_report.isnot(None)).count()
             report_generation_rate = (tasks_with_reports / total_tasks * 100) if total_tasks > 0 else 0
-            certified_users = db.query(User).filter(User.is_certified == True).count()
+            certified_users = 0
             public_tasks = db.query(Task).filter(Task.sharing_type == 'public').count()
             public_approved_tasks = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 1).count()
             total_task_shares = db.query(TaskShare).count()
             total_task_likes = db.query(TaskLike).count()
             ai_generated_tasks = db.query(Task).filter(Task.ai_generated == True).count()
-            cert_requests_pending = db.query(CertificationRequest).filter(CertificationRequest.status == 0).count()
+            cert_requests_pending = 0
             total_posts = db.query(Post).count()
             total_post_replies = db.query(PostReply).count()
             return jsonify({'success': True, 'section': sec, 'data': {
@@ -8511,127 +8350,15 @@ def extract_district(school_name, city):
 @quickform_bp.route('/admin/users/statistics')
 @admin_required
 def admin_users_statistics():
-    """用户数据统计和可视化页面"""
-    db = SessionLocal()
-    try:
-        # 获取统计数据
-        total_users = db.query(User).count()
-        admin_users = db.query(User).filter_by(role='admin').count()
-        certified_users = db.query(User).filter_by(is_certified=True).count()
-        
-        # 生成学校数据（包含省份、城市、区县、类型）
-        # 说明：省份支持管理员手动覆盖，避免自动解析把台湾等学校归错。
-        school_dict = {}  # school_text -> {name, province_auto, province, province_source, city, district, type}
-        db_updated = False
-
-        for user in db.query(User).filter(User.school.isnot(None), User.school != '').all():
-            school = (user.school or '').strip()
-            if not school or school in ['', 'xx', '1', 'wkg'] or len(school) < 2:
-                continue
-
-            user_province_source = getattr(user, 'school_province_source', None)
-            manual_province = None
-            if user_province_source == 'admin' and getattr(user, 'school_province', None):
-                manual_province = user.school_province.strip()
-
-            if school not in school_dict:
-                province_auto, city = extract_city_and_province(school)
-                district = extract_district(school, city)
-                school_type = extract_school_type(school)
-
-                effective_province = manual_province if manual_province else province_auto
-                province_source = 'admin' if manual_province else 'auto'
-
-                school_dict[school] = {
-                    'name': school,
-                    'province_auto': province_auto,
-                    'province': effective_province,
-                    'province_source': province_source,
-                    'city': city,
-                    'district': district,
-                    'type': school_type,
-                }
-
-            entry = school_dict[school]
-
-            # 1) 若当前用户有管理员覆盖省份，则覆盖该 school_text 的统计省份
-            if manual_province:
-                entry['province'] = manual_province
-                entry['province_source'] = 'admin'
-                if user.school_province != manual_province or user.school_province_source != 'admin':
-                    user.school_province = manual_province
-                    user.school_province_source = 'admin'
-                    db_updated = True
-            else:
-                # 2) 自动缓存该用户的“省份（auto）”，用于后续页面/导出减少重复解析
-                if not getattr(user, 'school_province', None) and entry.get('province_auto') and entry.get('province_auto') != '未知':
-                    user.school_province = entry['province_auto']
-                    user.school_province_source = 'auto'
-                    db_updated = True
-        
-        if db_updated:
-            db.commit()
-
-        school_data = list(school_dict.values())
-        
-        # 计算统计信息
-        total_schools = len(school_data)
-        provinces = set([s['province'] for s in school_data if s['province'] != '未知'])
-        total_provinces = len(provinces)
-        cities = set([s['city'] for s in school_data if s['city'] != '未知'])
-        total_cities = len(cities)
-        
-        return render_template(
-            'admin_user_statistics.html',
-            total_users=total_users,
-            admin_users=admin_users,
-            certified_users=certified_users,
-            school_data=school_data,
-            total_schools=total_schools,
-            total_provinces=total_provinces,
-            total_cities=total_cities,
-            update_date=datetime.now().strftime('%Y年%m月%d日')
-        )
-    except Exception as e:
-        logger.exception("获取统计数据失败: %s", e)
-        flash('获取统计数据失败，请稍后重试。', 'danger')
-        return redirect(url_for('quickform.admin_panel'))
-    finally:
-        db.close()
+    """校园版：已移除用户地区统计功能。"""
+    abort(404)
 
 
 @quickform_bp.route('/admin/users/<int:user_id>/set_school_province', methods=['POST'])
 @admin_required
 def admin_set_school_province(user_id):
-    """管理员手动设置某个用户的学校省份（仅覆盖统计地区用）"""
-    db = SessionLocal()
-    try:
-        user = db.get(User, user_id)
-        if not user:
-            return jsonify({'success': False, 'message': '用户不存在'}), 404
-
-        province = (request.form.get('school_province') or '').strip()
-
-        # 留空则清除管理员覆盖，让统计页回退到自动解析
-        if not province:
-            user.school_province = None
-            user.school_province_source = None
-        else:
-            user.school_province = province
-            user.school_province_source = 'admin'
-
-        db.commit()
-        return jsonify({
-            'success': True,
-            'school_province': user.school_province,
-            'school_province_source': user.school_province_source,
-        })
-    except Exception as e:
-        db.rollback()
-        logger.exception("设置用户学校省份失败: %s", e)
-        return jsonify({'success': False, 'message': MSG_GENERIC}), 500
-    finally:
-        db.close()
+    """校园版：已移除用户地区统计功能。"""
+    abort(404)
 
 @quickform_bp.route('/admin/review_html')
 @admin_required
@@ -8741,182 +8468,28 @@ def admin_review_html_batch():
 @quickform_bp.route('/admin/certification/<int:request_id>/file')
 @admin_required
 def admin_view_certification_file(request_id):
-    """管理员查看认证材料"""
-    db = SessionLocal()
-    try:
-        cert_request = db.get(CertificationRequest, request_id)
-        if not cert_request or not cert_request.file_path or not os.path.exists(cert_request.file_path):
-            flash('认证材料不存在或已被删除。', 'danger')
-            return redirect(url_for('quickform.admin_panel'))
-        filename = os.path.basename(cert_request.file_path)
-        try:
-            return send_file(cert_request.file_path, download_name=filename, as_attachment=False)
-        except TypeError:
-            return send_file(cert_request.file_path, attachment_filename=filename, as_attachment=False)
-    finally:
-        db.close()
+    """校园版：教师认证已移除。"""
+    abort(404)
 
 
 @quickform_bp.route('/admin/review_certification')
 @admin_required
 def admin_review_certification():
-    """审核中心：教师认证审核（仅认证，HTML审核已分离）"""
-    db = SessionLocal()
-    try:
-        page = request.args.get('page', 1, type=int)
-        if not page or page < 1:
-            page = 1
-        per_page = 20
-        
-        cert_requests_query = db.query(CertificationRequest)
-        total_requests = cert_requests_query.count()
-        total_pages = max(math.ceil(total_requests / per_page), 1) if total_requests else 1
-        if page > total_pages:
-            page = total_pages
-        
-        cert_requests = (
-            cert_requests_query
-            .order_by(CertificationRequest.created_at.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
-        # 统计全部待审核数量，而非仅当前页
-        pending_cert_count = (
-            db.query(CertificationRequest)
-            .filter(CertificationRequest.status == 0)
-            .count()
-        )
-
-        return render_template(
-            'admin_review_certification.html',
-            cert_requests=cert_requests,
-            pending_cert_count=pending_cert_count,
-            page=page,
-            pages=total_pages,
-            total=total_requests,
-            per_page=per_page
-        )
-    finally:
-        db.close()
+    """校园版：教师认证已移除。"""
+    abort(404)
 
 @quickform_bp.route('/admin/certification/<int:request_id>', methods=['POST'])
 @admin_required
 def admin_handle_certification(request_id):
-    """管理员审核教师认证申请"""
-    action = request.form.get('action')
-    note = (request.form.get('note') or '').strip()
-    reject_reason = (request.form.get('reject_reason') or '').strip()
-
-    db = SessionLocal()
-    try:
-        cert_request = db.get(CertificationRequest, request_id)
-        if not cert_request:
-            flash('认证申请不存在', 'danger')
-            return redirect(url_for('quickform.admin_panel', tab='cert-review'))
-
-        user = cert_request.user
-        if not user:
-            flash('无法找到申请人信息', 'danger')
-            return redirect(url_for('quickform.admin_panel', tab='cert-review'))
-
-        if action == 'approve':
-            if cert_request.status == 1:
-                flash('该认证申请已通过审核', 'info')
-                return redirect(url_for('quickform.admin_panel', tab='cert-review'))
-
-            ok, code = _cert_apply_approve(db, cert_request, current_user.id, note)
-            if not ok:
-                flash('无法处理该认证申请（申请人数据异常）。', 'danger')
-                return redirect(url_for('quickform.admin_panel', tab='cert-review'))
-
-            db.commit()
-            flash(f'已通过 {user.username} 的认证申请，任务上限已调整为无限制。', 'success')
-        elif action == 'reject':
-            if cert_request.status == -1:
-                flash('该认证申请已被拒绝', 'info')
-                return redirect(url_for('quickform.admin_panel', tab='cert-review'))
-
-            # 若管理员未填写备注，则使用预设拒绝理由（前端二选一）
-            if not note:
-                if reject_reason == 'complete_org_info':
-                    note = '请在个人中心完善单位信息'
-                else:
-                    note = '请提供更多个人相关信息'
-            _cert_apply_reject(db, cert_request, current_user.id, note)
-            db.commit()
-            flash('已拒绝该认证申请。', 'warning')
-        else:
-            flash('无效的操作类型', 'danger')
-    except Exception as e:
-        db.rollback()
-        logger.exception("认证审核处理失败: %s", e)
-        flash('处理失败，请稍后重试。', 'danger')
-    finally:
-        db.close()
-
-    return redirect(url_for('quickform.admin_panel', tab='cert-review'))
+    """校园版：教师认证已移除。"""
+    abort(404)
 
 
 @quickform_bp.route('/admin/certification/batch_approve', methods=['POST'])
 @admin_required
 def admin_cert_batch_approve():
-    """管理员批量通过教师认证申请"""
-    request_ids = request.form.getlist('request_ids')
-    if not request_ids:
-        flash('请先选择要通过的认证申请', 'warning')
-        return redirect(url_for('quickform.admin_panel', tab='cert-review'))
-
-    db = SessionLocal()
-    success_count = 0
-    try:
-        for rid in request_ids:
-            try:
-                rid_int = int(rid)
-            except (TypeError, ValueError):
-                continue
-
-            cert_request = db.get(CertificationRequest, rid_int)
-            if not cert_request or cert_request.status == 1:
-                continue
-
-            user = cert_request.user
-            if not user:
-                continue
-
-            cert_request.status = 1
-            cert_request.reviewed_at = datetime.now()
-            cert_request.reviewed_by = current_user.id
-
-            if not user.is_certified:
-                user.is_certified = True
-                user.certified_at = datetime.now()
-            if user.task_limit != -1:
-                user.task_limit = -1
-
-            # 自动通过该用户所有待审核的HTML任务
-            pending_tasks = db.query(Task).filter(Task.user_id == user.id, Task.html_approved != 1).all()
-            for task in pending_tasks:
-                task.html_approved = 1
-                task.html_approved_by = current_user.id
-                task.html_approved_at = datetime.now()
-                task.html_review_note = None
-
-            success_count += 1
-
-        db.commit()
-        if success_count:
-            flash(f'已批量通过 {success_count} 个教师认证申请。', 'success')
-        else:
-            flash('没有可处理的认证申请。', 'info')
-    except Exception as e:
-        db.rollback()
-        logger.exception("批量通过教师认证申请失败: %s", e)
-        flash('批量处理失败，请稍后重试。', 'danger')
-    finally:
-        db.close()
-
-    return redirect(url_for('quickform.admin_panel', tab='cert-review'))
+    """校园版：教师认证已移除。"""
+    abort(404)
 
 @quickform_bp.route('/admin/review_html/<int:task_id>', methods=['POST'])
 @admin_required
