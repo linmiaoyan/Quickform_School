@@ -6751,7 +6751,8 @@ def download_report(task_id):
             return redirect(url_for('quickform.dashboard'))
         
         report_content = task.analysis_report or "暂无报告内容"
-        safe_title = re.sub(r'[^a-zA-Z0-9_\u4e00-\u9fa5]', '_', task.title)[:50]
+        task_title = (task.title or '').strip() or f'task_{task.id}'
+        safe_title = re.sub(r'[^a-zA-Z0-9_\u4e00-\u9fa5]', '_', task_title)[:50]
         
         if fmt == 'html':
             # HTML 导出：始终从当前报告内容动态生成，确保 Markdown 被渲染为 HTML（不依赖旧缓存文件）
