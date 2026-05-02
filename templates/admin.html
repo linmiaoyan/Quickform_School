@@ -164,7 +164,7 @@
                                         <th style="width: 220px; min-width: 180px;">{{ translate('admin.school') }}</th>
                                         <th style="width: 120px;">手机号</th>
                                         <th style="width: 80px;">角色</th>
-                                        <th style="width: 100px;">{{ translate('admin.task_limit') }}</th>
+                                        <th style="width: 100px;">任务数量</th>
                                         <th style="width: 150px;">{{ translate('admin.register_time') }}</th>
                                         <th style="width: 100px;">{{ translate('admin.actions') }}</th>
                                     </tr>
@@ -182,14 +182,7 @@
                                                 {% if user.role == 'admin' %}{{ translate('admin.admin_role') }}{% else %}{{ translate('admin.user_role') }}{% endif %}
                                             </span>
                                         </td>
-                                        <td>
-                                            {{ user.tasks|length }} /
-                                            {% if user.task_limit == -1 %}
-                                                <span class="text-success">无限制</span>
-                                            {% else %}
-                                                {{ user.task_limit }}
-                                            {% endif %}
-                                        </td>
+                                        <td>{{ user.tasks|length }}</td>
                                         <td style="white-space: nowrap; font-size: 0.9em;">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                         <td>
                                             {% if user.id != current_user.id %}
@@ -562,9 +555,14 @@
                 <div class="card mb-4">
                     <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
                         <h5 class="mb-0">批量导入用户</h5>
-                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('quickform.admin_users_bulk_import_sample') }}">
-                            <i class="bi bi-download"></i> 下载CSV示例
-                        </a>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('quickform.admin_users_bulk_import_sample') }}">
+                                <i class="bi bi-download"></i> 下载示例（动态）
+                            </a>
+                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('static', filename='templates/bulk_import_users_template.csv') }}" download="bulk_import_users_template.csv">
+                                <i class="bi bi-download"></i> 下载模板文件
+                            </a>
+                        </div>
                     </div>
                     <div class="card-body">
                         <form method="POST" action="{{ url_for('quickform.admin_users_bulk_import') }}" enctype="multipart/form-data">
@@ -631,7 +629,7 @@
                 </div>
             </div>
 
-            <!-- 其他审核：公开项目 / 团队入驻 / HTML（单页合并，不跳转子 tab） -->
+            <!-- 其他审核：公开项目 / 团队入驻（HTML 不再做管理员审核门禁） -->
             <div class="tab-pane fade {{ 'show active' if current_tab == 'other-review' else '' }}" id="other-review" role="tabpanel">
             <div id="section-public-audit" class="mb-5">
                 <div class="card">
@@ -759,239 +757,13 @@
                 </div>
             </div>
 
-            <div id="section-html-audit">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">HTML 页面审核</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="alert alert-info mb-4">
-                            <strong>{{ translate('admin.pending') }} HTML 页面：</strong> {{ pending_html_count }}
-                        </div>
-                        {% if html_tasks_with_review %}
-                        {% set has_pending = pending_html_count > 0 %}
-                        <form id="batchApproveForm" method="POST" action="{{ url_for('quickform.admin_review_html_batch') }}">
-                            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-3">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" value="" id="selectAllTasks" {% if not has_pending %}disabled{% endif %}>
-                                    <label class="form-check-label" for="selectAllTasks">
-                                        {{ translate('admin.select_all_list') }}
-                                    </label>
-                                </div>
-                                <button type="submit" id="batchApproveBtn" class="btn btn-sm" 
-                                        style="background-color: #10b981; color: white; border: none;"
-                                        {% if not has_pending %}disabled{% endif %}>
-                                    <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
-                                    {{ translate('admin.batch_pass') }}
-                                </button>
-                            </div>
-                            <div class="table-responsive">
-                                <table class="table table-striped align-middle html-review-table">
-                                    <thead>
-                                        <tr>
-                                            <th scope="col" style="width: 50px; min-width: 50px;">选择</th>
-                                            <th style="min-width: 75px;">任务ID</th>
-                                            <th style="min-width: 120px;">任务标题</th>
-                                            <th style="min-width: 120px;">上传用户</th>
-                                            <th style="min-width: 140px;">文件名</th>
-                                            <th style="min-width: 95px;">{{ translate('admin.audit_status') }}</th>
-                                            <th style="min-width: 90px;">审核人</th>
-                                            <th style="min-width: 160px;">审核时间</th>
-                                            <th style="min-width: 280px;">{{ translate('admin.actions') }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for item in html_tasks_with_review %}
-                                        <tr>
-                                            <td class="align-middle" style="padding: 14px 12px;">
-                                                {% if item.task.html_approved != 1 %}
-                                                <input type="checkbox" class="form-check-input task-checkbox" name="task_ids" value="{{ item.task.id }}">
-                                                {% endif %}
-                                            </td>
-                                            <td class="align-middle" style="padding: 14px 12px;">{{ item.task.id }}</td>
-                                            <td class="align-middle" style="padding: 14px 12px;">{{ item.task.title }}</td>
-                                            <td class="align-middle" style="padding: 14px 12px;">
-                                                <div>
-                                                    {{ item.author.username if item.author else '未知' }}
-                                                </div>
-                                            </td>
-                                            <td class="align-middle" style="padding: 14px 12px;">
-                                                {% if item.task.file_name and item.task.file_path %}
-                                                {% set filename = item.task.file_path.replace('\\', '/').split('/')[-1] %}
-                                                <a href="{{ get_upload_file_url(filename, item.task.file_path) }}" target="_blank">
-                                                    {{ item.task.file_name }}
-                                                </a>
-                                                {% else %}
-                                                -
-                                                {% endif %}
-                                            </td>
-                                            <td class="align-middle" style="padding: 14px 12px;">
-                                            {% if item.task.html_approved == 1 %}
-                                            <span class="status-badge featured">{{ translate('admin.passed') }}</span>
-                                            {% elif item.task.html_approved == -1 %}
-                                            <span class="status-badge rejected">{{ translate('admin.rejected') }}</span>
-                                            {% else %}
-                                            <span class="status-badge pending">{{ translate('admin.pending') }}</span>
-                                            {% endif %}
-                                            </td>
-                                            <td class="align-middle" style="padding: 14px 12px;">{{ item.approver.username if item.approver else '-' }}</td>
-                                            <td class="align-middle" style="padding: 14px 12px; font-size: 0.9rem;">{{ item.task.html_approved_at.strftime('%Y-%m-%d %H:%M:%S') if item.task.html_approved_at else '-' }}</td>
-                                            <td class="align-middle" style="padding: 14px 12px;">
-                                                <div class="html-review-actions">
-                                                    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-                                                        <button type="button" class="btn btn-sm" 
-                                                                style="background-color: #2563eb; color: white; border: none; white-space: nowrap;"
-                                                                data-bs-toggle="modal" data-bs-target="#previewModal{{ item.task.id }}">
-                                                            <i class="bi bi-eye" style="margin-right: 0.25rem;"></i>
-                                                            预览
-                                                        </button>
-                                                        {% if item.task.html_approved != 1 %}
-                                                        <form method="POST" action="{{ url_for('quickform.admin_review_html_action', task_id=item.task.id) }}" class="d-inline">
-                                                            <button type="submit" name="action" value="approve" 
-                                                                    class="btn btn-sm" 
-                                                                    style="background-color: #10b981; color: white; border: none; white-space: nowrap;">
-                                                                <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>
-                                                                通过
-                                                            </button>
-                                                        </form>
-                                                        {% endif %}
-                                                        {% if item.task.html_approved == 1 %}
-                                                        <form method="POST" action="{{ url_for('quickform.admin_review_html_action', task_id=item.task.id) }}" class="d-inline">
-                                                            {% if item.task.is_featured %}
-                                                            <button type="submit" name="action" value="unfeature" 
-                                                                    class="btn btn-sm" 
-                                                                    style="background-color: #f59e0b; color: white; border: none; white-space: nowrap;">
-                                                                <i class="bi bi-star" style="margin-right: 0.25rem;"></i>
-                                                                {{ translate('admin.unfeature') }}
-                                                            </button>
-                                                            {% else %}
-                                                            <button type="submit" name="action" value="feature" 
-                                                                    class="btn btn-sm" 
-                                                                    style="background-color: #3b82f6; color: white; border: none; white-space: nowrap;">
-                                                                <i class="bi bi-star-fill" style="margin-right: 0.25rem;"></i>
-                                                                {{ translate('admin.feature') }}
-                                                            </button>
-                                                            {% endif %}
-                                                        </form>
-                                                        {% endif %}
-                                                    </div>
-                                                    {% if item.task.html_approved != -1 %}
-                                                    <form method="POST" action="{{ url_for('quickform.admin_review_html_action', task_id=item.task.id) }}" class="d-flex gap-2 align-items-center flex-wrap mt-1">
-                                                        <input type="text" name="note" class="form-control form-control-sm" 
-                                                               placeholder="{{ translate('admin.reject_reason') }}" required 
-                                                               style="min-width: 140px; max-width: 220px; flex: 1;">
-                                                        <button type="submit" name="action" value="reject" 
-                                                                class="btn btn-sm flex-shrink-0" 
-                                                                style="background-color: #ef4444; color: white; border: none; white-space: nowrap;"
-                                                                onclick="
-                                                                    const note = this.form.querySelector('input[name=\"note\"]').value;
-                                                                    if (!note || note.trim() === '') {
-                                                                        alert('{{ translate('admin.input_reject_reason') }}');
-                                                                        return false;
-                                                                    }
-                                                                    return confirm('{{ translate('admin.confirm_reject_page') }}');
-                                                                ">
-                                                            <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>
-                                                            拒绝
-                                                        </button>
-                                                    </form>
-                                                    {% endif %}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </form>
-                        
-                        <!-- 分页 -->
-                        {% if html_review_pages > 1 %}
-                        <nav aria-label="HTML审核分页" class="mt-3">
-                            <ul class="pagination justify-content-center">
-                                <li class="page-item {% if html_review_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page-1, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit" aria-label="{{ translate('admin.prev_page') }}">
-                                        <span aria-hidden="true">&laquo;</span>
-                                    </a>
-                                </li>
-                                {% set start_page = [1, html_review_page - 2]|max %}
-                                {% set end_page = [html_review_pages, html_review_page + 2]|min %}
-
-                                {% if start_page > 1 %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=1, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">1</a></li>
-                                {% if start_page > 2 %}
-                                <li class="page-item disabled"><span class="page-link">…</span></li>
-                                {% endif %}
-                                {% endif %}
-
-                                {% for p in range(start_page, end_page + 1) %}
-                                <li class="page-item {% if p|int == html_review_page|int %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=p, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">{{ p }}</a>
-                                </li>
-                                {% endfor %}
-
-                                {% if end_page < html_review_pages %}
-                                {% if end_page < html_review_pages - 1 %}
-                                <li class="page-item disabled"><span class="page-link">…</span></li>
-                                {% endif %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_pages, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit">{{ html_review_pages }}</a></li>
-                                {% endif %}
-
-                                <li class="page-item {% if html_review_page >= html_review_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', html_review_page=html_review_page+1, user_page=user_page, task_page=task_page, tab='other-review', q=user_search if user_search else None) }}#section-html-audit" aria-label="{{ translate('admin.next_page') }}">
-                                        <span aria-hidden="true">&raquo;</span>
-                                    </a>
-                                </li>
-                            </ul>
-                        </nav>
-                        {% endif %}
-                        {% else %}
-                        <div class="text-center text-muted py-4">
-                            {{ translate('admin.no_pending_html') }} HTML 页面。
-                        </div>
-                        {% endif %}
+            <div id="section-html-audit" class="mb-5">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body py-4">
+                        <h5 class="mb-2">HTML 页面</h5>
+                        <p class="text-muted mb-0">校园版已对教师上传的网页 <strong>不再做管理员审核门禁</strong>：任务详情中的链接与二维码可直接访问。<strong>公开到灵感广场</strong>仍需在上方「公开项目审核」中通过管理员审核。</p>
                     </div>
                 </div>
-                
-                <!-- HTML预览模态框 -->
-                {% for item in html_tasks_with_review %}
-                {% set filename = item.task.file_path.replace('\\', '/').split('/')[-1] if item.task.file_path else None %}
-                <div class="modal fade" id="previewModal{{ item.task.id }}" tabindex="-1">
-                    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">HTML文件预览 - {{ item.task.title }}</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                            </div>
-                            <div class="modal-body">
-                                <div class="mb-3">
-                                    <strong>任务信息：</strong>
-                                    <ul>
-                                        <li>任务标题：{{ item.task.title }}</li>
-                                        <li>上传用户：{{ item.author.username if item.author else '未知' }}</li>
-                                        <li>{{ translate('admin.user_email') }}：{{ item.author.email if item.author else '-' }}</li>
-                                        <li>用户{{ translate('admin.school') }}：{{ item.author.school if item.author else '-' }}</li>
-                                        <li>创建时间：{{ item.task.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.task.created_at else '-' }}</li>
-                                    </ul>
-                                </div>
-                                <div class="mb-3">
-                                    <strong>HTML内容预览：</strong>
-                                    {% if filename %}
-                                    <iframe src="{{ get_upload_file_url(filename, item.task.file_path) }}"
-                                            style="width: 100%; height: 600px; border: 1px solid #ddd; border-radius: 4px;"
-                                            loading="lazy"></iframe>
-                                    {% else %}
-                                    <p class="text-muted">文件路径不存在</p>
-                                    {% endif %}
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
             </div>
             </div>
             <!-- 数据报表标签页 -->

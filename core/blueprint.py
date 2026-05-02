@@ -83,6 +83,16 @@ from services.report_service import (
 # 校园版：去除教师认证功能（兼容旧链接：相关路由将返回 404）
 CERTIFICATION_ACTIVE = False
 
+
+def _auto_approve_task_html(task, approver_user_id):
+    """校园版：HTML 不参与管理员审核门禁；上传后即可通过任务链接访问。"""
+    if not task:
+        return
+    setattr(task, 'html_approved', 1)
+    setattr(task, 'html_approved_by', int(approver_user_id))
+    setattr(task, 'html_approved_at', datetime.now())
+    setattr(task, 'html_review_note', None)
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -2102,12 +2112,7 @@ def dashboard():
         shared_tasks.sort(key=lambda t: t.created_at, reverse=True)
         tasks = own_tasks + org_tasks + shared_tasks  # 兼容旧模板若有单列表
         
-        user_record = db.get(User, current_user.id)
-        task_count = len(own_tasks)  # 只统计自己创建的任务数
-        if user_record:
-            task_limit = user_record.task_limit
-        else:
-            task_limit = getattr(current_user, 'task_limit', None)
+        task_count = len(own_tasks)  # 只统计自己创建的任务数（展示用）
         # 含一键生成与「AI 继续修改」后台任务；去重（同一任务可能同时出现在我的任务与团队任务中）
         _pending_ids = set()
         pending_oneclick_tasks = []
@@ -2128,7 +2133,6 @@ def dashboard():
             submission_count_map=submission_count_map,
             task_access=task_access,
             task_count=task_count,
-            task_limit=task_limit,
             pending_oneclick_tasks=pending_oneclick_tasks,
             api_base_url=_public_site_base_url(),
         )
@@ -2162,13 +2166,7 @@ def _run_oneclick_generation_background(task_id: int, user_id: int, full_prompt:
         task.html_ai_edit_remaining = 3
         task.oneclick_generation_status = None
         task.oneclick_generation_error = None
-        user_rec = db.get(User, user_id)
-        if user_rec and user_rec.is_admin():
-            task.html_approved = 1
-            task.html_approved_by = user_id
-            task.html_approved_at = datetime.now()
-        else:
-            task.html_approved = 0
+        _auto_approve_task_html(task, user_id)
         db.commit()
         logger.info('一键生成后台完成 task_id=%s user_id=%s', task_id, user_id)
         try:
@@ -2226,13 +2224,7 @@ def _run_ai_revise_html_background(task_id: int, user_id: int, instructions: str
         rem = getattr(task, 'html_ai_edit_remaining', None)
         if rem is not None and rem > 0:
             task.html_ai_edit_remaining = rem - 1
-        user_rec = db.get(User, user_id)
-        if user_rec and user_rec.is_admin():
-            task.html_approved = 1
-            task.html_approved_by = user_id
-            task.html_approved_at = datetime.now()
-        else:
-            task.html_approved = 0
+        _auto_approve_task_html(task, user_id)
         task.html_analysis = None
         task.oneclick_generation_status = None
         task.oneclick_generation_error = None
@@ -2281,9 +2273,6 @@ def oneclick_create_task():
     db = SessionLocal()
     try:
         task_count = db.query(Task).filter_by(user_id=current_user.id).count()
-        if not current_user.is_admin() and not current_user.can_create_task(SessionLocal, Task):
-            flash('您已达到任务数量上限，无法创建新任务。', 'warning')
-            return redirect(url_for('quickform.dashboard'))
         block = _email_requirement_block_for_next_task(db, current_user, task_count)
         if block == 'bind_email':
             flash('创建第二个及后续任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
@@ -2314,7 +2303,6 @@ def oneclick_create_task():
         task.file_path = None
         task.file_name = None
         task.html_files = None
-        task.html_approved = 0
         db.commit()
         uid = int(current_user.id)
         threading.Thread(
@@ -2340,10 +2328,6 @@ def create_task():
     try:
         task_count = db.query(Task).filter_by(user_id=current_user.id).count()
         if not current_user.is_admin():
-            if not current_user.can_create_task(SessionLocal, Task):
-                task_limit = current_user.task_limit if current_user.task_limit != -1 else "无限制"
-                flash(f'您已达到任务数量上限（{task_limit}个，当前{task_count}个）。如需创建更多任务，请在右上角个人中心申请教师认证', 'warning')
-                return redirect(url_for('quickform.dashboard'))
             block = _email_requirement_block_for_next_task(db, current_user, task_count)
             if block == 'bind_email':
                 flash('创建第二个及后续任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
@@ -2441,12 +2425,7 @@ def create_task():
                 return redirect(url_for('quickform.task_detail', task_id=task.id, onboard=1, flow='quickStart_v1'))
             return redirect(url_for('quickform.task_detail', task_id=task.id))
         
-        # GET 渲染创建页面
-        user_record = db.get(User, current_user.id)
-        task_count = db.query(Task).filter_by(user_id=current_user.id).count()
-        task_limit = (user_record.task_limit if user_record else getattr(current_user, 'task_limit', None))
-
-        return render_template('create_task.html', task_limit=task_limit, is_certified=False, task_count=task_count)
+        return render_template('create_task.html')
     finally:
         db.close()
 
@@ -2938,17 +2917,7 @@ def edit_task(task_id):
                     task.file_name = f.filename
                     task.file_path = target_path
 
-                # 审核/分析与普通上传保持一致（校园版：移除教师认证，管理员外均需审核）
-                if current_user.is_admin():
-                    task.html_approved = 1
-                    task.html_approved_by = current_user.id
-                    task.html_approved_at = datetime.now()
-                    task.html_review_note = None
-                else:
-                    task.html_approved = 0
-                    task.html_approved_by = None
-                    task.html_approved_at = None
-                    task.html_review_note = None
+                _auto_approve_task_html(task, current_user.id)
                 task.html_analysis = None
                 try:
                     analyze_html_file(task.id, current_user.id, target_path, SessionLocal, Task, AIConfig, read_file_content, call_ai_model)
@@ -3043,13 +3012,7 @@ def edit_task(task_id):
                         first_saved = existing_files[0]['saved_name']
                         task.file_path = os.path.join(static_uploads, first_saved)
                         task.file_name = existing_files[0]['original_name']
-                    # 校园版：移除教师认证后，HTML 审核仅管理员可直通
-                    if current_user.is_admin():
-                        task.html_approved = 1
-                        task.html_approved_by = current_user.id
-                        task.html_approved_at = datetime.now()
-                    else:
-                        task.html_approved = 0
+                    _auto_approve_task_html(task, current_user.id)
                     task.html_analysis = None
                     if existing_files:
                         first_path = os.path.join(static_uploads, existing_files[-len(flist)]['saved_name'])
@@ -3085,12 +3048,7 @@ def edit_task(task_id):
                             f.write(file_content)
                         existing_files.append({'original_name': file_name, 'saved_name': unique_filename})
                     task.html_files = json.dumps(existing_files)
-                    if current_user.is_admin():
-                        task.html_approved = 1
-                        task.html_approved_by = current_user.id
-                        task.html_approved_at = datetime.now()
-                    else:
-                        task.html_approved = 0
+                    _auto_approve_task_html(task, current_user.id)
                 except Exception as e:
                     try:
                         db.rollback()
@@ -3127,18 +3085,9 @@ def edit_task(task_id):
                     task.file_path = filepath
                     task.html_files = json.dumps([{'original_name': file_name_base64, 'saved_name': unique_filename}])
                     
-                    # 如果是HTML文件，设置审核状态
+                    # 如果是HTML文件：校园版不审核，立即可访问
                     if filepath.lower().endswith(('.html', '.htm')):
-                        if current_user.is_admin():
-                            task.html_approved = 1
-                            task.html_approved_by = current_user.id
-                            task.html_approved_at = datetime.now()
-                            task.html_review_note = None
-                        else:
-                            task.html_approved = 0
-                            task.html_approved_by = None
-                            task.html_approved_at = None
-                            task.html_review_note = None
+                        _auto_approve_task_html(task, current_user.id)
                         task.html_analysis = None  # 清空旧的分析结果
                         
                         # 后台分析（不影响上传成功）
@@ -3173,18 +3122,9 @@ def edit_task(task_id):
                     task.file_path = filepath
                     task.html_files = json.dumps([{'original_name': file.filename, 'saved_name': unique_filename}])
                     
-                    # 如果是HTML文件，设置审核状态
+                    # 如果是HTML文件：校园版不审核，立即可访问
                     if filepath.lower().endswith(('.html', '.htm')):
-                        if current_user.is_admin():
-                            task.html_approved = 1
-                            task.html_approved_by = current_user.id
-                            task.html_approved_at = datetime.now()
-                            task.html_review_note = None
-                        else:
-                            task.html_approved = 0
-                            task.html_approved_by = None
-                            task.html_approved_at = None
-                            task.html_review_note = None
+                        _auto_approve_task_html(task, current_user.id)
                         task.html_analysis = None  # 清空旧的分析结果
                         
                         # 后台分析（不影响上传成功）
@@ -3801,11 +3741,6 @@ def cli_add_task():
     db = SessionLocal()
     try:
         task_count = db.query(Task).filter_by(user_id=user.id).count()
-        if not user.can_create_task(SessionLocal, Task):
-            return jsonify({
-                'success': False,
-                'message': f'已达任务数量上限（当前 {task_count} 个），无法创建新任务'
-            }), 403
         block = _email_requirement_block_for_next_task(db, user, task_count)
         if block == 'bind_email':
             return jsonify({
@@ -5017,17 +4952,7 @@ def _import_task_from_online_cli(db, online_base: str, online_username: str, onl
         new_task.file_name = stored_list[0]['original_name']
         new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
         if new_task.file_path and new_task.file_path.lower().endswith(('.html', '.htm')):
-            # campus: removed teacher certification gating; keep admin auto-approve
-            if current_user.is_admin():
-                new_task.html_approved = 1
-                new_task.html_approved_by = current_user.id
-                new_task.html_approved_at = datetime.now()
-                new_task.html_review_note = None
-            else:
-                new_task.html_approved = 0
-                new_task.html_approved_by = None
-                new_task.html_approved_at = None
-                new_task.html_review_note = None
+            _auto_approve_task_html(new_task, current_user.id)
 
     db.add(new_task)
     db.commit()
@@ -5264,17 +5189,8 @@ def _campus_import_task_from_online(db, online_base_url: str, online_username: s
         new_task.html_files = json.dumps(stored_list, ensure_ascii=False)
         new_task.file_name = stored_list[0]['original_name']
         new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
-        # 校园版：移除教师认证后，仅管理员自动通过 HTML；普通用户仍需审核
-        if current_user.is_admin():
-            new_task.html_approved = 1
-            new_task.html_approved_by = current_user.id
-            new_task.html_approved_at = datetime.now()
-            new_task.html_review_note = None
-        else:
-            new_task.html_approved = 0
-            new_task.html_approved_by = None
-            new_task.html_approved_at = None
-            new_task.html_review_note = None
+        if new_task.file_path and str(new_task.file_path).lower().endswith(('.html', '.htm')):
+            _auto_approve_task_html(new_task, current_user.id)
 
     db.add(new_task)
     db.commit()
@@ -5518,13 +5434,6 @@ def _task_migration_import_impl():
 
         task_count = db.query(Task).filter_by(user_id=current_user.id).count()
         if not current_user.is_admin():
-            if not current_user.can_create_task(SessionLocal, Task):
-                task_limit = current_user.task_limit if current_user.task_limit != -1 else '无限制'
-                flash(
-                    '您已达到任务数量上限（%s个）。如需导入为新任务，请先删除部分任务或申请提升上限。' % task_limit,
-                    'warning',
-                )
-                return redirect(next_url)
             block = _email_requirement_block_for_next_task(db, current_user, task_count)
             if block == 'bind_email':
                 flash('创建或导入新任务前请先在个人资料中绑定邮箱。', 'warning')
@@ -5674,10 +5583,7 @@ def _task_migration_import_impl():
                 new_task.file_name = stored_list[0]['original_name']
                 new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
                 if new_task.file_path and new_task.file_path.lower().endswith(('.html', '.htm')):
-                    new_task.html_approved = 0
-                    new_task.html_approved_by = None
-                    new_task.html_approved_at = None
-                    new_task.html_review_note = None
+                    _auto_approve_task_html(new_task, current_user.id)
 
             db.add(new_task)
             db.commit()
@@ -6604,73 +6510,8 @@ def uploaded_file(filename):
         static_path = os.path.join(_static_uploads_dir(), filename)
         if not os.path.exists(legacy_path) and os.path.exists(static_path):
             return redirect(url_for('static', filename='uploads/' + filename))
-        # 检查文件扩展名，如果是HTML文件需要检查审核状态
+        # HTML：校园版不拦截访问；可选注入表单增强脚本
         if filename.lower().endswith(('.html', '.htm')):
-            db = SessionLocal()
-            try:
-                # 查找包含此文件名的任务
-                task = db.query(Task).filter(Task.file_path.like(f'%{filename}')).first()
-                if task:
-                    # 管理员可直接访问原始文件
-                    if current_user.is_authenticated and current_user.is_admin():
-                        return send_from_directory(UPLOAD_FOLDER, filename)
-                    # 检查审核状态
-                    if task.html_approved != 1:
-                        if task.html_approved == -1:
-                            reason = html.escape(task.html_review_note or '管理员未提供原因')
-                            title_text = '审核未通过'
-                            message = f"页面未通过审核，原因：{reason}"
-                            status_icon = '❌'
-                        else:
-                            title_text = '审核中'
-                            message = '该页面正在等待管理员审核，审核通过后即可访问。'
-                            status_icon = '⏳'
-
-                        html_content = f"""
-<!DOCTYPE html>
-<html lang=\"zh-CN\">
-<head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>{title_text}</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            background-color: #f5f5f5;
-            padding: 16px;
-        }}
-        .container {{
-            max-width: 520px;
-            text-align: center;
-            padding: 40px;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
-        }}
-        h1 {{ color: #333; margin-bottom: 16px; font-size: 24px; }}
-        p {{ color: #555; margin-top: 12px; line-height: 1.6; }}
-    </style>
-</head>
-<body>
-    <div class=\"container\">
-        <h1>{status_icon} {title_text}</h1>
-        <p>{message}</p>
-    </div>
-</body>
-</html>
-                        """
-                        response = make_response(html_content)
-                        response.headers['Content-Type'] = 'text/html; charset=utf-8'
-                        return response
-                # 如果找不到任务或已审核通过，允许访问
-            finally:
-                db.close()
-            
             # 读取HTML文件内容并注入增强脚本
             try:
                 filepath = os.path.join(UPLOAD_FOLDER, filename)
@@ -6816,7 +6657,6 @@ def admin_panel():
         total_tasks = db.query(Task).count()
         total_submissions = None
         pending_cert_sidebar = 0  # campus: removed teacher certification feature
-        pending_html_sidebar = db.query(Task).filter(Task.html_approved != 1).count()
         pending_public_sidebar = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 0).count()
         pending_org_sidebar = db.query(Organization).filter(
             Organization.teams_public_requested == True,
@@ -6892,37 +6732,7 @@ def admin_panel():
             )
 
         elif current_tab == 'other-review':
-            # other-review 页面会同时展示：公开项目审核 / 团队入驻审核 / HTML 页面审核
-            # 因此需要一次性加载三类数据；避免 elif 链路提前命中导致其它审核列表为空
-            html_review_page = request.args.get('html_review_page', 1, type=int) or 1
-            html_review_page = max(1, html_review_page)
-            html_tasks_query = db.query(Task).filter(
-                Task.file_path.isnot(None),
-                Task.file_name.isnot(None),
-                (Task.file_name.like('%.html') | Task.file_name.like('%.htm'))
-            )
-            total_html_tasks = html_tasks_query.count()
-            html_review_total_pages = max(math.ceil(total_html_tasks / html_review_per_page), 1) if total_html_tasks else 1
-            html_review_page = min(html_review_page, html_review_total_pages)
-            html_tasks = (
-                html_tasks_query
-                .order_by(Task.created_at.desc())
-                .offset((html_review_page - 1) * html_review_per_page)
-                .limit(html_review_per_page)
-                .all()
-            )
-            user_ids = {t.user_id for t in html_tasks} | {t.html_approved_by for t in html_tasks if t.html_approved_by}
-            user_ids.discard(None)
-            authors_map = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
-            for task in html_tasks:
-                html_tasks_with_review.append({
-                    'task': task,
-                    'author': authors_map.get(task.user_id),
-                    'approver': authors_map.get(task.html_approved_by) if task.html_approved_by else None
-                })
-                if task.html_approved != 1:
-                    pending_html_count += 1
-
+            # 公开项目审核 + 团队入驻；HTML 不再做后台审核门禁（见模板说明）
             public_pending_tasks = (
                 db.query(Task)
                 .filter(Task.sharing_type == 'public', Task.public_approved == 0)
@@ -7714,7 +7524,6 @@ def admin_export_users():
                 '角色': '管理员' if user.role == 'admin' else '普通用户',
                 # campus edition: teacher certification removed
                 '认证状态': '—',
-                '任务上限': '无限制' if user.task_limit == -1 else user.task_limit,
                 '任务数量': task_count,
                 '数据提交数': submission_count,
                 '注册时间': user.created_at.strftime('%Y-%m-%d %H:%M:%S') if user.created_at else ''
