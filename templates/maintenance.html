@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>服务器维护中 - QuickForm</title>
+  <title>服务器维护中 · {{ (system_config.system_name if system_config else 'QuickForm') }}{% if app_version %} · v{{ app_version }}{% endif %}</title>
   <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
   <style>
     body { background: #f8fafc; }

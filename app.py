@@ -107,6 +107,8 @@ _secret_key = (os.getenv('SECRET_KEY') or '').strip()
 if not _secret_key or _secret_key == 'your_secret_key_here':
     raise RuntimeError('SECRET_KEY 未配置或仍为弱默认值，请在环境变量中设置强随机 SECRET_KEY 后再启动。')
 app.secret_key = _secret_key
+# 站点版本号（浏览器标题/页脚展示；可用环境变量覆盖，例如 1.0.0 或 2026.05.02）
+app.config['APP_VERSION'] = (os.getenv('APP_VERSION') or '1.0.0').strip() or '1.0.0'
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB（教师认证上传等）；任务内 HTML 单文件限制 4MB 在业务层校验
 # 站点对外 scheme 默认跟随请求/反代头；如需固定请用 PUBLIC_BASE_URL 显式配置
 app.config['PREFERRED_URL_SCHEME'] = os.getenv('PREFERRED_URL_SCHEME', 'http').strip().lower() or 'http'
@@ -149,10 +151,27 @@ app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', app.config[
 
 # 国际化支持
 from core.i18n import translate, get_locale, get_locale_name
+from core.system_config import SystemConfig, load_system_config
+
+
 @app.context_processor
 def inject_locale():
     """注入语言环境到模板"""
     return dict(get_locale=get_locale, translate=translate, get_locale_name=get_locale_name)
+
+
+@app.context_processor
+def inject_site_branding():
+    """全站：系统配置（名称等）与版本号，供标题栏与页脚使用。"""
+    try:
+        cfg = load_system_config()
+    except Exception:
+        cfg = SystemConfig()
+    return {
+        'system_config': cfg,
+        'syscfg': cfg,
+        'app_version': (app.config.get('APP_VERSION') or '1.0.0'),
+    }
 
 # 初始化扩展
 login_manager = LoginManager()
