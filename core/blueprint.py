@@ -1731,33 +1731,11 @@ def _qflink_login_render(**kwargs):
 
 @quickform_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    """登录：本地账密 +（可选）QFLink 账密/授权码"""
+    """登录：用户名/密码；QFLink 仅通过授权码（见 /qflink/auth_code）。"""
     from core.qflink_config import load_qflink_config
 
     qflink_enabled = load_qflink_config().enabled
     if request.method == 'POST':
-        # QFLink 账密登录（教师版同款入口，对接在线端 POST /cli/qflink/verify）
-        if request.form.get('qflink_login'):
-            if not qflink_enabled:
-                flash('本站已关闭 QFLink 登录。', 'warning')
-                return _qflink_login_render(qflink_enabled=qflink_enabled)
-
-            qf_username = (request.form.get('qflink_username') or request.form.get('qf_username') or '').strip()
-            qf_password = (request.form.get('qflink_password') or request.form.get('qf_password') or '').strip()
-            if not qf_username or not qf_password:
-                flash('请输入 QFLink 用户名和密码', 'danger')
-                return _qflink_login_render(qflink_enabled=qflink_enabled)
-
-            ok, msg, user_payload = _qflink_verify_password(qf_username, qf_password)
-            if not ok:
-                flash(msg or 'QFLink 登录失败', 'danger')
-                return _qflink_login_render(qflink_enabled=qflink_enabled)
-
-            redirect_resp = _qflink_login_user_from_payload(user_payload)
-            if redirect_resp is not None:
-                return redirect_resp
-            return _qflink_login_render(qflink_enabled=qflink_enabled)
-
         username = request.form.get('username')
         password = request.form.get('password')
         remember = request.form.get('remember') == 'on'
@@ -1782,7 +1760,7 @@ def login():
             ).first()
             
             if user and getattr(user, "qflink_only", False):
-                flash('该账号为「嘉宾用户」，仅允许使用 QFLink 登录。', 'warning')
+                flash('该账号为「嘉宾用户」，请使用 QFLink 授权码登录。', 'warning')
                 return _qflink_login_render(qflink_enabled=qflink_enabled)
 
             if user and bcrypt.check_password_hash(user.password, password):
@@ -1877,20 +1855,8 @@ def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
 def _qflink_verify_auth_code(auth_code: str) -> tuple[bool, str, dict]:
     auth_code = (auth_code or '').strip()
     if not auth_code:
-        return False, "授权码为空", {}
+        return False, "QFLink 授权码为空", {}
     return _qflink_verify_post({"mode": "auth_code", "auth_code": auth_code})
-
-
-def _qflink_verify_password(username: str, password: str) -> tuple[bool, str, dict]:
-    username = (username or '').strip()
-    password = password or ''
-    if not username or not password:
-        return False, "用户名或密码为空", {}
-    return _qflink_verify_post({
-        "mode": "password",
-        "username": username,
-        "password": password,
-    })
 
 
 def _qflink_login_user_from_payload(user_payload: dict):
@@ -1982,7 +1948,7 @@ def qflink_auth_code_login():
     auth_code = (request.form.get('auth_code') or '').strip()
     ok, msg, user_payload = _qflink_verify_auth_code(auth_code)
     if not ok:
-        flash(msg or 'QFLink 登录失败', 'danger')
+        flash(msg or 'QFLink 授权码无效或已过期', 'danger')
         return redirect(url_for('quickform.login'))
 
     redirect_resp = _qflink_login_user_from_payload(user_payload)

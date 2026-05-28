@@ -93,7 +93,7 @@
         {% if qflink_enabled %}
         <ul class="nav nav-tabs mb-0" id="loginTabs" role="tablist">
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="local-tab" data-bs-toggle="tab" data-bs-target="#localPane" type="button" role="tab">本地登录</button>
+                <button class="nav-link active" id="local-tab" data-bs-toggle="tab" data-bs-target="#localPane" type="button" role="tab">用户名登录</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="qflink-tab" data-bs-toggle="tab" data-bs-target="#qflinkPane" type="button" role="tab">QFLink 登录</button>
@@ -104,27 +104,19 @@
                 {{ local_login_form() }}
             </div>
             <div class="tab-pane fade" id="qflinkPane" role="tabpanel">
-                <form method="POST" action="{{ url_for('quickform.login') }}" id="qflinkLoginForm">
-                    <input type="hidden" name="qflink_login" value="1">
-                    <div class="mb-3">
-                        <label for="qflink_username" class="form-label" style="font-weight: 600; color: #111827;">QFLink 用户名</label>
-                        <input type="text" class="form-control" id="qflink_username" name="qflink_username" required placeholder="请输入 QFLink 用户名" style="padding: 0.75rem;">
+                <p class="text-muted small mb-3">
+                    请使用在 QuickForm 在线端获取的 <strong>QFLink 授权码</strong> 登录；校园版不保存在线账号密码，请勿在此填写用户名密码。
+                </p>
+                <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}">
+                    <label for="auth_code" class="form-label" style="font-weight: 600; color: #111827;">QFLink 授权码</label>
+                    <div class="input-group mb-2">
+                        <input type="text" class="form-control" id="auth_code" name="auth_code" required placeholder="请输入 QFLink 授权码" style="padding: 0.75rem;" autocomplete="off">
+                        <button type="submit" class="btn btn-outline-primary" style="font-weight: 500;">登录</button>
                     </div>
-                    <div class="mb-4">
-                        <label for="qflink_password" class="form-label" style="font-weight: 600; color: #111827;">QFLink 密码</label>
-                        <input type="password" class="form-control" id="qflink_password" name="qflink_password" required placeholder="请输入 QFLink 密码" style="padding: 0.75rem;">
+                    <div class="text-muted small">
+                        嘉宾用户登录后会自动创建校园版账号，且仅可通过 QFLink 授权码登录。
                     </div>
-                    <button type="submit" class="btn w-100 py-2" style="font-weight: 500; font-size: 1rem; background-color: #10b981; color: white; border: none;">使用 QFLink 登录</button>
                 </form>
-                <div class="mt-4 pt-3 border-top">
-                    <div class="text-muted small mb-2">或使用授权码（auth_code）</div>
-                    <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}">
-                        <div class="input-group">
-                            <input type="text" class="form-control" name="auth_code" required placeholder="请输入授权码" style="padding: 0.75rem;">
-                            <button type="submit" class="btn btn-outline-primary" style="font-weight: 500;">授权码登录</button>
-                        </div>
-                    </form>
-                </div>
             </div>
         </div>
         {% else %}
