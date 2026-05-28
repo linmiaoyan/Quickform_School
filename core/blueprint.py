@@ -1916,7 +1916,7 @@ def login():
             ).first()
             
             if user and getattr(user, "qflink_only", False):
-                flash('该账号为「嘉宾用户」，请使用 QFLink 授权码登录。', 'warning')
+                flash('该账号为 QFLink 嘉宾用户，请切换到「QFLink 登录」使用在线账号或授权码。', 'warning')
                 return _qflink_login_render(qflink_enabled=qflink_enabled)
 
             if user and bcrypt.check_password_hash(user.password, password):
