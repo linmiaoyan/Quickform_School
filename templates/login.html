@@ -68,6 +68,26 @@
             </div>
             <button type="submit" class="btn btn-primary w-100 py-2" style="font-weight: 500; font-size: 1rem;">{{ translate('login.submit') }}</button>
         </form>
+
+        {% if qflink_enabled %}
+        <div class="mt-4">
+            <div class="d-flex align-items-center gap-2 my-3">
+                <div style="flex: 1; height: 1px; background: #e5e7eb;"></div>
+                <div class="text-muted small">或使用</div>
+                <div style="flex: 1; height: 1px; background: #e5e7eb;"></div>
+            </div>
+            <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}">
+                <label for="auth_code" class="form-label" style="font-weight: 600; color: #111827;">QFLink 授权码</label>
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control" id="auth_code" name="auth_code" required placeholder="请输入授权码（auth_code）" style="padding: 0.75rem;">
+                    <button type="submit" class="btn btn-outline-primary" style="font-weight: 500;">QFLink 登录</button>
+                </div>
+                <div class="text-muted small">
+                    嘉宾用户仅支持 QFLink 登录；如被管理员禁用，将无法登录。
+                </div>
+            </form>
+        </div>
+        {% endif %}
         
         <div class="mt-4 text-center">
             <p style="color: #6b7280; margin: 0;">{{ translate('login.no_account') if translate('login.no_account') != 'login.no_account' else '还没有账户？' }}
