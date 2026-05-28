@@ -34,7 +34,7 @@ class User(UserMixin, Base):
     role = Column(String(20), default='user')
     task_limit = Column(Integer, default=-1)  # 校园版：不限制任务数；-1 表示无限制
     email_verified = Column(Boolean, default=False)  # 创建第二个任务前需验证邮箱
-    # QFLink v2（QuickForm.cn / QFLink 登录）
+    # QFLink v2（QFLink 登录）
     qflink_uid = Column(String(128), unique=True, nullable=True)  # 在线端用户唯一标识（如 uid/open_id）
     qflink_only = Column(Boolean, default=False)  # 嘉宾用户：仅允许 QFLink 登录
     qflink_disabled = Column(Boolean, default=False)  # 管理员可禁用单个 QFLink 用户
