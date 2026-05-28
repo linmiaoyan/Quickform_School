@@ -1721,13 +1721,43 @@ def api_send_verify_code():
         return jsonify({'success': False, 'message': '验证码发送失败，请稍后再试。若持续失败请联系管理员。'}), 500
 
 
+def _qflink_login_render(**kwargs):
+    from core.qflink_config import load_qflink_config
+
+    if 'qflink_enabled' not in kwargs:
+        kwargs['qflink_enabled'] = load_qflink_config().enabled
+    return render_template('login.html', **kwargs)
+
+
 @quickform_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    """登录"""
+    """登录：本地账密 +（可选）QFLink 账密/授权码"""
     from core.qflink_config import load_qflink_config
 
     qflink_enabled = load_qflink_config().enabled
     if request.method == 'POST':
+        # QFLink 账密登录（教师版同款入口，对接在线端 POST /cli/qflink/verify）
+        if request.form.get('qflink_login'):
+            if not qflink_enabled:
+                flash('本站已关闭 QFLink 登录。', 'warning')
+                return _qflink_login_render(qflink_enabled=qflink_enabled)
+
+            qf_username = (request.form.get('qflink_username') or request.form.get('qf_username') or '').strip()
+            qf_password = (request.form.get('qflink_password') or request.form.get('qf_password') or '').strip()
+            if not qf_username or not qf_password:
+                flash('请输入 QFLink 用户名和密码', 'danger')
+                return _qflink_login_render(qflink_enabled=qflink_enabled)
+
+            ok, msg, user_payload = _qflink_verify_password(qf_username, qf_password)
+            if not ok:
+                flash(msg or 'QFLink 登录失败', 'danger')
+                return _qflink_login_render(qflink_enabled=qflink_enabled)
+
+            redirect_resp = _qflink_login_user_from_payload(user_payload)
+            if redirect_resp is not None:
+                return redirect_resp
+            return _qflink_login_render(qflink_enabled=qflink_enabled)
+
         username = request.form.get('username')
         password = request.form.get('password')
         remember = request.form.get('remember') == 'on'
@@ -1740,7 +1770,7 @@ def login():
                 f'登录尝试过于频繁，请约 {minutes} 分钟后再试；若忘记密码请使用「忘记密码」。',
                 'danger',
             )
-            return render_template('login.html')
+            return _qflink_login_render(qflink_enabled=qflink_enabled)
         
         db = SessionLocal()
         try:
@@ -1753,14 +1783,14 @@ def login():
             
             if user and getattr(user, "qflink_only", False):
                 flash('该账号为「嘉宾用户」，仅允许使用 QFLink 登录。', 'warning')
-                return render_template('login.html', qflink_enabled=qflink_enabled)
+                return _qflink_login_render(qflink_enabled=qflink_enabled)
 
             if user and bcrypt.check_password_hash(user.password, password):
                 # 注册审核：被标记为 pending 的账号不可登录
                 try:
                     if is_user_pending(user.username):
                         flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
-                        return render_template('login.html')
+                        return _qflink_login_render(qflink_enabled=qflink_enabled)
                 except Exception:
                     pass
 
@@ -1787,8 +1817,8 @@ def login():
                     flash('用户名或密码错误', 'danger')
         finally:
             db.close()
-    
-    return render_template('login.html', qflink_enabled=qflink_enabled)
+
+    return _qflink_login_render(qflink_enabled=qflink_enabled)
 
 
 def _qflink_extract_user_payload(resp_json: dict) -> dict:
@@ -1805,13 +1835,9 @@ def _qflink_extract_user_payload(resp_json: dict) -> dict:
     return {}
 
 
-def _qflink_verify_auth_code(auth_code: str) -> tuple[bool, str, dict]:
-    """调用在线端 QFLink v2 校验接口，返回 (success, message, user_payload)。"""
+def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
+    """调用在线端 QFLink v2 校验接口 POST /cli/qflink/verify。"""
     import requests
-
-    auth_code = (auth_code or '').strip()
-    if not auth_code:
-        return False, "授权码为空", {}
 
     verify_url = (os.getenv('QFLINK_VERIFY_URL') or '').strip()
     if not verify_url:
@@ -1823,26 +1849,22 @@ def _qflink_verify_auth_code(auth_code: str) -> tuple[bool, str, dict]:
     if api_token:
         headers["Authorization"] = f"Bearer {api_token}"
 
-    payload = {
-        "mode": "auth_code",
-        "auth_code": auth_code,
-    }
+    body = dict(payload or {})
     client_id = (os.getenv('QFLINK_CLIENT_ID') or '').strip()
     client_secret = (os.getenv('QFLINK_CLIENT_SECRET') or '').strip()
     if client_id:
-        payload["client_id"] = client_id
+        body.setdefault("client_id", client_id)
     if client_secret:
-        payload["client_secret"] = client_secret
+        body.setdefault("client_secret", client_secret)
 
     try:
-        r = requests.post(verify_url, json=payload, headers=headers, timeout=timeout)
+        r = requests.post(verify_url, json=body, headers=headers, timeout=timeout)
         if r.status_code >= 400:
             return False, f"在线校验失败: HTTP {r.status_code}", {}
         j = r.json()
-        ok = bool(j.get("success", j.get("ok", False)))
+        ok = bool(j.get("success", j.get("ok", False))) if isinstance(j, dict) else False
         msg = (j.get("message") or j.get("msg") or ("验证成功" if ok else "验证失败")) if isinstance(j, dict) else ""
         user_payload = _qflink_extract_user_payload(j if isinstance(j, dict) else {})
-        # 若没有显式 success/ok，但返回了用户信息，也认为成功
         if not ok and user_payload:
             ok = True
             msg = msg or "验证成功"
@@ -1852,32 +1874,41 @@ def _qflink_verify_auth_code(auth_code: str) -> tuple[bool, str, dict]:
         return False, "在线校验异常，请稍后重试", {}
 
 
-@quickform_bp.route('/qflink/auth_code', methods=['POST'])
-def qflink_auth_code_login():
-    """QFLink v2：授权码登录（校园版嘉宾逻辑）。"""
-    from core.qflink_config import load_qflink_config
+def _qflink_verify_auth_code(auth_code: str) -> tuple[bool, str, dict]:
+    auth_code = (auth_code or '').strip()
+    if not auth_code:
+        return False, "授权码为空", {}
+    return _qflink_verify_post({"mode": "auth_code", "auth_code": auth_code})
+
+
+def _qflink_verify_password(username: str, password: str) -> tuple[bool, str, dict]:
+    username = (username or '').strip()
+    password = password or ''
+    if not username or not password:
+        return False, "用户名或密码为空", {}
+    return _qflink_verify_post({
+        "mode": "password",
+        "username": username,
+        "password": password,
+    })
+
+
+def _qflink_login_user_from_payload(user_payload: dict):
+    """根据在线端返回创建/更新本地嘉宾用户并登录；失败时 flash 并返回 None。"""
     import secrets
+    from flask import session
 
-    if not load_qflink_config().enabled:
-        flash('本站已关闭 QFLink 登录。', 'warning')
-        return redirect(url_for('quickform.login'))
+    if not isinstance(user_payload, dict):
+        user_payload = {}
 
-    auth_code = (request.form.get('auth_code') or '').strip()
-    ok, msg, user_payload = _qflink_verify_auth_code(auth_code)
-    if not ok:
-        flash(msg or 'QFLink 登录失败', 'danger')
-        return redirect(url_for('quickform.login'))
-
-    # 尽量容忍不同字段命名
     qflink_uid = (
-        (user_payload.get('qflink_uid') or user_payload.get('uid') or user_payload.get('user_id')
-         or user_payload.get('open_id') or user_payload.get('openid') or user_payload.get('id'))
-        if isinstance(user_payload, dict) else None
+        user_payload.get('qflink_uid') or user_payload.get('uid') or user_payload.get('user_id')
+        or user_payload.get('open_id') or user_payload.get('openid') or user_payload.get('id')
     )
     qflink_uid = (str(qflink_uid).strip() if qflink_uid is not None else '')
     if not qflink_uid:
         flash('QFLink 返回缺少用户标识，无法登录（请升级在线端返回字段）。', 'danger')
-        return redirect(url_for('quickform.login'))
+        return None
 
     display_name = (user_payload.get('username') or user_payload.get('nickname') or user_payload.get('name') or '').strip()
     email = (user_payload.get('email') or '').strip()
@@ -1889,10 +1920,9 @@ def qflink_auth_code_login():
         user = db.query(User).filter(User.qflink_uid == qflink_uid).first()
         if user and getattr(user, "qflink_disabled", False):
             flash('该 QFLink 账号已被管理员禁用。', 'danger')
-            return redirect(url_for('quickform.login'))
+            return None
 
         if not user:
-            # 生成不冲突用户名
             base = display_name if display_name else f"guest_{qflink_uid[-6:]}"
             base = re.sub(r"\s+", "", base)[:24] or f"guest_{qflink_uid[-6:]}"
             candidate = base
@@ -1902,7 +1932,6 @@ def qflink_auth_code_login():
                 candidate = f"{base}_{suffix}"[:50]
             username = candidate
 
-            # 邮箱列为非空且唯一：使用占位邮箱，避免与真实邮箱冲突
             placeholder_email = f"qflink_{qflink_uid}@noreply.local"
             if email and not db.query(User).filter(User.email == email).first():
                 placeholder_email = email
@@ -1924,7 +1953,6 @@ def qflink_auth_code_login():
             db.add(user)
             db.commit()
         else:
-            # 更新资料（谨慎：邮箱唯一，避免覆盖冲突）
             user.qflink_only = True
             if school:
                 user.school = school
@@ -1935,11 +1963,32 @@ def qflink_auth_code_login():
             db.commit()
 
         login_user(user, remember=True)
-        from flask import session
         session.permanent = True
-        return redirect(url_for('quickform.dashboard'))
+        next_page = request.args.get('next')
+        return redirect(next_page) if next_page else redirect(url_for('quickform.dashboard'))
     finally:
         db.close()
+
+
+@quickform_bp.route('/qflink/auth_code', methods=['POST'])
+def qflink_auth_code_login():
+    """QFLink v2：授权码登录（校园版嘉宾逻辑）。"""
+    from core.qflink_config import load_qflink_config
+
+    if not load_qflink_config().enabled:
+        flash('本站已关闭 QFLink 登录。', 'warning')
+        return redirect(url_for('quickform.login'))
+
+    auth_code = (request.form.get('auth_code') or '').strip()
+    ok, msg, user_payload = _qflink_verify_auth_code(auth_code)
+    if not ok:
+        flash(msg or 'QFLink 登录失败', 'danger')
+        return redirect(url_for('quickform.login'))
+
+    redirect_resp = _qflink_login_user_from_payload(user_payload)
+    if redirect_resp is not None:
+        return redirect_resp
+    return redirect(url_for('quickform.login'))
 
 
 def _forgot_password_render_verify():
