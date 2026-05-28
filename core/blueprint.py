@@ -1865,11 +1865,33 @@ def _qflink_login_render(**kwargs):
 
 @quickform_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    """登录：用户名/密码；QFLink 仅通过授权码（见 /qflink/auth_code）。"""
+    """登录：校园版本地账密；QFLink 标签支持 quickform.cn 账密或授权码。"""
     from core.qflink_config import load_qflink_config
 
     qflink_enabled = load_qflink_config().enabled
     if request.method == 'POST':
+        # QFLink 标签：quickform.cn 账号密码（对接在线端 POST /cli/qflink/verify mode=password）
+        if request.form.get('qflink_login'):
+            if not qflink_enabled:
+                flash('本站已关闭 QFLink 登录。', 'warning')
+                return _qflink_login_render(qflink_enabled=qflink_enabled)
+
+            qf_username = (request.form.get('qflink_username') or request.form.get('qf_username') or '').strip()
+            qf_password = (request.form.get('qflink_password') or request.form.get('qf_password') or '').strip()
+            if not qf_username or not qf_password:
+                flash('请输入 quickform.cn 用户名和密码。', 'danger')
+                return _qflink_login_render(qflink_enabled=qflink_enabled)
+
+            ok, msg, user_payload = _qflink_verify_password(qf_username, qf_password)
+            if not ok:
+                flash(msg or 'QFLink 账号或密码错误', 'danger')
+                return _qflink_login_render(qflink_enabled=qflink_enabled)
+
+            redirect_resp = _qflink_login_user_from_payload(user_payload)
+            if redirect_resp is not None:
+                return redirect_resp
+            return _qflink_login_render(qflink_enabled=qflink_enabled)
+
         username = request.form.get('username')
         password = request.form.get('password')
         remember = request.form.get('remember') == 'on'
@@ -1991,6 +2013,18 @@ def _qflink_verify_auth_code(auth_code: str) -> tuple[bool, str, dict]:
     if not auth_code:
         return False, "QFLink 授权码为空", {}
     return _qflink_verify_post({"mode": "auth_code", "auth_code": auth_code})
+
+
+def _qflink_verify_password(username: str, password: str) -> tuple[bool, str, dict]:
+    username = (username or '').strip()
+    password = password or ''
+    if not username or not password:
+        return False, "用户名或密码为空", {}
+    return _qflink_verify_post({
+        "mode": "password",
+        "username": username,
+        "password": password,
+    })
 
 
 def _qflink_login_user_from_payload(user_payload: dict):
