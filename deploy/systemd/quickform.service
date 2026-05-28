@@ -1,0 +1,20 @@
+[Unit]
+Description=QuickForm School (Waitress)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/quickform
+EnvironmentFile=-/opt/quickform/.env
+ExecStart=/usr/bin/python3 /opt/quickform/app_waitress.py
+Restart=on-failure
+RestartSec=5
+
+# 仅本机监听，由 Nginx 对外提供 443
+# .env 中应设置 FLASK_HOST=127.0.0.1 FLASK_PORT=5000
+
+[Install]
+WantedBy=multi-user.target

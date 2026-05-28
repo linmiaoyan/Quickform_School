@@ -107,5 +107,6 @@ python app.py
 ## 文档索引
 
 - CLI 接口：`docs/CLI接口说明.md`
-- Nginx 反向代理示例（可选）：`docs/nginx.md`
+- Nginx / HTTPS（腾讯云证书路径与安装脚本）：`deploy/nginx/README.md`
+- Nginx 简要说明：`docs/nginx.md`
 
