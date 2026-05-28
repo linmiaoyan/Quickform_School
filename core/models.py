@@ -37,6 +37,10 @@ class User(UserMixin, Base):
     is_certified = Column(Boolean, default=False)
     certified_at = Column(DateTime)
     certification_note = Column(Text)
+    # QFLink v2（QuickForm.cn / QFLink 登录）
+    qflink_uid = Column(String(128), unique=True, nullable=True)  # 在线端用户唯一标识（如 uid/open_id）
+    qflink_only = Column(Boolean, default=False)  # 嘉宾用户：仅允许 QFLink 登录
+    qflink_disabled = Column(Boolean, default=False)  # 管理员可禁用单个 QFLink 用户
     created_at = Column(DateTime, default=datetime.now)
     tasks = relationship('Task', back_populates='author', foreign_keys='Task.user_id', cascade='all, delete-orphan')
     ai_config = relationship('AIConfig', back_populates='user', uselist=False, cascade='all, delete-orphan')
