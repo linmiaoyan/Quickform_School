@@ -41,6 +41,9 @@ def main():
                 pass
             cur.execute('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_only BOOLEAN DEFAULT FALSE;')
             cur.execute('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_disabled BOOLEAN DEFAULT FALSE;')
+            cur.execute(
+                'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_multimodal_enabled BOOLEAN DEFAULT FALSE;'
+            )
         conn.commit()
     print("已确保 user 表存在 QFLink 相关列（PostgreSQL）。")
 

@@ -38,6 +38,7 @@ class User(UserMixin, Base):
     qflink_uid = Column(String(128), unique=True, nullable=True)  # 在线端用户唯一标识（如 uid/open_id）
     qflink_only = Column(Boolean, default=False)  # 嘉宾用户：仅允许 QFLink 登录
     qflink_disabled = Column(Boolean, default=False)  # 管理员可禁用单个 QFLink 用户
+    qflink_multimodal_enabled = Column(Boolean, default=False)  # QFLink 用户是否允许多模态附件（API/任务详情）
     created_at = Column(DateTime, default=datetime.now)
     tasks = relationship('Task', back_populates='author', foreign_keys='Task.user_id', cascade='all, delete-orphan')
     ai_config = relationship('AIConfig', back_populates='user', uselist=False, cascade='all, delete-orphan')

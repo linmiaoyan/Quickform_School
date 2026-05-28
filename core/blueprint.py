@@ -641,6 +641,125 @@ def _static_uploads_dir():
     return STATIC_UPLOADS
 
 MAX_HTML_FILE_SIZE = 4 * 1024 * 1024  # 任务内单个 HTML 文件最大 4MB
+
+# API 多模态附件（通过 /api/<task_id> POST multipart 上传，与教师版一致）
+API_FILE_UPLOAD_ENABLED = (os.getenv('API_FILE_UPLOAD_ENABLED', 'true') or 'true').strip().lower() in (
+    '1', 'true', 'yes', 'on',
+)
+DEFAULT_MAX_FILE_SIZE_MB = max(1, int(os.getenv('API_MAX_FILE_SIZE_MB', '20') or '20'))
+DEFAULT_ALLOWED_FILE_EXTENSIONS = (
+    os.getenv(
+        'API_ALLOWED_FILE_EXTENSIONS',
+        'jpg,jpeg,png,gif,webp,wav,mp3,webm,mp4,txt,pdf,doc,docx,html,htm,xls,xlsx,zip',
+    )
+    or 'jpg,jpeg,png,gif,webp,wav,mp3,webm,mp4,txt,pdf,doc,docx,html,htm,xls,xlsx,zip'
+)
+
+
+def _is_qflink_user(user):
+    """是否为 QFLink 关联用户（需单独授权多模态附件）。"""
+    return bool(user and getattr(user, 'qflink_uid', None))
+
+
+def _user_multimodal_enabled(user):
+    """系统用户统一开启；QFLink 用户需管理员授权。"""
+    if not user:
+        return False
+    if not _is_qflink_user(user):
+        return True
+    return bool(getattr(user, 'qflink_multimodal_enabled', False))
+
+
+def _task_multimodal_enabled(task, db):
+    if not task:
+        return False
+    owner = db.get(User, task.user_id)
+    return _user_multimodal_enabled(owner)
+
+
+def _api_upload_dir_for_task(task_id):
+    d = os.path.join(_QUICKFORM_APP_ROOT, 'static', 'uploads', str(task_id))
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _has_api_upload_files(task_id):
+    upload_dir = os.path.join(_QUICKFORM_APP_ROOT, 'static', 'uploads', str(task_id))
+    if not os.path.isdir(upload_dir):
+        return False
+    try:
+        return any(os.path.isfile(os.path.join(upload_dir, f)) for f in os.listdir(upload_dir))
+    except OSError:
+        return False
+
+
+def _process_submit_form_file_uploads(request, task_id, multimodal_allowed):
+    """处理 API multipart 文件，返回 (uploaded_paths, warnings)。"""
+    import uuid as _uuid
+
+    uploaded_files = []
+    warnings = []
+    if not request.files:
+        return uploaded_files, warnings
+    if not multimodal_allowed:
+        warnings.append('多模态附件未授权，文件未保存')
+        return uploaded_files, warnings
+    if not API_FILE_UPLOAD_ENABLED:
+        warnings.append('文件上传功能已关闭，文件未保存')
+        return uploaded_files, warnings
+
+    max_size_bytes = DEFAULT_MAX_FILE_SIZE_MB * 1024 * 1024
+    allowed_exts = [e.strip().lower() for e in DEFAULT_ALLOWED_FILE_EXTENSIONS.split(',') if e.strip()]
+    upload_dir = _api_upload_dir_for_task(task_id)
+    file_size_rejected = False
+    file_type_rejected = False
+
+    for file_key in request.files:
+        file = request.files[file_key]
+        if not file or not file.filename:
+            continue
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if allowed_exts and ext and ext not in allowed_exts:
+            file_type_rejected = True
+            continue
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0)
+        if file_size > max_size_bytes:
+            file_size_rejected = True
+            continue
+        random_name = _uuid.uuid4().hex[:10] + (f'.{ext}' if ext else '')
+        file_path = os.path.join(upload_dir, random_name)
+        file.save(file_path)
+        uploaded_files.append(f'/static/uploads/{task_id}/{random_name}')
+
+    if file_size_rejected:
+        warnings.append('部分文件超过大小限制，未保存')
+    if file_type_rejected:
+        warnings.append('部分文件类型不支持，未保存')
+    return uploaded_files, warnings
+
+
+def _merge_attachment_into_form_data(form_data, uploaded_files):
+    """将上传路径写入提交 JSON（与教师版一致）。"""
+    if not uploaded_files:
+        return form_data
+    att = uploaded_files[0] if len(uploaded_files) == 1 else uploaded_files
+    if isinstance(form_data, dict):
+        form_data['attachment'] = att
+        return form_data
+    if isinstance(form_data, str):
+        try:
+            parsed = json.loads(form_data)
+            if isinstance(parsed, dict):
+                parsed['attachment'] = att
+                return parsed
+        except Exception:
+            pass
+        return {'data': form_data, 'attachment': att}
+    if form_data is None:
+        return {'attachment': att}
+    return {'data': form_data, 'attachment': att}
 #
 # 校园版：移除「教师认证」功能后不再使用 certifications 目录。
 # 保留常量名避免历史代码引用时 NameError（但不再创建目录）。
@@ -693,6 +812,11 @@ def _ensure_schema_ready() -> None:
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_disabled BOOLEAN DEFAULT FALSE;'))
                 conn.execute(
                     text(
+                        'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_multimodal_enabled BOOLEAN DEFAULT FALSE;'
+                    )
+                )
+                conn.execute(
+                    text(
                         'CREATE UNIQUE INDEX IF NOT EXISTS uq_user_qflink_uid ON "user"(qflink_uid) '
                         'WHERE qflink_uid IS NOT NULL;'
                     )
@@ -737,6 +861,16 @@ quickform_bp = Blueprint(
     template_folder='templates',
     static_folder='../static'  # 指向主应用的static目录
 )
+
+
+@quickform_bp.app_template_filter('parse_submission_json')
+def parse_submission_json_filter(raw_data):
+    if not raw_data:
+        return None
+    try:
+        return json.loads(raw_data)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 @quickform_bp.teardown_request
@@ -2830,6 +2964,13 @@ def task_detail(task_id):
 
         task_author_name = db.query(User.username).filter(User.id == task.user_id).scalar() or ''
 
+        multimodal_enabled = False
+        is_qflink_user = False
+        if current_user.is_authenticated:
+            is_qflink_user = _is_qflink_user(current_user)
+            multimodal_enabled = _user_multimodal_enabled(current_user)
+        has_api_uploads = _has_api_upload_files(task.task_id)
+
         return render_template(
             'task_detail.html',
             task=task,
@@ -2849,6 +2990,12 @@ def task_detail(task_id):
             quota_ui=quota_ui,
             can_request_quota_relief=can_request_quota_relief,
             api_base_url=_public_site_base_url(),
+            multimodal_enabled=multimodal_enabled,
+            is_qflink_user=is_qflink_user,
+            api_file_upload_enabled=API_FILE_UPLOAD_ENABLED,
+            has_api_uploads=has_api_uploads,
+            api_max_file_size_mb=DEFAULT_MAX_FILE_SIZE_MB,
+            api_allowed_extensions=DEFAULT_ALLOWED_FILE_EXTENSIONS,
         )
     finally:
         db.close()
@@ -4473,6 +4620,16 @@ def submit_form(task_id):
                         return response, 400
             else:
                 form_data = request.form.to_dict()
+                if isinstance(form_data, dict) and form_data.get('json'):
+                    try:
+                        form_data = json.loads(form_data['json'])
+                    except Exception as json_err:
+                        logger.warning("解析 multipart json 字段失败（task_id=%s）: %s", task_id, json_err)
+                        response = jsonify({'error': 'invalid_body', 'message': '提交失败：json 字段格式不正确。'})
+                        response.headers['Access-Control-Allow-Origin'] = '*'
+                        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                        return response, 400
         except Exception as e:
             logger.warning("解析请求数据失败(task_id=%s): %s", task_id, e)
             response = jsonify({'error': 'invalid_body', 'message': MSG_JSON_BODY})
@@ -4480,6 +4637,21 @@ def submit_form(task_id):
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             return response, 400
+
+        if not form_data and not request.is_json:
+            try:
+                raw_body = request.get_data(cache=True, as_text=True) or ''
+                if raw_body.strip():
+                    form_data = json.loads(raw_body, strict=False)
+            except Exception:
+                form_data = form_data or {}
+
+        multimodal_allowed = _task_multimodal_enabled(task, db)
+        uploaded_files, upload_warnings = _process_submit_form_file_uploads(
+            request, task.task_id, multimodal_allowed
+        )
+        if uploaded_files:
+            form_data = _merge_attachment_into_form_data(form_data, uploaded_files)
         
         if over_limit:
             logger.warning(
@@ -4534,7 +4706,7 @@ def submit_form(task_id):
             if is_data_too_long:
                 response = jsonify({
                     'error': 'payload_too_large',
-                    'message': '提交失败：当前任务的数据字段最大约 60KB，请勿上传图片（尤其是 Base64）。如需传图片，请使用本地版或改为仅提交图片链接 URL。'
+                    'message': '提交失败：当前任务的数据字段最大约 60KB，请勿在 JSON 中嵌入 Base64 图片；请使用多模态附件（multipart 文件上传）。'
                 })
                 response.headers['Access-Control-Allow-Origin'] = '*'
                 response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
@@ -4546,7 +4718,14 @@ def submit_form(task_id):
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             return response, 500
         
-        response = jsonify({'message': 'Submitted successfully.', 'status': 'success'})
+        response_data = {'message': 'Submitted successfully.', 'status': 'success'}
+        if uploaded_files:
+            response_data['attachment'] = (
+                uploaded_files[0] if len(uploaded_files) == 1 else uploaded_files
+            )
+        if upload_warnings:
+            response_data['warning'] = '; '.join(upload_warnings)
+        response = jsonify(response_data)
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -7655,6 +7834,30 @@ def admin_user_qflink_toggle(user_id):
         user.qflink_disabled = not bool(getattr(user, 'qflink_disabled', False))
         db.commit()
         flash(f"已{'禁用' if user.qflink_disabled else '启用'} QFLink 用户：{user.username}", 'success')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='qflink'))
+
+
+@quickform_bp.route('/admin/users/<int:user_id>/qflink_multimodal_toggle', methods=['POST'])
+@admin_required
+def admin_user_qflink_multimodal_toggle(user_id):
+    """管理员：为 QFLink 用户开启/关闭多模态附件。"""
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            flash('用户不存在', 'danger')
+            return redirect(url_for('quickform.admin_panel', tab='qflink'))
+        if not getattr(user, 'qflink_uid', None):
+            flash('该用户不是 QFLink 用户。', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='qflink'))
+        user.qflink_multimodal_enabled = not bool(getattr(user, 'qflink_multimodal_enabled', False))
+        db.commit()
+        flash(
+            f"已{'开启' if user.qflink_multimodal_enabled else '关闭'}多模态附件：{user.username}",
+            'success',
+        )
     finally:
         db.close()
     return redirect(url_for('quickform.admin_panel', tab='qflink'))
