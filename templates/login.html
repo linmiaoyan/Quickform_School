@@ -125,17 +125,24 @@
                     </button>
                 </form>
                 <div class="pt-3 border-top">
-                    <div class="text-muted small mb-2">或使用 QFLink 授权码</div>
+                    <div class="text-muted small mb-2">或使用 CLI 授权码（用法同 QQ 邮箱授权码：<strong>用户名 + 授权码</strong>，无需密码）</div>
                     <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}">
-                        <label for="auth_code" class="form-label visually-hidden">QFLink 授权码</label>
-                        <div class="input-group">
-                            <input type="text" class="form-control" id="auth_code" name="auth_code" required
-                                   placeholder="请输入 QFLink 授权码" style="padding: 0.75rem;" autocomplete="off">
-                            <button type="submit" class="btn btn-outline-primary" style="font-weight: 500;">授权码登录</button>
+                        <div class="mb-2">
+                            <label for="qflink_auth_username" class="form-label" style="font-weight: 600; color: #111827;">quickform.cn 用户名</label>
+                            <input type="text" class="form-control" id="qflink_auth_username" name="qflink_username" required
+                                   placeholder="在线版用户名 / 邮箱 / 手机号" style="padding: 0.75rem;" autocomplete="username">
+                        </div>
+                        <div class="mb-2">
+                            <label for="auth_code" class="form-label" style="font-weight: 600; color: #111827;">CLI 授权码</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="auth_code" name="auth_code" required
+                                       placeholder="qf 开头的 32 位授权码" style="padding: 0.75rem;" autocomplete="off">
+                                <button type="submit" class="btn btn-outline-primary" style="font-weight: 500;">授权码登录</button>
+                            </div>
                         </div>
                     </form>
                     <div class="text-muted small mt-2">
-                        嘉宾账号首次登录会自动创建校园版用户；导入任务请打开仪表盘「任务迁移」。
+                        授权码在 quickform.cn 个人中心「CLI 授权码」生成，仅显示一次请妥善保存。
                     </div>
                 </div>
             </div>
