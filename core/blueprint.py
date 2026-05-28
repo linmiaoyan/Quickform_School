@@ -665,6 +665,23 @@ def _ensure_schema_ready() -> None:
     try:
         # 仅在缺表时创建；SQLAlchemy 会自行判断已存在的表
         Base.metadata.create_all(bind=engine)
+        # 轻量补列：为已存在旧库补齐 QFLink 字段（无 Alembic 的情况下避免启动即报错）
+        try:
+            from sqlalchemy import text
+
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_uid VARCHAR(128);'))
+                conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_only BOOLEAN DEFAULT FALSE;'))
+                conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_disabled BOOLEAN DEFAULT FALSE;'))
+                conn.execute(
+                    text(
+                        'CREATE UNIQUE INDEX IF NOT EXISTS uq_user_qflink_uid ON "user"(qflink_uid) '
+                        'WHERE qflink_uid IS NOT NULL;'
+                    )
+                )
+        except Exception:
+            # 补列失败不阻塞启动（例如权限受限/并发迁移），后续可手动执行 scripts/add_qflink_columns.py
+            logger.exception("QFLink 字段补齐失败（可忽略；可手动执行 scripts/add_qflink_columns.py）")
     except Exception:
         logger.exception("数据库建表失败（create_all）")
         raise
@@ -1737,6 +1754,9 @@ def api_send_verify_code():
 @quickform_bp.route('/login', methods=['GET', 'POST'])
 def login():
     """登录"""
+    from core.qflink_config import load_qflink_config
+
+    qflink_enabled = load_qflink_config().enabled
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
@@ -1761,6 +1781,10 @@ def login():
                 (User.phone == username)
             ).first()
             
+            if user and getattr(user, "qflink_only", False):
+                flash('该账号为「嘉宾用户」，仅允许使用 QFLink 登录。', 'warning')
+                return render_template('login.html', qflink_enabled=qflink_enabled)
+
             if user and bcrypt.check_password_hash(user.password, password):
                 # 登录成功，清除失败次数与 IP 限流计数
                 from flask import session
@@ -1786,7 +1810,158 @@ def login():
         finally:
             db.close()
     
-    return render_template('login.html')
+    return render_template('login.html', qflink_enabled=qflink_enabled)
+
+
+def _qflink_extract_user_payload(resp_json: dict) -> dict:
+    """尽量兼容不同返回结构：{success,data} / {ok,user} / {data:{user}}。"""
+    if not isinstance(resp_json, dict):
+        return {}
+    if isinstance(resp_json.get('user'), dict):
+        return resp_json.get('user') or {}
+    data = resp_json.get('data')
+    if isinstance(data, dict) and isinstance(data.get('user'), dict):
+        return data.get('user') or {}
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def _qflink_verify_auth_code(auth_code: str) -> tuple[bool, str, dict]:
+    """调用在线端 QFLink v2 校验接口，返回 (success, message, user_payload)。"""
+    import requests
+
+    auth_code = (auth_code or '').strip()
+    if not auth_code:
+        return False, "授权码为空", {}
+
+    verify_url = (os.getenv('QFLINK_VERIFY_URL') or '').strip()
+    if not verify_url:
+        verify_url = f"{ONLINE_CLI_BASE_URL}/cli/qflink/verify"
+
+    timeout = max(3, int(os.getenv('QFLINK_VERIFY_TIMEOUT_SECONDS', str(ONLINE_CLI_TIMEOUT_SECONDS))))
+    headers = {"Accept": "application/json"}
+    api_token = (os.getenv('QFLINK_API_TOKEN') or '').strip()
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+
+    payload = {
+        "mode": "auth_code",
+        "auth_code": auth_code,
+    }
+    client_id = (os.getenv('QFLINK_CLIENT_ID') or '').strip()
+    client_secret = (os.getenv('QFLINK_CLIENT_SECRET') or '').strip()
+    if client_id:
+        payload["client_id"] = client_id
+    if client_secret:
+        payload["client_secret"] = client_secret
+
+    try:
+        r = requests.post(verify_url, json=payload, headers=headers, timeout=timeout)
+        if r.status_code >= 400:
+            return False, f"在线校验失败: HTTP {r.status_code}", {}
+        j = r.json()
+        ok = bool(j.get("success", j.get("ok", False)))
+        msg = (j.get("message") or j.get("msg") or ("验证成功" if ok else "验证失败")) if isinstance(j, dict) else ""
+        user_payload = _qflink_extract_user_payload(j if isinstance(j, dict) else {})
+        # 若没有显式 success/ok，但返回了用户信息，也认为成功
+        if not ok and user_payload:
+            ok = True
+            msg = msg or "验证成功"
+        return ok, msg or ("验证成功" if ok else "验证失败"), user_payload or {}
+    except Exception as e:
+        logger.exception("QFLink verify 异常: %s", e)
+        return False, "在线校验异常，请稍后重试", {}
+
+
+@quickform_bp.route('/qflink/auth_code', methods=['POST'])
+def qflink_auth_code_login():
+    """QFLink v2：授权码登录（校园版嘉宾逻辑）。"""
+    from core.qflink_config import load_qflink_config
+    import secrets
+
+    if not load_qflink_config().enabled:
+        flash('本站已关闭 QFLink 登录。', 'warning')
+        return redirect(url_for('quickform.login'))
+
+    auth_code = (request.form.get('auth_code') or '').strip()
+    ok, msg, user_payload = _qflink_verify_auth_code(auth_code)
+    if not ok:
+        flash(msg or 'QFLink 登录失败', 'danger')
+        return redirect(url_for('quickform.login'))
+
+    # 尽量容忍不同字段命名
+    qflink_uid = (
+        (user_payload.get('qflink_uid') or user_payload.get('uid') or user_payload.get('user_id')
+         or user_payload.get('open_id') or user_payload.get('openid') or user_payload.get('id'))
+        if isinstance(user_payload, dict) else None
+    )
+    qflink_uid = (str(qflink_uid).strip() if qflink_uid is not None else '')
+    if not qflink_uid:
+        flash('QFLink 返回缺少用户标识，无法登录（请升级在线端返回字段）。', 'danger')
+        return redirect(url_for('quickform.login'))
+
+    display_name = (user_payload.get('username') or user_payload.get('nickname') or user_payload.get('name') or '').strip()
+    email = (user_payload.get('email') or '').strip()
+    school = (user_payload.get('school') or '').strip()
+    phone = (user_payload.get('phone') or '').strip()
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.qflink_uid == qflink_uid).first()
+        if user and getattr(user, "qflink_disabled", False):
+            flash('该 QFLink 账号已被管理员禁用。', 'danger')
+            return redirect(url_for('quickform.login'))
+
+        if not user:
+            # 生成不冲突用户名
+            base = display_name if display_name else f"guest_{qflink_uid[-6:]}"
+            base = re.sub(r"\s+", "", base)[:24] or f"guest_{qflink_uid[-6:]}"
+            candidate = base
+            suffix = 1
+            while db.query(User).filter(User.username == candidate).first():
+                suffix += 1
+                candidate = f"{base}_{suffix}"[:50]
+            username = candidate
+
+            # 邮箱列为非空且唯一：使用占位邮箱，避免与真实邮箱冲突
+            placeholder_email = f"qflink_{qflink_uid}@noreply.local"
+            if email and not db.query(User).filter(User.email == email).first():
+                placeholder_email = email
+
+            random_pwd = secrets.token_urlsafe(24)
+            hashed_password = bcrypt.generate_password_hash(random_pwd).decode('utf-8')
+
+            user = User(
+                username=username,
+                email=placeholder_email,
+                password=hashed_password,
+                role='user',
+                school=school or None,
+                phone=phone or None,
+            )
+            user.qflink_uid = qflink_uid
+            user.qflink_only = True
+            user.qflink_disabled = False
+            db.add(user)
+            db.commit()
+        else:
+            # 更新资料（谨慎：邮箱唯一，避免覆盖冲突）
+            user.qflink_only = True
+            if school:
+                user.school = school
+            if phone:
+                user.phone = phone
+            if email and not db.query(User).filter(User.email == email, User.id != user.id).first():
+                user.email = email
+            db.commit()
+
+        login_user(user, remember=True)
+        from flask import session
+        session.permanent = True
+        return redirect(url_for('quickform.dashboard'))
+    finally:
+        db.close()
 
 
 def _forgot_password_render_verify():
@@ -7042,11 +7217,18 @@ def report_status(task_id):
         logger.exception("report_status 异常: %s", e)
         return jsonify({'status': 'error', 'message': MSG_API_INTERNAL}), 500
 
+
+def _get_site_submit_quota_defaults(_db):
+    """校园版默认不启用提交限额；保留接口签名以兼容历史后台页面。"""
+    return None, None
+
+
 @quickform_bp.route('/admin')
 @admin_required
 def admin_panel():
     """管理员面板：按当前 tab 仅加载该页数据，避免一次性查全表"""
     from urllib.parse import urlencode
+    from core.qflink_config import load_qflink_config
 
     current_tab = request.args.get('tab', 'users')
     if current_tab == 'traffic':
@@ -7119,6 +7301,8 @@ def admin_panel():
         oneclick_prompt_rows = []
         submit_quota_base_c = None
         submit_quota_base_b = None
+        qflink_config = load_qflink_config()
+        qflink_users = []
 
         # ---------- 仅当前 tab 才执行对应查询 ----------
         if current_tab == 'users':
@@ -7143,6 +7327,15 @@ def admin_panel():
                 .order_by(User.created_at.desc())
                 .offset((user_page - 1) * user_per_page)
                 .limit(user_per_page)
+                .all()
+            )
+
+        elif current_tab == 'qflink':
+            qflink_users = (
+                db.query(User)
+                .filter(User.qflink_uid.isnot(None))
+                .order_by(User.created_at.desc())
+                .limit(200)
                 .all()
             )
 
@@ -7381,6 +7574,8 @@ def admin_panel():
             oneclick_prompt_rows=oneclick_prompt_rows,
             submit_quota_base_c=submit_quota_base_c,
             submit_quota_base_b=submit_quota_base_b,
+            qflink_config=qflink_config,
+            qflink_users=qflink_users,
             tutorials_json_is_admin_override=(
                 (lambda p: os.path.exists(p))(
                     os.path.join(current_app.static_folder, 'tutorials', 'tutorials_admin.json')
@@ -7697,6 +7892,43 @@ def admin_set_task_limit(user_id):
         db.close()
     
     return redirect(url_for('quickform.admin_panel', tab='users'))
+
+
+@quickform_bp.route('/admin/qflink/config', methods=['POST'])
+@admin_required
+def admin_qflink_config_save():
+    """管理员：保存全站 QFLink 开关。"""
+    from core.qflink_config import load_qflink_config, save_qflink_config
+
+    enabled = (request.form.get('qflink_enabled') or '').lower() in ('1', 'true', 'on', 'yes')
+    cfg = load_qflink_config()
+    cfg.enabled = bool(enabled)
+    save_qflink_config(cfg)
+    flash('QFLink 配置已保存。', 'success')
+    return redirect(url_for('quickform.admin_panel', tab='qflink'))
+
+
+@quickform_bp.route('/admin/users/<int:user_id>/qflink_toggle', methods=['POST'])
+@admin_required
+def admin_user_qflink_toggle(user_id):
+    """管理员：禁用/启用单个 QFLink 用户登录。"""
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            flash('用户不存在', 'danger')
+            return redirect(url_for('quickform.admin_panel', tab='qflink'))
+        if not getattr(user, 'qflink_uid', None):
+            flash('该用户不是 QFLink 用户。', 'warning')
+            return redirect(url_for('quickform.admin_panel', tab='qflink'))
+
+        user.qflink_disabled = not bool(getattr(user, 'qflink_disabled', False))
+        db.commit()
+        flash(f"已{'禁用' if user.qflink_disabled else '启用'} QFLink 用户：{user.username}", 'success')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='qflink'))
+
 
 @quickform_bp.route('/admin/reset_password', methods=['POST'])
 @admin_required
