@@ -448,6 +448,23 @@
                                                 rows="6" 
                                                 placeholder='{"name":"张三","score":85}'
                                                 style="font-family: 'Courier New', monospace; font-size: 13px; border: 2px solid #e0e7ff;"></textarea>
+                                            {% if api_file_upload_enabled and multimodal_enabled %}
+                                            <div class="mb-3 border rounded p-3" style="background: #f8fafc; border-color: #e0e7ff !important;">
+                                                <label class="form-label fw-semibold mb-1" for="test-multimodal-files">
+                                                    <i class="bi bi-paperclip"></i> 多模态附件（可选）
+                                                </label>
+                                                <input type="file" class="form-control form-control-sm" id="test-multimodal-files" name="files" multiple
+                                                       accept=".jpg,.jpeg,.png,.gif,.webp,.wav,.mp3,.webm,.mp4,.txt,.pdf,.doc,.docx,.html,.htm,.xls,.xlsx,.zip">
+                                                <p class="small text-muted mb-0 mt-2">
+                                                    与 API <code>multipart/form-data</code> 提交一致；单文件不超过 {{ api_max_file_size_mb }}MB。
+                                                    允许扩展名：{{ api_allowed_extensions }}。
+                                                </p>
+                                            </div>
+                                            {% elif current_user.is_authenticated and is_qflink_user and not multimodal_enabled %}
+                                            <div class="alert alert-warning py-2 small mb-3">
+                                                多模态附件未授权。请联系管理员在「QFLink 用户」中为您开启。
+                                            </div>
+                                            {% endif %}
                                             <div class="text-center">
                                                 <button 
                                                     type="button" 
@@ -1196,14 +1213,27 @@
         // 获取API URL
         const apiUrl = '{{ url_for("quickform.submit_form", task_id=task.task_id) }}';
         
-        // 提交数据
-        fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data)
-        })
+        const fileInput = document.getElementById('test-multimodal-files');
+        const selectedFiles = fileInput && fileInput.files ? fileInput.files : null;
+        const hasFiles = selectedFiles && selectedFiles.length > 0;
+
+        let fetchOpts;
+        if (hasFiles) {
+            const fd = new FormData();
+            fd.append('json', JSON.stringify(data));
+            for (let i = 0; i < selectedFiles.length; i++) {
+                fd.append('file', selectedFiles[i]);
+            }
+            fetchOpts = { method: 'POST', body: fd };
+        } else {
+            fetchOpts = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            };
+        }
+
+        fetch(apiUrl, fetchOpts)
         .then(async response => {
             const body = await parseJsonOrText(response);
             let result = body.parsed || {};
@@ -1227,6 +1257,7 @@
             status.textContent = '{{ translate("task_detail.debug_success") }}';
             status.style.color = '#28a745';
             input.value = '';
+            if (fileInput) fileInput.value = '';
             
             // 延迟刷新页面以显示新数据
             setTimeout(() => {

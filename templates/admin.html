@@ -893,6 +893,7 @@
                             </div>
                         </form>
 
+                        <p class="text-muted small mb-2">系统用户（非 QFLink）默认开启多模态附件；QFLink 用户需在下方单独「开启多模态」。</p>
                         <h6 class="fw-semibold mb-2">QFLink 用户（最近 200 条）</h6>
                         {% if qflink_users %}
                         <div class="table-responsive">
@@ -904,7 +905,8 @@
                                         <th style="width: 240px;">QFLink UID</th>
                                         <th style="width: 120px;">嘉宾</th>
                                         <th style="width: 120px;">状态</th>
-                                        <th style="width: 140px;">操作</th>
+                                        <th style="width: 120px;">多模态</th>
+                                        <th style="width: 200px;">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -928,9 +930,21 @@
                                             {% endif %}
                                         </td>
                                         <td>
+                                            {% if u.qflink_multimodal_enabled %}
+                                                <span class="badge bg-primary">已开启</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">未开启</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="d-flex flex-wrap gap-1">
                                             <form method="post" action="{{ url_for('quickform.admin_user_qflink_toggle', user_id=u.id) }}" onsubmit="return confirm('确定要{% if u.qflink_disabled %}启用{% else %}禁用{% endif %}该 QFLink 用户吗？');">
                                                 <button type="submit" class="btn btn-sm {% if u.qflink_disabled %}btn-success{% else %}btn-outline-danger{% endif %}">
                                                     {% if u.qflink_disabled %}启用{% else %}禁用{% endif %}
+                                                </button>
+                                            </form>
+                                            <form method="post" action="{{ url_for('quickform.admin_user_qflink_multimodal_toggle', user_id=u.id) }}">
+                                                <button type="submit" class="btn btn-sm {% if u.qflink_multimodal_enabled %}btn-outline-secondary{% else %}btn-outline-primary{% endif %}">
+                                                    {% if u.qflink_multimodal_enabled %}关闭多模态{% else %}开启多模态{% endif %}
                                                 </button>
                                             </form>
                                         </td>

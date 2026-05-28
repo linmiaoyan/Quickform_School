@@ -59,6 +59,19 @@
                                 <td>{{ sub.id }}</td>
                                 <td>{{ sub.submitted_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                                 <td>
+                                    {% set parsed = sub.data | parse_submission_json %}
+                                    {% if parsed and parsed.attachment is defined %}
+                                    <div class="small mb-1">
+                                        <strong>附件：</strong>
+                                        {% if parsed.attachment is string %}
+                                        <a href="{{ parsed.attachment }}" target="_blank" rel="noopener">{{ parsed.attachment.split('/')[-1] }}</a>
+                                        {% else %}
+                                        {% for att in parsed.attachment %}
+                                        <a href="{{ att }}" target="_blank" rel="noopener" class="me-2">{{ att.split('/')[-1] }}</a>
+                                        {% endfor %}
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
                                     <pre class="mb-0 small" style="max-height: 120px; overflow: auto; white-space: pre-wrap; word-break: break-all;">{{ sub.data }}</pre>
                                 </td>
                                 <td>
