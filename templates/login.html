@@ -105,113 +105,122 @@
             </div>
             <div class="tab-pane fade" id="qflinkPane" role="tabpanel">
                 <style>
-                    .qf-login-method {
+                    #qflinkPane .qf-login-shared-user .form-control {
+                        border-color: #2563eb;
+                        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+                    }
+                    #qflinkPane .qf-login-method {
                         border: 2px solid #e5e7eb;
                         border-radius: 10px;
-                        padding: 1rem 1.1rem;
-                        margin-bottom: 0.75rem;
-                        cursor: pointer;
-                        transition: border-color 0.2s, background-color 0.2s, opacity 0.2s, box-shadow 0.2s;
-                        background: #fafafa;
+                        margin-bottom: 0.5rem;
+                        background: #fff;
+                        transition: border-color 0.2s, box-shadow 0.2s;
                     }
-                    .qf-login-method:hover:not(.qf-login-method-active) {
-                        border-color: #93c5fd;
-                        background: #f8fafc;
-                    }
-                    .qf-login-method-active {
+                    #qflinkPane .qf-login-method.qf-expanded {
                         border-color: #2563eb;
-                        background: #eff6ff;
-                        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+                        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
                     }
-                    .qf-login-method-inactive {
-                        opacity: 0.55;
-                    }
-                    .qf-login-method-inactive .qf-method-fields {
-                        pointer-events: none;
-                    }
-                    .qf-login-method .form-label,
-                    .qf-login-method .form-control {
-                        transition: opacity 0.2s;
-                    }
-                    .qf-login-shared-user.qf-field-highlight .form-control {
-                        border-color: #2563eb;
-                        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-                    }
-                    .qf-method-hint {
-                        font-size: 0.875rem;
-                        color: #1e40af;
-                        background: #dbeafe;
-                        border-radius: 8px;
+                    #qflinkPane .qf-method-head {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
                         padding: 0.65rem 0.85rem;
-                        margin-bottom: 1rem;
+                        cursor: pointer;
+                        user-select: none;
+                    }
+                    #qflinkPane .qf-method-head label {
+                        cursor: pointer;
+                        flex: 1;
+                        margin: 0;
+                        font-weight: 600;
+                        color: #111827;
+                    }
+                    #qflinkPane .qf-method-chevron {
+                        color: #6b7280;
+                        font-size: 0.75rem;
+                        transition: transform 0.2s;
+                    }
+                    #qflinkPane .qf-expanded .qf-method-chevron {
+                        transform: rotate(180deg);
+                    }
+                    #qflinkPane .qf-method-body {
+                        overflow: hidden;
+                        max-height: 0;
+                        opacity: 0;
+                        padding: 0 0.85rem;
+                        transition: max-height 0.28s ease, opacity 0.2s ease, padding 0.2s ease;
+                    }
+                    #qflinkPane .qf-expanded .qf-method-body {
+                        max-height: 220px;
+                        opacity: 1;
+                        padding: 0 0.85rem 0.85rem;
+                    }
+                    #qflinkPane .qf-expanded.qf-method-auth .qf-method-body {
+                        max-height: 280px;
+                    }
+                    #qflinkPane .qf-auth-code-tip {
+                        font-size: 0.8rem;
+                        color: #6b7280;
+                        margin-top: 0.5rem;
+                        line-height: 1.45;
                     }
                 </style>
 
-                <div class="qf-method-hint mb-3" id="qflinkMethodHint" role="status">
-                    无论选哪种方式，都必须填写 <strong>quickform.cn 用户名</strong>。选「CLI 授权码」时<strong>无需密码</strong>，只需用户名 + 授权码。
-                </div>
-
-                <div class="mb-3 qf-login-shared-user qf-field-highlight" id="qflinkSharedUserWrap">
-                    <label for="qflink_shared_username" class="form-label" style="font-weight: 600; color: #111827;">
+                <div class="mb-2 qf-login-shared-user">
+                    <label for="qflink_shared_username" class="form-label mb-1" style="font-weight: 600; color: #111827;">
                         quickform.cn 用户名 <span class="text-danger">*</span>
-                        <span class="text-muted fw-normal small">（两种方式共用）</span>
                     </label>
                     <input type="text" class="form-control" id="qflink_shared_username" required
-                           placeholder="在线版用户名 / 邮箱 / 手机号" style="padding: 0.75rem;" autocomplete="username">
+                           placeholder="用户名 / 邮箱 / 手机号" style="padding: 0.65rem 0.75rem;" autocomplete="username">
                 </div>
 
-                <div class="mb-2 small fw-semibold text-secondary">选择验证方式（点选下方卡片）</div>
-
-                <div class="qf-login-method qf-login-method-active" id="qflinkMethodPassword" data-method="password" role="button" tabindex="0" aria-pressed="true">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <input class="form-check-input mt-0" type="radio" name="qflink_method" id="qflinkRadioPassword" value="password" checked>
-                        <label class="form-check-label fw-semibold mb-0" for="qflinkRadioPassword" style="cursor: pointer;">方式一：在线密码</label>
+                <div class="qf-login-accordion" role="tablist" aria-label="QFLink 验证方式">
+                    <div class="qf-login-method qf-collapsed" id="qflinkMethodPassword" data-method="password">
+                        <div class="qf-method-head" role="tab" aria-selected="false" aria-controls="qflinkBodyPassword" tabindex="0">
+                            <input class="form-check-input mt-0" type="radio" name="qflink_method" id="qflinkRadioPassword" value="password">
+                            <label for="qflinkRadioPassword">在线密码</label>
+                            <span class="qf-method-chevron" aria-hidden="true">▼</span>
+                        </div>
+                        <div class="qf-method-body" id="qflinkBodyPassword" role="tabpanel">
+                            <form method="POST" action="{{ url_for('quickform.login') }}" id="qflinkLoginForm">
+                                <input type="hidden" name="qflink_login" value="1">
+                                <input type="hidden" name="qflink_username" id="qflink_hidden_username_pwd" value="">
+                                <label for="qflink_password" class="form-label small mb-1" style="font-weight: 600;">密码</label>
+                                <input type="password" class="form-control mb-2" id="qflink_password" name="qflink_password"
+                                       placeholder="quickform.cn 登录密码" style="padding: 0.65rem 0.75rem;" autocomplete="current-password">
+                                <button type="submit" class="btn w-100 py-2" style="font-weight: 500; background-color: #10b981; color: white; border: none;">
+                                    登录
+                                </button>
+                            </form>
+                        </div>
                     </div>
-                    <p class="small text-muted mb-3 ms-4">使用 quickform.cn 的登录密码（与上方用户名一起提交）。</p>
-                    <form method="POST" action="{{ url_for('quickform.login') }}" id="qflinkLoginForm" class="qf-method-fields ms-1">
-                        <input type="hidden" name="qflink_login" value="1">
-                        <input type="hidden" name="qflink_username" id="qflink_hidden_username_pwd" value="">
-                        <div class="mb-3">
-                            <label for="qflink_password" class="form-label" style="font-weight: 600; color: #111827;">quickform.cn 密码</label>
-                            <input type="password" class="form-control" id="qflink_password" name="qflink_password"
-                                   placeholder="在线版密码" style="padding: 0.75rem;" autocomplete="current-password">
-                        </div>
-                        <button type="submit" class="btn w-100 py-2" style="font-weight: 500; font-size: 1rem; background-color: #10b981; color: white; border: none;">
-                            使用在线密码登录
-                        </button>
-                    </form>
-                </div>
 
-                <div class="qf-login-method qf-login-method-inactive" id="qflinkMethodAuthCode" data-method="auth_code" role="button" tabindex="0" aria-pressed="false">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <input class="form-check-input mt-0" type="radio" name="qflink_method" id="qflinkRadioAuthCode" value="auth_code">
-                        <label class="form-check-label fw-semibold mb-0" for="qflinkRadioAuthCode" style="cursor: pointer;">方式二：CLI 授权码</label>
+                    <div class="qf-login-method qf-expanded qf-method-auth" id="qflinkMethodAuthCode" data-method="auth_code">
+                        <div class="qf-method-head" role="tab" aria-selected="true" aria-controls="qflinkBodyAuthCode" tabindex="0">
+                            <input class="form-check-input mt-0" type="radio" name="qflink_method" id="qflinkRadioAuthCode" value="auth_code" checked>
+                            <label for="qflinkRadioAuthCode">CLI 授权码 <span class="text-muted fw-normal small">（无需密码）</span></label>
+                            <span class="qf-method-chevron" aria-hidden="true">▼</span>
+                        </div>
+                        <div class="qf-method-body" id="qflinkBodyAuthCode" role="tabpanel">
+                            <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}" id="qflinkAuthCodeForm">
+                                <input type="hidden" name="qflink_username" id="qflink_hidden_username_code" value="">
+                                <label for="auth_code" class="form-label small mb-1" style="font-weight: 600;">授权码</label>
+                                <input type="text" class="form-control mb-2" id="auth_code" name="auth_code"
+                                       placeholder="qf 开头" style="padding: 0.65rem 0.75rem;" autocomplete="off">
+                                <button type="submit" class="btn btn-primary w-100 py-2" style="font-weight: 500;">
+                                    登录
+                                </button>
+                                <p class="qf-auth-code-tip mb-0">
+                                    在 quickform.cn 个人中心「CLI 授权码」生成，仅显示一次，请妥善保存。
+                                </p>
+                            </form>
+                        </div>
                     </div>
-                    <p class="small text-muted mb-3 ms-4">
-                        用法同 QQ 邮箱授权码：<strong>用户名 + 授权码</strong>，<span class="text-success fw-semibold">不需要密码</span>。
-                    </p>
-                    <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}" id="qflinkAuthCodeForm" class="qf-method-fields ms-1">
-                        <input type="hidden" name="qflink_username" id="qflink_hidden_username_code" value="">
-                        <div class="mb-3">
-                            <label for="auth_code" class="form-label" style="font-weight: 600; color: #111827;">CLI 授权码</label>
-                            <input type="text" class="form-control" id="auth_code" name="auth_code"
-                                   placeholder="qf 开头的授权码" style="padding: 0.75rem;" autocomplete="off">
-                        </div>
-                        <button type="submit" class="btn btn-outline-primary w-100 py-2" style="font-weight: 500;">
-                            使用授权码登录
-                        </button>
-                        <div class="text-muted small mt-2">
-                            在 quickform.cn 个人中心「CLI 授权码」生成，仅显示一次请妥善保存。
-                        </div>
-                    </form>
                 </div>
-
-                <p class="text-muted small mt-3 mb-0">登录后可在「任务迁移」从在线版导入任务与历史数据。</p>
 
                 <script>
                 (function () {
                     var sharedUser = document.getElementById('qflink_shared_username');
-                    var hint = document.getElementById('qflinkMethodHint');
                     var panelPwd = document.getElementById('qflinkMethodPassword');
                     var panelCode = document.getElementById('qflinkMethodAuthCode');
                     var radioPwd = document.getElementById('qflinkRadioPassword');
@@ -227,12 +236,14 @@
                         var isPwd = mode === 'password';
                         if (radioPwd) radioPwd.checked = isPwd;
                         if (radioCode) radioCode.checked = !isPwd;
-                        panelPwd.classList.toggle('qf-login-method-active', isPwd);
-                        panelPwd.classList.toggle('qf-login-method-inactive', !isPwd);
-                        panelCode.classList.toggle('qf-login-method-active', !isPwd);
-                        panelCode.classList.toggle('qf-login-method-inactive', isPwd);
-                        panelPwd.setAttribute('aria-pressed', isPwd ? 'true' : 'false');
-                        panelCode.setAttribute('aria-pressed', !isPwd ? 'true' : 'false');
+                        panelPwd.classList.toggle('qf-expanded', isPwd);
+                        panelPwd.classList.toggle('qf-collapsed', !isPwd);
+                        panelCode.classList.toggle('qf-expanded', !isPwd);
+                        panelCode.classList.toggle('qf-collapsed', isPwd);
+                        var headPwd = panelPwd.querySelector('.qf-method-head');
+                        var headCode = panelCode.querySelector('.qf-method-head');
+                        if (headPwd) headPwd.setAttribute('aria-selected', isPwd ? 'true' : 'false');
+                        if (headCode) headCode.setAttribute('aria-selected', !isPwd ? 'true' : 'false');
                         if (pwdInput) {
                             pwdInput.required = isPwd;
                             pwdInput.disabled = !isPwd;
@@ -241,29 +252,30 @@
                             codeInput.required = !isPwd;
                             codeInput.disabled = isPwd;
                         }
-                        if (hint) {
-                            hint.innerHTML = isPwd
-                                ? '当前：<strong>在线密码</strong>。请填写上方<strong>用户名</strong>和本卡片内的<strong>密码</strong>。'
-                                : '当前：<strong>CLI 授权码</strong>。请填写上方<strong>用户名</strong>和本卡片内的<strong>授权码</strong>；<strong>无需密码</strong>，请勿填写方式一中的密码框。';
+                        if (isPwd && pwdInput && !pwdInput.disabled) {
+                            setTimeout(function () { pwdInput.focus(); }, 280);
+                        }
+                        if (!isPwd && codeInput && !codeInput.disabled) {
+                            setTimeout(function () { codeInput.focus(); }, 280);
                         }
                     }
 
-                    function bindPanel(panel, mode) {
-                        if (!panel) return;
-                        panel.addEventListener('click', function (e) {
-                            if (e.target.closest('form') && e.target.type === 'submit') return;
-                            if (e.target.closest('input[type="password"], input[name="auth_code"]')) return;
+                    function bindHead(panel, mode) {
+                        var head = panel && panel.querySelector('.qf-method-head');
+                        if (!head) return;
+                        head.addEventListener('click', function (e) {
+                            if (e.target.type === 'submit') return;
                             setMethod(mode);
                         });
-                        panel.addEventListener('keydown', function (e) {
+                        head.addEventListener('keydown', function (e) {
                             if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
                                 setMethod(mode);
                             }
                         });
                     }
-                    bindPanel(panelPwd, 'password');
-                    bindPanel(panelCode, 'auth_code');
+                    bindHead(panelPwd, 'password');
+                    bindHead(panelCode, 'auth_code');
                     if (radioPwd) radioPwd.addEventListener('change', function () { if (radioPwd.checked) setMethod('password'); });
                     if (radioCode) radioCode.addEventListener('change', function () { if (radioCode.checked) setMethod('auth_code'); });
 
@@ -279,14 +291,14 @@
                         if (!sharedUser || !sharedUser.value.trim()) {
                             e.preventDefault();
                             sharedUser.focus();
-                            alert('请先填写 quickform.cn 用户名（两种方式都需要）。');
+                            alert('请先填写上方的 quickform.cn 用户名。');
                             return false;
                         }
                     }
                     if (formPwd) formPwd.addEventListener('submit', onSubmit);
                     if (formCode) formCode.addEventListener('submit', onSubmit);
 
-                    setMethod('password');
+                    setMethod('auth_code');
                     syncUsername();
                 })();
                 </script>
