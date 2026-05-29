@@ -17,7 +17,7 @@ import uuid
 from urllib.parse import unquote_plus, quote as url_quote, urlsplit, urlunsplit, parse_qsl, urlencode
 import zipfile
 from urllib.parse import urlparse
-from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app, abort
+from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, make_response, send_file, send_from_directory, current_app, abort, session
 from werkzeug.datastructures import FileStorage
 from sqlalchemy import create_engine, or_, text, func
 from sqlalchemy.exc import IntegrityError, DataError
@@ -5877,18 +5877,12 @@ def _import_task_precheck(db, redirect_url: str):
     return None
 
 
-def _parse_import_task_list_param():
-    tasks_param = request.args.get('tasks')
-    if not tasks_param:
-        return []
-    try:
-        raw = json.loads(tasks_param)
-    except Exception:
-        return []
-    if not isinstance(raw, list):
+def _normalize_import_task_rows(raw_list):
+    """将在线版任务列表规范为导入页所需字段（仅保留必要键，避免 session/URL 膨胀）。"""
+    if not isinstance(raw_list, list):
         return []
     out = []
-    for t in raw:
+    for t in raw_list:
         if not isinstance(t, dict):
             continue
         apiid = (t.get('apiid') or '').strip()
@@ -5896,6 +5890,8 @@ def _parse_import_task_list_param():
             continue
         name = (t.get('task_name') or t.get('title') or t.get('name') or '').strip()
         intro = (t.get('task_intro') or t.get('description') or t.get('intro') or '').strip()
+        if len(intro) > 500:
+            intro = intro[:500].rstrip() + '…'
         out.append({
             'apiid': apiid,
             'task_name': name,
@@ -5904,6 +5900,37 @@ def _parse_import_task_list_param():
             'description': intro,
         })
     return out
+
+
+def _stash_import_tasks_in_session(tasks):
+    session['qf_import_tasks'] = tasks
+    session.modified = True
+
+
+def _pop_import_tasks_from_session():
+    raw = session.pop('qf_import_tasks', None)
+    if not raw:
+        return []
+    return _normalize_import_task_rows(raw)
+
+
+def _parse_import_task_list_param():
+    """优先从 session 读取（获取全部任务后写入）；兼容旧版 ?tasks= JSON（任务多时会 URL 过长）。"""
+    from_session = _pop_import_tasks_from_session()
+    if from_session:
+        return from_session
+    tasks_param = request.args.get('tasks')
+    if not tasks_param:
+        return []
+    if len(tasks_param) > 6000:
+        logger.warning('import_task tasks query too long (%s chars), ignored', len(tasks_param))
+        flash('任务列表过长，请重新点击「获取全部任务」（已改为服务端暂存，无需长 URL）。', 'warning')
+        return []
+    try:
+        raw = json.loads(tasks_param)
+    except Exception:
+        return []
+    return _normalize_import_task_rows(raw)
 
 
 def _import_task_from_quickform_export_zip(raw: bytes, db):
@@ -6229,22 +6256,7 @@ def api_qf_list():
         res = _online_cli_post(base_url, '/cli/list', auth, timeout_sec=20)
         if res.get('success'):
             tasks = res.get('tasks') or []
-            normalized = []
-            for t in tasks:
-                if not isinstance(t, dict):
-                    continue
-                apiid = (t.get('apiid') or '').strip()
-                if not apiid:
-                    continue
-                name = (t.get('name') or t.get('title') or '').strip()
-                normalized.append({
-                    'apiid': apiid,
-                    'name': name,
-                    'task_name': name,
-                    'title': name,
-                    'task_intro': (t.get('intro') or t.get('description') or '').strip(),
-                })
-            return jsonify({'success': True, 'tasks': normalized})
+            return jsonify({'success': True, 'tasks': _normalize_import_task_rows(tasks)})
         return jsonify({'success': False, 'message': res.get('message') or '认证失败'}), 401
     except requests.RequestException as e:
         return jsonify({'success': False, 'message': '连接失败: %s' % e}), 502
@@ -6253,6 +6265,20 @@ def api_qf_list():
         return jsonify({'success': False, 'message': str(e) or '获取失败'}), 500
     finally:
         db.close()
+
+
+@quickform_bp.route('/api/qf/stash_import_tasks', methods=['POST'])
+@login_required
+def api_qf_stash_import_tasks():
+    """将在线任务列表写入 session，避免 GET ?tasks= 导致 URL 过长（414）。"""
+    if not TASK_MIGRATION_ACTIVE:
+        return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
+    data = request.get_json(silent=True) or {}
+    slim = _normalize_import_task_rows(data.get('tasks'))
+    if not slim:
+        return jsonify({'success': False, 'message': '没有有效任务'}), 400
+    _stash_import_tasks_in_session(slim)
+    return jsonify({'success': True, 'count': len(slim)}), 200
 
 
 @quickform_bp.route('/task/migration', methods=['GET'])

@@ -206,7 +206,19 @@ async function fetchTasks() {
                 errorDiv.style.display = 'block';
                 return;
             }
-            window.location.href = '{{ url_for("quickform.import_task") }}?tasks=' + encodeURIComponent(JSON.stringify(tasks));
+            const stashResp = await fetch('{{ url_for("quickform.api_qf_stash_import_tasks") }}', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ tasks }),
+            });
+            const stashResult = await stashResp.json().catch(() => ({}));
+            if (!stashResp.ok || stashResult.success === false) {
+                errorDiv.textContent = stashResult.message || '暂存任务列表失败';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            window.location.href = '{{ url_for("quickform.import_task") }}';
         } else {
             errorDiv.textContent = result.message || '获取失败';
             errorDiv.style.display = 'block';
