@@ -81,6 +81,8 @@
                 <h5 class="mb-0" style="color: white; font-weight: 600;">从 quickform.cn 获取的任务列表</h5>
             </div>
             <div class="card-body" style="padding: 2rem;">
+                {# 任务元数据走 JSON，避免中文/引号/换行写入 HTML 属性导致脚本异常 #}
+                <script type="application/json" id="qf-import-tasks-json">{{ tasks|tojson }}</script>
                 <div class="table-responsive">
                     <table class="table table-striped" style="border-radius: 8px; overflow: hidden;">
                         <thead style="background-color: #f3f4f6;">
@@ -98,7 +100,8 @@
                                 <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px;">{{ task.task_intro or task.description or '无' }}</td>
                                 <td><code>{{ task.apiid }}</code></td>
                                 <td>
-                                    <button type="button" class="btn" style="background-color: #0d9488; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;" onclick="importTask('{{ task.apiid }}', {{ (task.task_name or task.title or task.name or '')|tojson }})">
+                                    <button type="button" class="btn qf-import-one-btn" style="background-color: #0d9488; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;"
+                                            data-task-index="{{ loop.index0 }}">
                                         导入
                                     </button>
                                 </td>
@@ -136,14 +139,24 @@ function closeFileImportModal() {
     document.getElementById('fileImportModal').style.display = 'none';
 }
 
-function importTask(apiid, taskName) {
-    const encodedName = encodeURIComponent(taskName || '导入的任务');
-    const url = '{{ url_for("quickform.import_task_action", apiid="PLACEHOLDER") }}'.replace('PLACEHOLDER', encodeURIComponent(apiid)) + '?ajax=1&task_name=' + encodedName;
+function readImportTasksFromPage() {
+    const el = document.getElementById('qf-import-tasks-json');
+    if (!el) return [];
+    try {
+        const rows = JSON.parse(el.textContent || '[]');
+        return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+        console.warn('qf-import-tasks-json parse failed', e);
+        return [];
+    }
+}
 
-    fetch(url, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
+function importTask(apiid, taskName) {
+    fetch('{{ url_for("quickform.api_online_task_import") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         credentials: 'same-origin',
+        body: JSON.stringify({ apiid: apiid }),
     })
     .then(response => response.json())
     .then(result => {
@@ -233,6 +246,20 @@ async function fetchTasks() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    const qfImportTasksList = readImportTasksFromPage();
+    document.body.addEventListener('click', function(e) {
+        const btn = e.target && e.target.closest ? e.target.closest('.qf-import-one-btn') : null;
+        if (!btn) return;
+        const idx = parseInt(btn.getAttribute('data-task-index') || '-1', 10);
+        const row = (idx >= 0 && qfImportTasksList[idx]) ? qfImportTasksList[idx] : {};
+        const apiid = row.apiid || '';
+        const taskName = row.task_name || row.title || row.name || '';
+        if (!apiid) {
+            alert('缺少 API ID，无法导入');
+            return;
+        }
+        importTask(apiid, taskName);
+    });
     var modal = document.getElementById('importModal');
     if (modal) {
         modal.addEventListener('click', function(e) {
