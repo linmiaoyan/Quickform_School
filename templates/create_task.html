@@ -28,15 +28,24 @@
                         <div class="form-text">{{ translate('create_task.description_hint') }}</div>
                     </div>
                     <div class="mb-4">
-                        <div class="alert alert-info">
-                            <h6 class="alert-heading">{{ translate('create_task.after_create') }}</h6>
-                            <ul class="mb-0">
-                                <li>{{ translate('create_task.after_create_item1') }}</li>
-                                <li>{{ translate('create_task.after_create_item2') }}</li>
-                                <li>{{ translate('create_task.after_create_item3') }}</li>
-                                <li>{{ translate('create_task.after_create_item4') }}</li>
-                            </ul>
-                            <p class="text-muted small mb-0 mt-2">创建成功后，可在「编辑任务」中设置 URL 地址、教程链接与分享范围。</p>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="alert alert-info h-100 mb-0">
+                                    <h6 class="alert-heading">{{ translate('create_task.after_create') }}</h6>
+                                    <ul class="mb-0 small">
+                                        <li>{{ translate('create_task.after_create_item1') }}</li>
+                                        <li>{{ translate('create_task.after_create_item2') }}</li>
+                                        <li>{{ translate('create_task.after_create_item3') }}</li>
+                                    </ul>
+                                    <p class="text-muted small mb-0 mt-2">创建成功后，可在「编辑任务」中设置 URL 地址、教程链接与分享范围。</p>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="alert alert-danger h-100 mb-0">
+                                    <h6 class="alert-heading">⚠️ {{ translate('create_task.security_warning_title') }}</h6>
+                                    <p class="mb-0 small">{{ translate('create_task.security_warning_body') }}<a href="https://my.feishu.cn/docx/KYlJdyq3wojmwox8KJTcnKORnob" target="_blank" rel="noopener">{{ translate('create_task.security_disclaimer_link') }}</a>。</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="d-flex justify-content-between">

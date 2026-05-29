@@ -3813,6 +3813,11 @@ def edit_task(task_id):
             task_html_ai_async_pending=task_html_ai_async_pending,
             user_organizations=user_organizations,
             api_base_url=_public_site_base_url(),
+            multimodal_enabled=_user_multimodal_enabled(current_user),
+            is_qflink_user=_is_qflink_user(current_user),
+            api_file_upload_enabled=API_FILE_UPLOAD_ENABLED,
+            api_max_file_size_mb=DEFAULT_MAX_FILE_SIZE_MB,
+            api_allowed_extensions=DEFAULT_ALLOWED_FILE_EXTENSIONS,
         )
     finally:
         db.close()
@@ -6967,6 +6972,8 @@ def profile():
         email_is_placeholder = _is_placeholder_or_empty_email(email_val)
         email_display = '' if email_is_placeholder else email_val
         qf_config = _get_user_qf_config(db, current_user.id)
+        is_qflink_user = _is_qflink_user(current_user)
+        multimodal_enabled = _user_multimodal_enabled(current_user)
         return render_template(
             'profile.html',
             user=u,
@@ -6975,7 +6982,10 @@ def profile():
             pending_cert_request=pending_cert_request,
             last_cert_request=last_cert_request,
             email_is_placeholder=email_is_placeholder,
-            email_display=email_display
+            email_display=email_display,
+            multimodal_enabled=multimodal_enabled,
+            is_qflink_user=is_qflink_user,
+            api_file_upload_enabled=API_FILE_UPLOAD_ENABLED,
         )
     finally:
         db.close()
