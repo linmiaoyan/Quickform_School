@@ -421,6 +421,17 @@
                                         </button>
                                     </div>
                                 </div>
+                                {% if api_file_upload_enabled and multimodal_enabled %}
+                                <div class="alert alert-success py-2 px-3 mb-3 small">
+                                    <strong><i class="bi bi-paperclip"></i> 多模态附件已开启：</strong>
+                                    提交者可随 JSON 一并上传文件（<code>multipart/form-data</code>，字段名 <code>files</code>）。
+                                    展开下方「API 联通测试」可试传；详细说明见<a href="{{ url_for('quickform.edit_task', task_id=task.id) }}">编辑任务</a>。
+                                </div>
+                                {% elif api_file_upload_enabled and is_qflink_user and not multimodal_enabled and can_edit_task %}
+                                <div class="alert alert-warning py-2 px-3 mb-3 small">
+                                    多模态附件未授权，API 暂不支持文件上传。请联系管理员开启。
+                                </div>
+                                {% endif %}
                                 <div class="text-center">
                                     <a href="{{ url_for('quickform.task_data_view', task_id=task.id) }}" target="_blank" rel="noopener" class="btn btn-primary" style="font-weight: 600;">
                                         <i class="bi bi-table"></i> 打开数据列表

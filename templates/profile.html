@@ -47,6 +47,19 @@
                 <div class="tab-content">
                     <!-- 个人信息标签页 -->
                     <div class="tab-pane fade show active" id="profile">
+                        {% if api_file_upload_enabled %}
+                        {% if multimodal_enabled %}
+                        <div class="alert alert-success py-2 small mb-3">
+                            <strong><i class="bi bi-paperclip"></i> 多模态附件：已开启</strong>
+                            <div class="mt-1 mb-0">您的账号可在任务 API 中接收图片、音频、文档等附件（与 JSON 字段一并提交）。请打开任意任务的「编辑任务」查看接入说明，或在任务详情页的「API 联通测试」中试传文件。</div>
+                        </div>
+                        {% elif is_qflink_user %}
+                        <div class="alert alert-warning py-2 small mb-3">
+                            <strong><i class="bi bi-paperclip"></i> 多模态附件：未开启</strong>
+                            <div class="mt-1 mb-0">QFLink 用户需由管理员在后台「QFLink 用户」列表中为您开启多模态附件后，方可通过 API 上传文件。</div>
+                        </div>
+                        {% endif %}
+                        {% endif %}
                         <form method="POST" action="{{ url_for('quickform.profile') }}" autocomplete="off">
                             <input type="hidden" name="update_profile" value="1">
                             
