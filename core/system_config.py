@@ -13,6 +13,8 @@ class SystemConfig:
     registration_requires_approval: bool = False
     community_enabled: bool = False
     teams_enabled: bool = False
+    icp_record: str = ""
+    attachment_recovery_enabled: bool = True
 
 
 def _config_path() -> str:
@@ -140,6 +142,10 @@ def load_system_config() -> SystemConfig:
         ),
         community_enabled=_b("community_enabled", SystemConfig.community_enabled),
         teams_enabled=_b("teams_enabled", SystemConfig.teams_enabled),
+        icp_record=(str(data.get("icp_record") or "")).strip(),
+        attachment_recovery_enabled=_b(
+            "attachment_recovery_enabled", SystemConfig.attachment_recovery_enabled
+        ),
     )
 
 
@@ -153,6 +159,8 @@ def save_system_config(cfg: SystemConfig) -> None:
     d["registration_requires_approval"] = bool(d.get("registration_requires_approval"))
     d["community_enabled"] = bool(d.get("community_enabled"))
     d["teams_enabled"] = bool(d.get("teams_enabled"))
+    d["icp_record"] = (d.get("icp_record") or "").strip()
+    d["attachment_recovery_enabled"] = bool(d.get("attachment_recovery_enabled"))
 
     os.makedirs(os.path.dirname(p), exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(prefix="system_config_", suffix=".json", dir=os.path.dirname(p))

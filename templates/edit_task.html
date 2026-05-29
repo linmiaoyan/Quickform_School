@@ -295,6 +295,12 @@
                                         </a>
                                     </div>
                                     <div class="d-flex gap-2 align-items-center">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm qf-html-edit-btn"
+                                                title="在线编辑 HTML"
+                                                data-saved-name="{{ file.saved_name }}"
+                                                data-original-name="{{ file.original_name|e }}">
+                                            <i class="bi bi-pencil-square"></i> 编辑
+                                        </button>
                                         <button type="button" class="btn btn-outline-primary btn-sm" onclick="qfReplaceHtmlKeepUrl('{{ file.saved_name }}'); return false;">
                                             <i class="bi bi-arrow-repeat"></i> 替换保留URL
                                         </button>
@@ -341,8 +347,52 @@
 </div>
 </form>
 
+<div class="modal fade" id="qfHtmlEditorModal" tabindex="-1" aria-labelledby="qfHtmlEditorModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="qfHtmlEditorModalLabel">在线编辑 HTML</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2" id="qfHtmlEditorFileLabel"></p>
+                <div class="row g-2 mb-2">
+                    <div class="col-md-4">
+                        <label class="form-label small mb-0">查找</label>
+                        <input type="text" class="form-control form-control-sm" id="qfHtmlFindInput" placeholder="要查找的文字">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-0">替换为</label>
+                        <input type="text" class="form-control form-control-sm" id="qfHtmlReplaceInput" placeholder="替换内容">
+                    </div>
+                    <div class="col-md-4 d-flex align-items-end gap-1 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="qfHtmlFindNextBtn">查找下一个</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="qfHtmlReplaceAllBtn">全部替换</button>
+                        <button type="button" class="btn btn-sm btn-outline-success" id="qfHtmlSmartApiBtn" title="将页面中的 /api/… 地址替换为本任务接口">智能替换 API</button>
+                    </div>
+                </div>
+                <textarea class="form-control font-monospace" id="qfHtmlEditorTextarea" rows="22" style="font-size: 13px; tab-size: 2;"></textarea>
+                <p class="small text-muted mt-2 mb-0">本任务提交地址：<code id="qfHtmlEditorApiUrl"></code></p>
+            </div>
+            <div class="modal-footer">
+                <span class="text-muted small me-auto" id="qfHtmlEditorStatus"></span>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="qfHtmlEditorSaveBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% block scripts %}
 <script src="{{ url_for('static', filename='vendor/introjs/intro.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/html_file_editor.js') }}"></script>
+<script>
+    window.QF_HTML_EDITOR = {
+        taskId: {{ task.id }},
+        contentUrl: {{ url_for('quickform.task_html_editor_content', task_id=task.id)|tojson }},
+        saveUrl: {{ url_for('quickform.task_html_editor_save', task_id=task.id)|tojson }}
+    };
+</script>
 <script src="{{ url_for('static', filename='js/onboarding.js') }}"></script>
 <script>
     function qfReplaceHtmlKeepUrl(savedName) {

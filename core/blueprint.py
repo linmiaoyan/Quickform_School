@@ -3844,6 +3844,254 @@ def edit_task(task_id):
         db.close()
 
 
+def _user_can_edit_task(db, task, user) -> bool:
+    """任务编辑权限（与 edit_task 一致）。"""
+    if not task or not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if user.is_admin() or task.user_id == user.id:
+        return True
+    if task.organization_id:
+        org_mem = db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id,
+            user_id=user.id,
+        ).first()
+        if org_mem and _org_members_can_edit_tasks(db, task.organization_id):
+            return True
+    share_record = db.query(TaskShare).filter_by(task_id=task.id, user_id=user.id).first()
+    if share_record and share_record.can_edit:
+        return True
+    return False
+
+
+def _resolve_task_html_disk_path(task, saved_name: str):
+    """根据 saved_name 定位任务 HTML 磁盘路径。"""
+    sn = (saved_name or '').strip()
+    if not sn or '/' in sn or '\\' in sn or '..' in sn:
+        return None
+    existing_files = []
+    try:
+        existing_files = json.loads(task.html_files) if task.html_files else []
+    except Exception:
+        existing_files = []
+    if not isinstance(existing_files, list):
+        existing_files = []
+    if not any(isinstance(r, dict) and (r.get('saved_name') or '').strip() == sn for r in existing_files):
+        if (task.file_path or '').strip() and os.path.basename(task.file_path) != sn:
+            return None
+    static_uploads = _static_uploads_dir()
+    for folder in (static_uploads, UPLOAD_FOLDER):
+        p = os.path.join(folder, sn)
+        if os.path.isfile(p):
+            return p
+    if task.file_path and os.path.basename(task.file_path) == sn and os.path.isfile(task.file_path):
+        return task.file_path
+    return None
+
+
+@quickform_bp.route('/task/<int:task_id>/html_editor/content', methods=['GET'])
+@login_required
+def task_html_editor_content(task_id):
+    """读取任务 HTML 源码（在线编辑器）。"""
+    saved_name = (request.args.get('saved_name') or '').strip()
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        if not _user_can_edit_task(db, task, current_user):
+            return jsonify({'success': False, 'message': '无权编辑'}), 403
+        path = _resolve_task_html_disk_path(task, saved_name)
+        if not path:
+            return jsonify({'success': False, 'message': '文件不存在或不属于本任务'}), 404
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+        original_name = saved_name
+        for rec in (json.loads(task.html_files) if task.html_files else []) or []:
+            if isinstance(rec, dict) and (rec.get('saved_name') or '').strip() == saved_name:
+                original_name = (rec.get('original_name') or saved_name).strip()
+                break
+        api_base = _public_site_base_url().rstrip('/')
+        return jsonify({
+            'success': True,
+            'content': content,
+            'saved_name': saved_name,
+            'original_name': original_name,
+            'task_api_id': task.task_id,
+            'api_submit_url': f'{api_base}/api/{task.task_id}',
+            'api_all_url': f'{api_base}/api/{task.task_id}/all',
+        })
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/task/<int:task_id>/html_editor/save', methods=['POST'])
+@login_required
+def task_html_editor_save(task_id):
+    """保存任务 HTML 源码（在线编辑器）。"""
+    data = request.get_json(silent=True) or {}
+    saved_name = (data.get('saved_name') or '').strip()
+    content = data.get('content')
+    if content is None:
+        return jsonify({'success': False, 'message': '缺少 content'}), 400
+    if not isinstance(content, str):
+        content = str(content)
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        if not _user_can_edit_task(db, task, current_user):
+            return jsonify({'success': False, 'message': '无权编辑'}), 403
+        path = _resolve_task_html_disk_path(task, saved_name)
+        if not path:
+            return jsonify({'success': False, 'message': '文件不存在或不属于本任务'}), 404
+        encoded = content.encode('utf-8')
+        if len(encoded) > MAX_HTML_FILE_SIZE:
+            return jsonify({'success': False, 'message': '文件超过 4MB 限制'}), 400
+        tmp_path = path + '.qf-edit.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        os.replace(tmp_path, path)
+        _auto_approve_task_html(task, current_user.id)
+        task.html_analysis = None
+        db.commit()
+        try:
+            analyze_html_file(
+                task.id, current_user.id, path, SessionLocal, Task, AIConfig,
+                read_file_content, call_ai_model,
+            )
+        except Exception as ex:
+            logger.warning('html_editor_save analyze skipped: %s', ex)
+        return jsonify({'success': True, 'message': '已保存'})
+    except Exception as e:
+        db.rollback()
+        logger.exception('html_editor_save failed task=%s', task_id)
+        return jsonify({'success': False, 'message': str(e) or '保存失败'}), 500
+    finally:
+        db.close()
+
+
+def _attachment_recovery_enabled():
+    try:
+        return bool(load_system_config().attachment_recovery_enabled)
+    except Exception:
+        return True
+
+
+@quickform_bp.route('/admin/api/attachment_recovery/task', methods=['GET'])
+@admin_required
+def admin_api_attachment_recovery_task():
+    if not _attachment_recovery_enabled():
+        return jsonify({'success': False, 'message': '附件回收功能已关闭'}), 403
+    q = (request.args.get('q') or request.args.get('api_id') or request.args.get('task_id') or '').strip()
+    if not q:
+        return jsonify({'success': False, 'message': '请输入 API ID 或任务 ID'}), 400
+    db = SessionLocal()
+    try:
+        task = None
+        if q.isdigit():
+            task = db.get(Task, int(q))
+        if not task:
+            task = db.query(Task).filter(Task.task_id == q).first()
+        if not task:
+            like = f'%{q}%'
+            tasks = (
+                db.query(Task)
+                .filter(or_(Task.task_id.ilike(like), Task.title.ilike(like)))
+                .order_by(Task.id.desc())
+                .limit(20)
+                .all()
+            )
+            from core.attachment_recovery import list_task_attachment_files
+            return jsonify({
+                'success': True,
+                'mode': 'search',
+                'tasks': [
+                    {
+                        'task_id': t.id,
+                        'api_id': t.task_id,
+                        'title': t.title or '',
+                        'file_count': len(list_task_attachment_files(t.task_id)),
+                    }
+                    for t in tasks
+                ],
+            })
+        from core.attachment_recovery import task_attachment_summary
+        summary = task_attachment_summary(db, task)
+        return jsonify({'success': True, 'mode': 'detail', 'summary': summary})
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/admin/api/attachment_recovery/delete', methods=['POST'])
+@admin_required
+def admin_api_attachment_recovery_delete():
+    if not _attachment_recovery_enabled():
+        return jsonify({'success': False, 'message': '附件回收功能已关闭'}), 403
+    data = request.get_json(silent=True) or {}
+    task_pk = data.get('task_id')
+    storage = (data.get('storage') or '').strip()
+    name = (data.get('name') or '').strip()
+    if not task_pk or not storage or not name:
+        return jsonify({'success': False, 'message': '参数不完整'}), 400
+    db = SessionLocal()
+    try:
+        task = db.get(Task, int(task_pk))
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        from core.attachment_recovery import delete_attachment_file
+        ok, msg = delete_attachment_file(task.task_id, storage, name)
+        return jsonify({'success': ok, 'message': msg}), (200 if ok else 400)
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/admin/api/attachment_recovery/delete_orphans', methods=['POST'])
+@admin_required
+def admin_api_attachment_recovery_delete_orphans():
+    if not _attachment_recovery_enabled():
+        return jsonify({'success': False, 'message': '附件回收功能已关闭'}), 403
+    data = request.get_json(silent=True) or {}
+    task_pk = data.get('task_id')
+    if not task_pk:
+        return jsonify({'success': False, 'message': '缺少 task_id'}), 400
+    db = SessionLocal()
+    try:
+        task = db.get(Task, int(task_pk))
+        if not task:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        from core.attachment_recovery import (
+            annotate_attachment_references,
+            delete_attachment_file,
+            list_task_attachment_files,
+            referenced_attachment_urls,
+        )
+        files = list_task_attachment_files(task.task_id)
+        refs = referenced_attachment_urls(db, task.id)
+        files = annotate_attachment_references(files, refs)
+        deleted = 0
+        errors = []
+        for f in files:
+            if f.get('referenced'):
+                continue
+            ok, msg = delete_attachment_file(task.task_id, f.get('storage'), f.get('name'))
+            if ok:
+                deleted += 1
+            else:
+                errors.append(msg)
+        return jsonify({
+            'success': True,
+            'deleted': deleted,
+            'message': f'已删除 {deleted} 个未引用文件' + (f'；{errors[0]}' if errors else ''),
+        })
+    finally:
+        db.close()
+
+
 @quickform_bp.route('/task/<int:task_id>/visibility', methods=['POST'])
 @login_required
 def set_task_visibility(task_id):
@@ -7894,6 +8142,7 @@ def admin_panel():
         oneclick_prompt_rows = []
         qflink_config = load_qflink_config()
         qflink_users = []
+        attachment_search_q = ''
 
         # ---------- 仅当前 tab 才执行对应查询 ----------
         if current_tab == 'users':
@@ -8017,6 +8266,12 @@ def admin_panel():
             except Exception:
                 pending_users = {}
 
+        elif current_tab == 'attachment-recovery':
+            if not _attachment_recovery_enabled():
+                flash('附件回收功能已在系统配置中关闭。', 'warning')
+                return redirect(url_for('quickform.admin_panel', tab='system-config'))
+            attachment_search_q = (request.args.get('q') or '').strip()
+
         # campus edition: quota-review/quota-settings removed
 
         # campus edition: oneclick-prompts removed
@@ -8128,6 +8383,7 @@ def admin_panel():
             ) if current_tab == 'tutorials-edit' else False,
             pending_cert_sidebar=0,
             pending_other_sidebar=pending_other_sidebar,
+            attachment_search_q=attachment_search_q,
         )
     finally:
         db.close()
@@ -8156,6 +8412,14 @@ def admin_system_config_save():
         )
         community_enabled = (request.form.get('community_enabled') or '').strip().lower() in ('1', 'true', 'yes', 'on')
         teams_enabled = (request.form.get('teams_enabled') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+        attachment_recovery_enabled = (request.form.get('attachment_recovery_enabled') or '').strip().lower() in (
+            '1', 'true', 'yes', 'on',
+        )
+        from core.icp import is_valid_icp_record, normalize_icp_record
+        icp_record = normalize_icp_record(request.form.get('icp_record') or '')
+        if not is_valid_icp_record(icp_record):
+            flash('ICP 备案号格式不正确，请填写如：浙ICP备2025205635号', 'danger')
+            return redirect(url_for('quickform.admin_panel', tab='system-config'))
         cfg = SystemConfig(
             system_name=system_name or SystemConfig.system_name,
             default_school=default_school,
@@ -8163,6 +8427,8 @@ def admin_system_config_save():
             registration_requires_approval=registration_requires_approval,
             community_enabled=community_enabled,
             teams_enabled=teams_enabled,
+            icp_record=icp_record,
+            attachment_recovery_enabled=attachment_recovery_enabled,
         )
         save_system_config(cfg)
         flash('系统配置已保存。', 'success')
