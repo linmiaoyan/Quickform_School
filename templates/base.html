@@ -686,7 +686,14 @@
                 <a href="{{ url_for('quickform.index') }}#about" class="text-decoration-none me-3">关于我们</a>
                 <a href="https://my.feishu.cn/docx/KYlJdyq3wojmwox8KJTcnKORnob" target="_blank" rel="noopener" class="text-decoration-none me-3">免责声明</a>
             </p>
-            <p class="mb-0 small text-muted">联系我们：<span class="footer-helper-wrap">QuickForm小助手<span class="footer-helper-popup"><img src="{{ url_for('static', filename='us/helper.jpg') }}" alt="QuickForm小助手" loading="lazy"></span></span>{% if app_version %}<span class="ms-2">版本 v{{ app_version }}</span>{% endif %}</p>
+            <p class="mb-0 small text-muted">
+                联系我们：<span class="footer-helper-wrap">QuickForm小助手<span class="footer-helper-popup"><img src="{{ url_for('static', filename='us/helper.jpg') }}" alt="QuickForm小助手" loading="lazy"></span></span>
+                {% if system_config and system_config.icp_record %}
+                <span class="ms-2">|</span>
+                <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" class="text-decoration-none ms-2">{{ system_config.icp_record }}</a>
+                {% endif %}
+                {% if app_version %}<span class="ms-2">版本 v{{ app_version }}</span>{% endif %}
+            </p>
         </div>
     </footer>
 
