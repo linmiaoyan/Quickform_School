@@ -2032,6 +2032,103 @@ def _resolve_online_credentials_from_request(data: dict, db=None):
     return _online_cli_auth_payload(username, password=password, auth_code=auth_code)
 
 
+def _normalize_cli_username(username: str) -> str:
+    """与 quickform.cn CLI 一致：去空白、零宽字符，Unicode NFC。"""
+    import unicodedata
+
+    u = (username or '').strip()
+    u = re.sub(r'[\u200b-\u200d\ufeff]', '', u)
+    return unicodedata.normalize('NFC', u)
+
+
+def _qflink_user_payload_from_getuser(user: dict) -> dict:
+    if not isinstance(user, dict):
+        return {}
+    out = dict(user)
+    uid = user.get('id') or user.get('user_id') or user.get('uid')
+    if uid is not None:
+        out['qflink_uid'] = str(uid).strip()
+    return out
+
+
+def _qflink_verify_via_getuser(
+    username: str,
+    password: str = '',
+    auth_code: str = '',
+) -> tuple[bool, str, dict]:
+    """通过在线版 POST /cli/getuser 校验（与 CLI 文档一致，优先于 qflink/verify）。"""
+    import requests
+
+    username = _normalize_cli_username(username)
+    auth_code = (auth_code or '').strip()
+    password = password or ''
+    if not username:
+        return False, '请输入 quickform.cn 用户名', {}
+    if not auth_code and not password:
+        return False, '缺少在线版密码或 CLI 授权码', {}
+
+    url = f"{ONLINE_CLI_BASE_URL.rstrip('/')}/cli/getuser"
+    timeout = max(3, int(os.getenv('QFLINK_VERIFY_TIMEOUT_SECONDS', str(ONLINE_CLI_TIMEOUT_SECONDS))))
+    payload = {'username': username}
+    if auth_code:
+        payload['auth_code'] = auth_code
+    else:
+        payload['password'] = password
+
+    headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
+    }
+
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    except Exception as e:
+        logger.exception("QFLink getuser 请求异常: %s", e)
+        return False, '无法连接 quickform.cn，请检查网络或稍后再试', {}
+
+    if r.status_code == 401:
+        try:
+            j = r.json()
+            return False, (j.get('message') if isinstance(j, dict) else None) or '用户名或授权码错误', {}
+        except Exception:
+            return False, '用户名或授权码错误', {}
+
+    if r.status_code == 429:
+        retry = ''
+        try:
+            j = r.json()
+            if isinstance(j, dict) and j.get('retry_after'):
+                retry = f"（约 {j.get('retry_after')} 秒后可重试）"
+        except Exception:
+            pass
+        return False, f'在线版认证尝试过于频繁，请稍后再试{retry}', {}
+
+    if r.status_code >= 500:
+        return False, (
+            f'在线版 quickform.cn 服务器异常（HTTP {r.status_code}）。'
+            '若用户名与授权码确认无误，可能是在线版处理该账号时出错；'
+            '请尝试「方式一：在线密码」登录，或在在线版重新生成授权码后再试；'
+            '也可尝试将用户名改为注册邮箱/手机号。'
+        ), {}
+
+    if r.status_code >= 400:
+        return False, f'在线校验失败: HTTP {r.status_code}', {}
+
+    try:
+        j = r.json()
+    except Exception:
+        return False, '在线版返回格式异常', {}
+
+    if not isinstance(j, dict) or not j.get('success'):
+        return False, (j.get('message') if isinstance(j, dict) else None) or '验证失败', {}
+
+    user = j.get('user') if isinstance(j, dict) else None
+    user_payload = _qflink_user_payload_from_getuser(user if isinstance(user, dict) else {})
+    if not user_payload.get('qflink_uid') and not user_payload.get('username'):
+        return False, '在线版返回的用户信息不完整', {}
+    return True, '验证成功', user_payload
+
+
 def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
     """调用在线端 QFLink v2 校验接口 POST /cli/qflink/verify。"""
     import requests
@@ -2058,7 +2155,20 @@ def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
     try:
         r = requests.post(verify_url, json=body, headers=headers, timeout=timeout)
         if r.status_code >= 400:
-            return False, f"在线校验失败: HTTP {r.status_code}", {}
+            detail = ''
+            try:
+                j = r.json()
+                if isinstance(j, dict) and j.get('message'):
+                    detail = str(j.get('message'))
+            except Exception:
+                detail = (r.text or '').strip()[:120]
+            if r.status_code >= 500:
+                return False, (
+                    f'在线版 quickform.cn 服务器异常（HTTP {r.status_code}）。'
+                    '若用户名与授权码确认无误，可能是在线版处理该账号时出错；'
+                    '请尝试「方式一：在线密码」登录，或在在线版重新生成授权码后再试。'
+                ), {}
+            return False, detail or f'在线校验失败: HTTP {r.status_code}', {}
         j = r.json()
         ok = bool(j.get("success", j.get("ok", False))) if isinstance(j, dict) else False
         msg = (j.get("message") or j.get("msg") or ("验证成功" if ok else "验证失败")) if isinstance(j, dict) else ""
@@ -2073,14 +2183,21 @@ def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
 
 
 def _qflink_verify_auth_code(username: str, auth_code: str) -> tuple[bool, str, dict]:
-    """在线版要求：用户名 + 授权码（同 /cli/getuser，勿仅传 auth_code）。"""
+    """在线版：用户名 + CLI 授权码（POST /cli/getuser）。"""
     username = (username or '').strip()
     auth_code = (auth_code or '').strip()
     if not username:
         return False, "请输入 quickform.cn 用户名", {}
     if not auth_code:
         return False, "QFLink 授权码为空", {}
-    return _qflink_verify_post({"username": username, "auth_code": auth_code})
+    ok, msg, user_payload = _qflink_verify_via_getuser(username, auth_code=auth_code)
+    if ok:
+        return ok, msg, user_payload
+    # 兼容旧部署：getuser 失败时再试 qflink/verify
+    ok2, msg2, user_payload2 = _qflink_verify_post({"username": username, "auth_code": auth_code})
+    if ok2:
+        return ok2, msg2, user_payload2
+    return ok, msg, user_payload
 
 
 def _qflink_verify_password(username: str, password: str) -> tuple[bool, str, dict]:
@@ -2088,11 +2205,17 @@ def _qflink_verify_password(username: str, password: str) -> tuple[bool, str, di
     password = password or ''
     if not username or not password:
         return False, "用户名或密码为空", {}
-    return _qflink_verify_post({
+    ok, msg, user_payload = _qflink_verify_via_getuser(username, password=password)
+    if ok:
+        return ok, msg, user_payload
+    ok2, msg2, user_payload2 = _qflink_verify_post({
         "mode": "password",
         "username": username,
         "password": password,
     })
+    if ok2:
+        return ok2, msg2, user_payload2
+    return ok, msg, user_payload
 
 
 def _qflink_login_user_from_payload(
