@@ -893,6 +893,7 @@
     </div>
 </div>
 
+    {% if community_enabled %}
     <!-- 灵感广场（随机公开项目；数据与 _get_cached_community_random 缓存一致） -->
     <div class="feature-showcase">
         <div class="home-random-inner">
@@ -937,6 +938,7 @@
         </section>
         </div>
     </div>
+    {% endif %}
 
 <!-- 常见问题区域：左侧标题说明，右侧折叠内容 -->
 <div class="faq-section">
@@ -998,7 +1000,7 @@
                         </h2>
                         <div id="faqCollapseFive" class="accordion-collapse collapse" aria-labelledby="faqHeadingFive" data-bs-parent="#homeFaq">
                             <div class="accordion-body faq-body">
-                                您可以查阅顶部导航中的「文档」与「开源教程」，也可以在「项目交流」中浏览其他老师公开的项目案例；若有问题，欢迎通过问题收集表向我们反馈，我们会在后续版本中持续优化。
+                                您可以查阅顶部导航中的「文档」与「开源教程」{% if community_enabled %}，也可以在「灵感广场」中浏览其他老师公开的项目案例{% endif %}；若有问题，欢迎通过页脚联系方式向我们反馈，我们会在后续版本中持续优化。
                             </div>
                         </div>
                     </div>
