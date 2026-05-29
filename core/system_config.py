@@ -11,6 +11,8 @@ class SystemConfig:
     default_school: str = "温州科技高级中学"
     registration_enabled: bool = True
     registration_requires_approval: bool = False
+    community_enabled: bool = False
+    teams_enabled: bool = False
 
 
 def _config_path() -> str:
@@ -136,6 +138,8 @@ def load_system_config() -> SystemConfig:
         registration_requires_approval=_b(
             "registration_requires_approval", SystemConfig.registration_requires_approval
         ),
+        community_enabled=_b("community_enabled", SystemConfig.community_enabled),
+        teams_enabled=_b("teams_enabled", SystemConfig.teams_enabled),
     )
 
 
@@ -147,6 +151,8 @@ def save_system_config(cfg: SystemConfig) -> None:
     d["default_school"] = (d.get("default_school") or "").strip()
     d["registration_enabled"] = bool(d.get("registration_enabled"))
     d["registration_requires_approval"] = bool(d.get("registration_requires_approval"))
+    d["community_enabled"] = bool(d.get("community_enabled"))
+    d["teams_enabled"] = bool(d.get("teams_enabled"))
 
     os.makedirs(os.path.dirname(p), exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(prefix="system_config_", suffix=".json", dir=os.path.dirname(p))

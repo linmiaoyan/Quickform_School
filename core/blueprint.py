@@ -115,6 +115,18 @@ def _redirect_back(fallback_endpoint: str = 'quickform.community', **fallback_kw
         pass
     return redirect(url_for(fallback_endpoint, **(fallback_kwargs or {})))
 
+
+def _require_community_enabled():
+    """灵感广场未开启时返回 404。"""
+    if not load_system_config().community_enabled:
+        abort(404)
+
+
+def _require_teams_enabled():
+    """入驻团队未开启时返回 404。"""
+    if not load_system_config().teams_enabled:
+        abort(404)
+
 # 管理员：任务标题文件缓存、词云与轻量分类
 from . import admin_task_titles as _admin_task_titles  # noqa: E402
 ADMIN_TASK_TITLES_MIN_LEN = _admin_task_titles.ADMIN_TASK_TITLES_MIN_LEN
@@ -1356,18 +1368,21 @@ def index():
         partner_logos.sort()  # 按文件名排序
 
     community_random = []
-    db = SessionLocal()
-    try:
-        force_random_refresh = (request.args.get('refresh') or '').strip() == '1'
-        community_random = _get_cached_community_random(db, force_refresh=force_random_refresh)
-    finally:
-        db.close()
+    cfg = load_system_config()
+    if cfg.community_enabled:
+        db = SessionLocal()
+        try:
+            force_random_refresh = (request.args.get('refresh') or '').strip() == '1'
+            community_random = _get_cached_community_random(db, force_refresh=force_random_refresh)
+        finally:
+            db.close()
 
     return render_template(
         'home.html',
         video_files=video_files,
         partner_logos=partner_logos,
         community_random=community_random,
+        community_enabled=cfg.community_enabled,
     )
 
 
@@ -1424,6 +1439,7 @@ def cases():
 @quickform_bp.route('/community')
 def community():
     """项目交流：热榜需带 hot=1；留言板分页。随机公开项目预览在首页「随机发现」。"""
+    _require_community_enabled()
     db = SessionLocal()
     try:
         show_hot = (request.args.get("hot") or "").strip() == "1"
@@ -1499,6 +1515,7 @@ def community():
 @login_required
 def pin_post(post_id):
     """置顶/取消置顶留言（仅管理员）"""
+    _require_community_enabled()
     if not current_user.is_admin():
         flash('无权执行此操作', 'danger')
         return _redirect_back()
@@ -1540,6 +1557,7 @@ def pin_post(post_id):
 @login_required
 def create_post():
     """创建留言"""
+    _require_community_enabled()
     content = request.form.get('content', '').strip()
     if not content:
         flash('留言内容不能为空', 'danger')
@@ -1572,6 +1590,7 @@ def create_post():
 @login_required
 def create_reply(post_id):
     """针对某条留言发表回复"""
+    _require_community_enabled()
     content = request.form.get('content', '').strip()
     if not content:
         flash('回复内容不能为空', 'danger')
@@ -1606,6 +1625,7 @@ def create_reply(post_id):
 @login_required
 def delete_reply(reply_id):
     """删除回复（仅管理员）"""
+    _require_community_enabled()
     if not current_user.is_admin():
         flash('无权执行此操作', 'danger')
         return _redirect_back()
@@ -1664,6 +1684,7 @@ def task_like(task_id):
 @quickform_bp.route('/community/post/<int:post_id>/delete', methods=['POST'])
 @login_required
 def delete_post(post_id):
+    _require_community_enabled()
     """删除留言（仅管理员）"""
     if not current_user.is_admin():
         flash('无权执行此操作', 'danger')
@@ -8097,11 +8118,15 @@ def admin_system_config_save():
             'yes',
             'on',
         )
+        community_enabled = (request.form.get('community_enabled') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+        teams_enabled = (request.form.get('teams_enabled') or '').strip().lower() in ('1', 'true', 'yes', 'on')
         cfg = SystemConfig(
             system_name=system_name or SystemConfig.system_name,
             default_school=default_school,
             registration_enabled=registration_enabled,
             registration_requires_approval=registration_requires_approval,
+            community_enabled=community_enabled,
+            teams_enabled=teams_enabled,
         )
         save_system_config(cfg)
         flash('系统配置已保存。', 'success')
@@ -10137,6 +10162,7 @@ def init_quickform_async(app, login_manager_instance=None, database_type=None):
 @quickform_bp.route('/teams')
 def teams_list():
     """入驻团队：展示全部团队列表，支持搜索与分页；无需登录可访问；点击加入需填写组织代码（需登录）"""
+    _require_teams_enabled()
     db = SessionLocal()
     try:
         from typing import Optional

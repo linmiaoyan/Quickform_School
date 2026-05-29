@@ -587,12 +587,16 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.tutorials') }}"><i class="bi bi-book"></i> {{ translate('nav.tutorials') if translate('nav.tutorials') != 'nav.tutorials' else '开源教程' }}</a>
                     </li>
+                    {% if system_config and system_config.community_enabled %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.community') }}"><i class="bi bi-people"></i> 灵感广场</a>
                     </li>
+                    {% endif %}
+                    {% if system_config and system_config.teams_enabled %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.teams_list') }}"><i class="bi bi-building"></i> 入驻团队</a>
                     </li>
+                    {% endif %}
                     {% if current_user.is_authenticated %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.dashboard') }}"><i class="bi bi-database"></i> {{ translate('nav.dashboard') if translate('nav.dashboard') != 'nav.dashboard' else '我的数据任务' }}</a>

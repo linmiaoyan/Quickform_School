@@ -235,75 +235,6 @@
 .community-hot-panel.is-visible {
     display: block;
 }
-
-.issue-collector {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 2rem;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.issue-collector-content {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.issue-collector-text {
-    flex: 1;
-}
-
-.issue-collector-text h4 {
-    color: #111827;
-    margin-bottom: 0.5rem;
-    font-weight: 600;
-}
-
-.issue-collector-text p {
-    color: #6b7280;
-    margin-bottom: 0;
-    font-size: 0.95rem;
-}
-
-.issue-collector-link {
-    margin-left: 1.5rem;
-}
-
-.issue-collector-link .btn {
-    background: #0d9488;
-    color: white;
-    border: none;
-    font-weight: 500;
-    padding: 0.75rem 2rem;
-    border-radius: 8px;
-    transition: all 0.3s ease;
-}
-
-.issue-collector-link .btn:hover {
-    background: #0f766e;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
-    color: white;
-}
-
-@media (max-width: 768px) {
-    .issue-collector-content {
-        flex-direction: column;
-        text-align: center;
-    }
-    
-    .issue-collector-link {
-        margin-left: 0;
-        margin-top: 1rem;
-        width: 100%;
-    }
-    
-    .issue-collector-link .btn {
-        width: 100%;
-    }
-}
 </style>
 
 <div class="container">
@@ -394,21 +325,6 @@
                     </div>
                 </div>
             </section>
-            
-            <!-- QuickForm问题收集表 -->
-            <div class="issue-collector">
-                <div class="issue-collector-content">
-                    <div class="issue-collector-text">
-                        <h4>{{ translate('community.issue_collector') }}</h4>
-                        <p>{{ translate('community.issue_desc') }}</p>
-                    </div>
-                    <div class="issue-collector-link">
-                        <a href="https://quickform.cn/static/uploads/d7be1908-5600-4e31-956f-83291cf36cee_revised.html" target="_blank" class="btn">
-                            <i class="bi bi-box-arrow-up-right"></i> {{ translate('community.fill_issue_form') }}
-                        </a>
-                    </div>
-                </div>
-            </div>
             
             <!-- 留言表单 -->
             {% if current_user.is_authenticated %}

@@ -548,6 +548,22 @@
                                     </select>
                                     <div class="form-text text-muted">开启后：注册成功需管理员审核后才能登录。</div>
                                 </div>
+                                <div class="col-12 col-lg-6">
+                                    <label class="form-label">是否开启「灵感广场」</label>
+                                    <select class="form-select" name="community_enabled">
+                                        <option value="1" {% if syscfg and syscfg.community_enabled %}selected{% endif %}>是</option>
+                                        <option value="0" {% if syscfg and (not syscfg.community_enabled) %}selected{% endif %}>否</option>
+                                    </select>
+                                    <div class="form-text text-muted">关闭后：顶栏隐藏入口，首页不展示公开项目预览，访问 /community 返回 404。</div>
+                                </div>
+                                <div class="col-12 col-lg-6">
+                                    <label class="form-label">是否开启「入驻团队」</label>
+                                    <select class="form-select" name="teams_enabled">
+                                        <option value="1" {% if syscfg and syscfg.teams_enabled %}selected{% endif %}>是</option>
+                                        <option value="0" {% if syscfg and (not syscfg.teams_enabled) %}selected{% endif %}>否</option>
+                                    </select>
+                                    <div class="form-text text-muted">关闭后：顶栏隐藏入口，访问 /teams 返回 404。</div>
+                                </div>
                             </div>
                             <div class="mt-3">
                                 <button type="submit" class="btn btn-primary">保存系统配置</button>
