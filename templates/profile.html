@@ -39,6 +39,9 @@
                     <li class="nav-item">
                         <a class="nav-link" id="password-tab" data-bs-toggle="tab" href="#password" style="color: #000; font-weight: 500;">{{ translate('profile.change_password') }}</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="qf-tab" data-bs-toggle="tab" href="#qf" style="color: #000; font-weight: 500;">QFLink / 在线版</a>
+                    </li>
                 </ul>
                 
                 <div class="tab-content">
@@ -72,6 +75,35 @@
                         </form>
                     </div>
                     
+                    <!-- QFLink / 在线版凭据（任务迁移） -->
+                    <div class="tab-pane fade" id="qf">
+                        <div class="alert alert-info small">
+                            在 <a href="https://quickform.cn/" target="_blank" rel="noopener">quickform.cn</a> 调试任务后，可在此保存账号或 CLI 授权码，供「任务迁移」自动填充。
+                            授权码用法：<strong>用户名 + 授权码</strong>（无需密码），见 <a href="https://quickform.cn/cli" target="_blank" rel="noopener">CLI 说明</a>。
+                        </div>
+                        <form method="POST" action="{{ url_for('quickform.profile') }}" id="qfProfileForm">
+                            <input type="hidden" name="update_qf_config" value="1">
+                            <div class="form-group mb-3">
+                                <label for="qf_username" class="form-label" style="color: #000; font-weight: 500;">在线版用户名</label>
+                                <input type="text" class="form-control" id="qf_username" name="qf_username"
+                                       value="{{ qf_config.username if qf_config else '' }}">
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="qf_password" class="form-label" style="color: #000; font-weight: 500;">在线版密码（与授权码二选一）</label>
+                                <input type="password" class="form-control" id="qf_password" name="qf_password"
+                                       value="{{ qf_config.password if qf_config and qf_config.password else '' }}" autocomplete="new-password">
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="qf_auth_code" class="form-label" style="color: #000; font-weight: 500;">CLI 授权码（与密码二选一）</label>
+                                <input type="text" class="form-control" id="qf_auth_code" name="qf_auth_code"
+                                       value="{{ qf_config.auth_code if qf_config and qf_config.auth_code else '' }}" autocomplete="off"
+                                       placeholder="qf 开头授权码">
+                            </div>
+                            <button type="submit" class="btn btn-success">保存</button>
+                            <button type="button" class="btn btn-outline-primary ms-2" id="testQfBtn">测试连接</button>
+                        </form>
+                    </div>
+
                     <!-- AI配置标签页 -->
                     <div class="tab-pane fade" id="config">
                         <div class="alert alert-info mb-3">
@@ -379,6 +411,28 @@ document.addEventListener('DOMContentLoaded', function(){
     }
     sel.addEventListener('change', updateShow);
     updateShow();
+
+    var testQfBtn = document.getElementById('testQfBtn');
+    if (testQfBtn) {
+        testQfBtn.addEventListener('click', function () {
+            var username = (document.getElementById('qf_username') || {}).value || '';
+            var password = (document.getElementById('qf_password') || {}).value || '';
+            var authCode = (document.getElementById('qf_auth_code') || {}).value || '';
+            testQfBtn.disabled = true;
+            fetch('{{ url_for("quickform.api_qf_test_connection") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ username: username, password: password, auth_code: authCode }),
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                alert(data.message || (data.success ? '连接成功' : '连接失败'));
+            })
+            .catch(function (e) { alert(e.message || '连接失败'); })
+            .finally(function () { testQfBtn.disabled = false; });
+        });
+    }
 
     var testBtn = document.getElementById('test-ai-btn');
     var promptInput = document.getElementById('test-ai-prompt');

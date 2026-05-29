@@ -104,40 +104,192 @@
                 {{ local_login_form() }}
             </div>
             <div class="tab-pane fade" id="qflinkPane" role="tabpanel">
-                <p class="text-muted small mb-3">
-                    使用 <strong>quickform.cn</strong> 在线账号或 <strong>QFLink 授权码</strong> 登录；密码仅用于在线校验，不会在校园版保存明文。
-                    登录后可在「任务迁移」导入在线版任务。
-                </p>
-                <form method="POST" action="{{ url_for('quickform.login') }}" id="qflinkLoginForm" class="mb-4">
-                    <input type="hidden" name="qflink_login" value="1">
-                    <div class="mb-3">
-                        <label for="qflink_username" class="form-label" style="font-weight: 600; color: #111827;">quickform.cn 用户名</label>
-                        <input type="text" class="form-control" id="qflink_username" name="qflink_username" required
-                               placeholder="在线版用户名 / 邮箱 / 手机号" style="padding: 0.75rem;" autocomplete="username">
+                <style>
+                    .qf-login-method {
+                        border: 2px solid #e5e7eb;
+                        border-radius: 10px;
+                        padding: 1rem 1.1rem;
+                        margin-bottom: 0.75rem;
+                        cursor: pointer;
+                        transition: border-color 0.2s, background-color 0.2s, opacity 0.2s, box-shadow 0.2s;
+                        background: #fafafa;
+                    }
+                    .qf-login-method:hover:not(.qf-login-method-active) {
+                        border-color: #93c5fd;
+                        background: #f8fafc;
+                    }
+                    .qf-login-method-active {
+                        border-color: #2563eb;
+                        background: #eff6ff;
+                        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+                    }
+                    .qf-login-method-inactive {
+                        opacity: 0.55;
+                    }
+                    .qf-login-method-inactive .qf-method-fields {
+                        pointer-events: none;
+                    }
+                    .qf-login-method .form-label,
+                    .qf-login-method .form-control {
+                        transition: opacity 0.2s;
+                    }
+                    .qf-login-shared-user.qf-field-highlight .form-control {
+                        border-color: #2563eb;
+                        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+                    }
+                    .qf-method-hint {
+                        font-size: 0.875rem;
+                        color: #1e40af;
+                        background: #dbeafe;
+                        border-radius: 8px;
+                        padding: 0.65rem 0.85rem;
+                        margin-bottom: 1rem;
+                    }
+                </style>
+
+                <div class="qf-method-hint mb-3" id="qflinkMethodHint" role="status">
+                    无论选哪种方式，都必须填写 <strong>quickform.cn 用户名</strong>。选「CLI 授权码」时<strong>无需密码</strong>，只需用户名 + 授权码。
+                </div>
+
+                <div class="mb-3 qf-login-shared-user qf-field-highlight" id="qflinkSharedUserWrap">
+                    <label for="qflink_shared_username" class="form-label" style="font-weight: 600; color: #111827;">
+                        quickform.cn 用户名 <span class="text-danger">*</span>
+                        <span class="text-muted fw-normal small">（两种方式共用）</span>
+                    </label>
+                    <input type="text" class="form-control" id="qflink_shared_username" required
+                           placeholder="在线版用户名 / 邮箱 / 手机号" style="padding: 0.75rem;" autocomplete="username">
+                </div>
+
+                <div class="mb-2 small fw-semibold text-secondary">选择验证方式（点选下方卡片）</div>
+
+                <div class="qf-login-method qf-login-method-active" id="qflinkMethodPassword" data-method="password" role="button" tabindex="0" aria-pressed="true">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <input class="form-check-input mt-0" type="radio" name="qflink_method" id="qflinkRadioPassword" value="password" checked>
+                        <label class="form-check-label fw-semibold mb-0" for="qflinkRadioPassword" style="cursor: pointer;">方式一：在线密码</label>
                     </div>
-                    <div class="mb-3">
-                        <label for="qflink_password" class="form-label" style="font-weight: 600; color: #111827;">quickform.cn 密码</label>
-                        <input type="password" class="form-control" id="qflink_password" name="qflink_password" required
-                               placeholder="在线版密码" style="padding: 0.75rem;" autocomplete="current-password">
+                    <p class="small text-muted mb-3 ms-4">使用 quickform.cn 的登录密码（与上方用户名一起提交）。</p>
+                    <form method="POST" action="{{ url_for('quickform.login') }}" id="qflinkLoginForm" class="qf-method-fields ms-1">
+                        <input type="hidden" name="qflink_login" value="1">
+                        <input type="hidden" name="qflink_username" id="qflink_hidden_username_pwd" value="">
+                        <div class="mb-3">
+                            <label for="qflink_password" class="form-label" style="font-weight: 600; color: #111827;">quickform.cn 密码</label>
+                            <input type="password" class="form-control" id="qflink_password" name="qflink_password"
+                                   placeholder="在线版密码" style="padding: 0.75rem;" autocomplete="current-password">
+                        </div>
+                        <button type="submit" class="btn w-100 py-2" style="font-weight: 500; font-size: 1rem; background-color: #10b981; color: white; border: none;">
+                            使用在线密码登录
+                        </button>
+                    </form>
+                </div>
+
+                <div class="qf-login-method qf-login-method-inactive" id="qflinkMethodAuthCode" data-method="auth_code" role="button" tabindex="0" aria-pressed="false">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <input class="form-check-input mt-0" type="radio" name="qflink_method" id="qflinkRadioAuthCode" value="auth_code">
+                        <label class="form-check-label fw-semibold mb-0" for="qflinkRadioAuthCode" style="cursor: pointer;">方式二：CLI 授权码</label>
                     </div>
-                    <button type="submit" class="btn w-100 py-2" style="font-weight: 500; font-size: 1rem; background-color: #10b981; color: white; border: none;">
-                        使用在线账号登录
-                    </button>
-                </form>
-                <div class="pt-3 border-top">
-                    <div class="text-muted small mb-2">或使用 QFLink 授权码</div>
-                    <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}">
-                        <label for="auth_code" class="form-label visually-hidden">QFLink 授权码</label>
-                        <div class="input-group">
-                            <input type="text" class="form-control" id="auth_code" name="auth_code" required
-                                   placeholder="请输入 QFLink 授权码" style="padding: 0.75rem;" autocomplete="off">
-                            <button type="submit" class="btn btn-outline-primary" style="font-weight: 500;">授权码登录</button>
+                    <p class="small text-muted mb-3 ms-4">
+                        用法同 QQ 邮箱授权码：<strong>用户名 + 授权码</strong>，<span class="text-success fw-semibold">不需要密码</span>。
+                    </p>
+                    <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}" id="qflinkAuthCodeForm" class="qf-method-fields ms-1">
+                        <input type="hidden" name="qflink_username" id="qflink_hidden_username_code" value="">
+                        <div class="mb-3">
+                            <label for="auth_code" class="form-label" style="font-weight: 600; color: #111827;">CLI 授权码</label>
+                            <input type="text" class="form-control" id="auth_code" name="auth_code"
+                                   placeholder="qf 开头的授权码" style="padding: 0.75rem;" autocomplete="off">
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary w-100 py-2" style="font-weight: 500;">
+                            使用授权码登录
+                        </button>
+                        <div class="text-muted small mt-2">
+                            在 quickform.cn 个人中心「CLI 授权码」生成，仅显示一次请妥善保存。
                         </div>
                     </form>
-                    <div class="text-muted small mt-2">
-                        嘉宾账号首次登录会自动创建校园版用户；导入任务请打开仪表盘「任务迁移」。
-                    </div>
                 </div>
+
+                <p class="text-muted small mt-3 mb-0">登录后可在「任务迁移」从在线版导入任务与历史数据。</p>
+
+                <script>
+                (function () {
+                    var sharedUser = document.getElementById('qflink_shared_username');
+                    var hint = document.getElementById('qflinkMethodHint');
+                    var panelPwd = document.getElementById('qflinkMethodPassword');
+                    var panelCode = document.getElementById('qflinkMethodAuthCode');
+                    var radioPwd = document.getElementById('qflinkRadioPassword');
+                    var radioCode = document.getElementById('qflinkRadioAuthCode');
+                    var pwdInput = document.getElementById('qflink_password');
+                    var codeInput = document.getElementById('auth_code');
+                    var formPwd = document.getElementById('qflinkLoginForm');
+                    var formCode = document.getElementById('qflinkAuthCodeForm');
+                    var hiddenPwd = document.getElementById('qflink_hidden_username_pwd');
+                    var hiddenCode = document.getElementById('qflink_hidden_username_code');
+
+                    function setMethod(mode) {
+                        var isPwd = mode === 'password';
+                        if (radioPwd) radioPwd.checked = isPwd;
+                        if (radioCode) radioCode.checked = !isPwd;
+                        panelPwd.classList.toggle('qf-login-method-active', isPwd);
+                        panelPwd.classList.toggle('qf-login-method-inactive', !isPwd);
+                        panelCode.classList.toggle('qf-login-method-active', !isPwd);
+                        panelCode.classList.toggle('qf-login-method-inactive', isPwd);
+                        panelPwd.setAttribute('aria-pressed', isPwd ? 'true' : 'false');
+                        panelCode.setAttribute('aria-pressed', !isPwd ? 'true' : 'false');
+                        if (pwdInput) {
+                            pwdInput.required = isPwd;
+                            pwdInput.disabled = !isPwd;
+                        }
+                        if (codeInput) {
+                            codeInput.required = !isPwd;
+                            codeInput.disabled = isPwd;
+                        }
+                        if (hint) {
+                            hint.innerHTML = isPwd
+                                ? '当前：<strong>在线密码</strong>。请填写上方<strong>用户名</strong>和本卡片内的<strong>密码</strong>。'
+                                : '当前：<strong>CLI 授权码</strong>。请填写上方<strong>用户名</strong>和本卡片内的<strong>授权码</strong>；<strong>无需密码</strong>，请勿填写方式一中的密码框。';
+                        }
+                    }
+
+                    function bindPanel(panel, mode) {
+                        if (!panel) return;
+                        panel.addEventListener('click', function (e) {
+                            if (e.target.closest('form') && e.target.type === 'submit') return;
+                            if (e.target.closest('input[type="password"], input[name="auth_code"]')) return;
+                            setMethod(mode);
+                        });
+                        panel.addEventListener('keydown', function (e) {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setMethod(mode);
+                            }
+                        });
+                    }
+                    bindPanel(panelPwd, 'password');
+                    bindPanel(panelCode, 'auth_code');
+                    if (radioPwd) radioPwd.addEventListener('change', function () { if (radioPwd.checked) setMethod('password'); });
+                    if (radioCode) radioCode.addEventListener('change', function () { if (radioCode.checked) setMethod('auth_code'); });
+
+                    function syncUsername() {
+                        var v = (sharedUser && sharedUser.value || '').trim();
+                        if (hiddenPwd) hiddenPwd.value = v;
+                        if (hiddenCode) hiddenCode.value = v;
+                    }
+                    if (sharedUser) sharedUser.addEventListener('input', syncUsername);
+
+                    function onSubmit(e) {
+                        syncUsername();
+                        if (!sharedUser || !sharedUser.value.trim()) {
+                            e.preventDefault();
+                            sharedUser.focus();
+                            alert('请先填写 quickform.cn 用户名（两种方式都需要）。');
+                            return false;
+                        }
+                    }
+                    if (formPwd) formPwd.addEventListener('submit', onSubmit);
+                    if (formCode) formCode.addEventListener('submit', onSubmit);
+
+                    setMethod('password');
+                    syncUsername();
+                })();
+                </script>
             </div>
         </div>
         {% else %}

@@ -42,6 +42,7 @@ class User(UserMixin, Base):
     created_at = Column(DateTime, default=datetime.now)
     tasks = relationship('Task', back_populates='author', foreign_keys='Task.user_id', cascade='all, delete-orphan')
     ai_config = relationship('AIConfig', back_populates='user', uselist=False, cascade='all, delete-orphan')
+    qf_config = relationship('QFConfig', back_populates='user', uselist=False, cascade='all, delete-orphan')
     
     def is_admin(self):
         """检查用户是否为管理员"""
@@ -111,6 +112,17 @@ class Task(Base):
     organization = relationship('Organization', back_populates='tasks')
     shares = relationship('TaskShare', back_populates='task', cascade='all, delete-orphan')
     likes = relationship('TaskLike', back_populates='task', cascade='all, delete-orphan')
+
+
+class QFConfig(Base):
+    """在线版 quickform.cn 凭据（任务迁移 / CLI），与教师版 qf_config 表一致。"""
+    __tablename__ = 'qf_config'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('user.id'), unique=True)
+    user = relationship('User', back_populates='qf_config')
+    username = Column(String(100))
+    password = Column(String(200))
+    auth_code = Column(String(80))
 
 
 class Submission(Base):

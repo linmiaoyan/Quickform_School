@@ -55,7 +55,7 @@ from .pending_users import is_user_pending, load_pending_users, set_user_pending
 
 # 导入分离的模块
 from .models import (
-    Base, User, Task, Submission, AIConfig, Post, PostReply,
+    Base, User, Task, Submission, AIConfig, QFConfig, Post, PostReply,
     Organization, OrganizationMember, TaskShare, TaskLike, ApiAccessLog,
     OneclickPromptOption, DEFAULT_ONECLICK_PROMPT_OPTIONS, _generate_task_id,
 )
@@ -1887,7 +1887,11 @@ def login():
                 flash(msg or 'QFLink 账号或密码错误', 'danger')
                 return _qflink_login_render(qflink_enabled=qflink_enabled)
 
-            redirect_resp = _qflink_login_user_from_payload(user_payload)
+            redirect_resp = _qflink_login_user_from_payload(
+                user_payload,
+                qf_save_username=qf_username,
+                qf_save_password=qf_password,
+            )
             if redirect_resp is not None:
                 return redirect_resp
             return _qflink_login_render(qflink_enabled=qflink_enabled)
@@ -1969,6 +1973,65 @@ def _qflink_extract_user_payload(resp_json: dict) -> dict:
     return {}
 
 
+def _looks_like_cli_auth_code(value: str) -> bool:
+    v = (value or '').strip().lower()
+    return bool(v.startswith('qf') and len(v) >= 34)
+
+
+def _online_cli_auth_payload(username: str, password: str = '', auth_code: str = ''):
+    """构建 quickform.cn CLI 认证字段（密码或授权码二选一）。"""
+    u = (username or '').strip()
+    ac = (auth_code or '').strip()
+    pwd = password or ''
+    if not u:
+        return None, '缺少在线版用户名'
+    if ac or _looks_like_cli_auth_code(pwd):
+        code = ac or pwd.strip()
+        return {'username': u, 'auth_code': code}, None
+    if pwd:
+        return {'username': u, 'password': pwd}, None
+    return None, '缺少在线版密码或 CLI 授权码'
+
+
+def _get_user_qf_config(db, user_id):
+    return db.query(QFConfig).filter_by(user_id=user_id).first()
+
+
+def _save_user_qf_config(db, user_id, username, password='', auth_code=''):
+    username = (username or '').strip()
+    if not username:
+        return
+    ac = (auth_code or '').strip()
+    pwd = (password or '').strip()
+    row = _get_user_qf_config(db, user_id)
+    if not row:
+        row = QFConfig(user_id=user_id)
+        db.add(row)
+    row.username = username
+    if ac:
+        row.auth_code = ac
+        row.password = None
+    elif pwd:
+        row.password = pwd
+        row.auth_code = None
+    db.commit()
+
+
+def _resolve_online_credentials_from_request(data: dict, db=None):
+    """请求体或已保存的 QFConfig 解析在线凭据。"""
+    data = data or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    auth_code = (data.get('auth_code') or '').strip()
+    if not username and db is not None:
+        cfg = _get_user_qf_config(db, current_user.id)
+        if cfg and cfg.username:
+            username = cfg.username
+            password = cfg.password or ''
+            auth_code = (cfg.auth_code or '').strip()
+    return _online_cli_auth_payload(username, password=password, auth_code=auth_code)
+
+
 def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
     """调用在线端 QFLink v2 校验接口 POST /cli/qflink/verify。"""
     import requests
@@ -1984,6 +2047,7 @@ def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
         headers["Authorization"] = f"Bearer {api_token}"
 
     body = dict(payload or {})
+    body.setdefault('client', 'school')
     client_id = (os.getenv('QFLINK_CLIENT_ID') or '').strip()
     client_secret = (os.getenv('QFLINK_CLIENT_SECRET') or '').strip()
     if client_id:
@@ -2008,11 +2072,15 @@ def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
         return False, "在线校验异常，请稍后重试", {}
 
 
-def _qflink_verify_auth_code(auth_code: str) -> tuple[bool, str, dict]:
+def _qflink_verify_auth_code(username: str, auth_code: str) -> tuple[bool, str, dict]:
+    """在线版要求：用户名 + 授权码（同 /cli/getuser，勿仅传 auth_code）。"""
+    username = (username or '').strip()
     auth_code = (auth_code or '').strip()
+    if not username:
+        return False, "请输入 quickform.cn 用户名", {}
     if not auth_code:
         return False, "QFLink 授权码为空", {}
-    return _qflink_verify_post({"mode": "auth_code", "auth_code": auth_code})
+    return _qflink_verify_post({"username": username, "auth_code": auth_code})
 
 
 def _qflink_verify_password(username: str, password: str) -> tuple[bool, str, dict]:
@@ -2027,7 +2095,12 @@ def _qflink_verify_password(username: str, password: str) -> tuple[bool, str, di
     })
 
 
-def _qflink_login_user_from_payload(user_payload: dict):
+def _qflink_login_user_from_payload(
+    user_payload: dict,
+    qf_save_username: str = '',
+    qf_save_password: str = '',
+    qf_save_auth_code: str = '',
+):
     """根据在线端返回创建/更新本地嘉宾用户并登录；失败时 flash 并返回 None。"""
     import secrets
     from flask import session
@@ -2098,6 +2171,14 @@ def _qflink_login_user_from_payload(user_payload: dict):
 
         login_user(user, remember=True)
         session.permanent = True
+        if (qf_save_username or '').strip():
+            _save_user_qf_config(
+                db,
+                user.id,
+                qf_save_username,
+                password=qf_save_password or '',
+                auth_code=qf_save_auth_code or '',
+            )
         next_page = request.args.get('next')
         return redirect(next_page) if next_page else redirect(url_for('quickform.dashboard'))
     finally:
@@ -2106,20 +2187,25 @@ def _qflink_login_user_from_payload(user_payload: dict):
 
 @quickform_bp.route('/qflink/auth_code', methods=['POST'])
 def qflink_auth_code_login():
-    """QFLink v2：授权码登录（校园版嘉宾逻辑）。"""
+    """QFLink：用户名 + CLI 授权码登录（与在线版 /cli/getuser 一致）。"""
     from core.qflink_config import load_qflink_config
 
     if not load_qflink_config().enabled:
         flash('本站已关闭 QFLink 登录。', 'warning')
         return redirect(url_for('quickform.login'))
 
+    qf_username = (request.form.get('qflink_username') or request.form.get('username') or '').strip()
     auth_code = (request.form.get('auth_code') or '').strip()
-    ok, msg, user_payload = _qflink_verify_auth_code(auth_code)
+    ok, msg, user_payload = _qflink_verify_auth_code(qf_username, auth_code)
     if not ok:
-        flash(msg or 'QFLink 授权码无效或已过期', 'danger')
+        flash(msg or '用户名或授权码错误', 'danger')
         return redirect(url_for('quickform.login'))
 
-    redirect_resp = _qflink_login_user_from_payload(user_payload)
+    redirect_resp = _qflink_login_user_from_payload(
+        user_payload,
+        qf_save_username=qf_username,
+        qf_save_auth_code=auth_code,
+    )
     if redirect_resp is not None:
         return redirect_resp
     return redirect(url_for('quickform.login'))
@@ -5509,7 +5595,43 @@ def _download_bytes(url: str, max_bytes: int, timeout_sec: int = 25) -> bytes:
         return buf.getvalue()
 
 
-def _campus_import_task_from_online(db, online_base_url: str, online_username: str, online_password: str, apiid: str):
+def _import_online_submissions_for_task(db, task, online_apiid: str, online_base_url: str = None):
+    """从在线版 GET /api/<apiid>/all 拉取提交数据（教师版 /api/qf/import_data 同款）。"""
+    online_apiid = (online_apiid or '').strip()
+    if not task or not online_apiid:
+        raise ValueError('缺少任务或在线 APIID')
+    base = _normalize_base_url(online_base_url or ONLINE_QUICKFORM_BASE_URL)
+    url = f'{base}/api/{online_apiid}/all'
+    r = requests.get(
+        url,
+        timeout=60,
+        headers={'User-Agent': 'Mozilla/5.0 (compatible; QuickForm-School/2.5)'},
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f'获取在线数据失败: HTTP {r.status_code}')
+    result = r.json()
+    submissions = result.get('submissions', []) if isinstance(result, dict) else []
+    if not submissions:
+        raise RuntimeError('该在线任务暂无提交数据')
+    imported_count = 0
+    payload_bytes = 0
+    for sub in submissions:
+        if isinstance(sub, dict):
+            submission_data = json.dumps(sub, ensure_ascii=False)
+        else:
+            submission_data = str(sub)
+        payload_bytes += len((submission_data or '').encode('utf-8', errors='ignore'))
+        db.add(Submission(task_id=task.id, data=submission_data))
+        imported_count += 1
+    task.submission_count_total = (task.submission_count_total or 0) + imported_count
+    task.submission_bytes_total = (task.submission_bytes_total or 0) + payload_bytes
+    db.commit()
+    _invalidate_task_read_cache(task.task_id)
+    _invalidate_task_data_cache(task.id)
+    return imported_count
+
+
+def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict, apiid: str):
     """
     从在线版导入一个任务：
     - API 不冲突：沿用 apiid；冲突：生成新 apiid
@@ -5518,12 +5640,16 @@ def _campus_import_task_from_online(db, online_base_url: str, online_username: s
     apiid = (apiid or '').strip()
     if not apiid:
         raise ValueError('缺少 apiid')
+    if not isinstance(auth_fields, dict) or not auth_fields.get('username'):
+        raise ValueError('缺少在线版认证信息')
 
     # 1) 拉取在线版任务详情
+    show_payload = dict(auth_fields)
+    show_payload['apiid'] = apiid
     show = _online_cli_post(
         online_base_url,
         '/cli/show',
-        {'username': online_username, 'password': online_password, 'apiid': apiid},
+        show_payload,
         timeout_sec=20,
     )
     if not show.get('success'):
@@ -5607,7 +5733,12 @@ def task_migration_import_page():
     if not TASK_MIGRATION_ACTIVE:
         flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
         return redirect(url_for('quickform.dashboard'))
-    return render_template('task_migration_import.html')
+    db = SessionLocal()
+    try:
+        qf_config = _get_user_qf_config(db, current_user.id)
+    finally:
+        db.close()
+    return render_template('task_migration_import.html', qf_config=qf_config)
 
 
 @quickform_bp.route('/task/migration/online/list', methods=['POST'])
@@ -5617,13 +5748,16 @@ def api_online_tasks_list():
     if not TASK_MIGRATION_ACTIVE:
         return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
     data = request.get_json(silent=True) or {}
-    username = (data.get('username') or '').strip()
-    password = data.get('password') or ''
     base_url = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
-    if not username or not password:
-        return jsonify({'success': False, 'message': '缺少在线版 username 或 password'}), 400
+    db = SessionLocal()
     try:
-        res = _online_cli_post(base_url, '/cli/list', {'username': username, 'password': password}, timeout_sec=20)
+        auth, err = _resolve_online_credentials_from_request(data, db)
+    finally:
+        db.close()
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    try:
+        res = _online_cli_post(base_url, '/cli/list', auth, timeout_sec=20)
         if not res.get('success'):
             return jsonify({'success': False, 'message': res.get('message') or '在线版认证失败'}), 401
         tasks = []
@@ -5634,7 +5768,7 @@ def api_online_tasks_list():
             name = (t.get('name') or '').strip()
             if not apiid:
                 continue
-            tasks.append({'apiid': apiid, 'title': name, 'description': ''})
+            tasks.append({'apiid': apiid, 'title': name, 'name': name, 'description': ''})
         return jsonify({'success': True, 'tasks': tasks}), 200
     except requests.RequestException as e:
         return jsonify({'success': False, 'message': f'连接在线版失败：{e}'}), 502
@@ -5673,29 +5807,38 @@ def api_online_task_import():
     if not TASK_MIGRATION_ACTIVE:
         return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
     data = request.get_json(silent=True) or {}
-    username = (data.get('username') or '').strip()
-    password = data.get('password') or ''
     base_url = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
     apiid = (data.get('apiid') or '').strip()
     api_url = (data.get('api_url') or '').strip()
     if not apiid and api_url:
         apiid = _extract_apiid_from_api_url(api_url)
-    if not username or not password:
-        return jsonify({'success': False, 'message': '缺少在线版 username 或 password'}), 400
     if not apiid:
         return jsonify({'success': False, 'message': '缺少 apiid 或 api_url'}), 400
 
     db = SessionLocal()
     try:
-        task, meta = _campus_import_task_from_online(db, base_url, username, password, apiid)
+        auth, err = _resolve_online_credentials_from_request(data, db)
+        if err:
+            return jsonify({'success': False, 'message': err}), 400
+        task, meta = _campus_import_task_from_online(db, base_url, auth, apiid)
+        if auth.get('username'):
+            _save_user_qf_config(
+                db,
+                current_user.id,
+                auth['username'],
+                password=auth.get('password') or '',
+                auth_code=auth.get('auth_code') or '',
+            )
         msg = '导入成功'
         if meta.get('old_apiid') != meta.get('new_apiid'):
             msg = f"导入成功：原 APIID 已存在，已重新分配为 {meta.get('new_apiid')}"
         return jsonify({
             'success': True,
             'message': msg,
+            'task_id': task.id,
             'old_apiid': meta.get('old_apiid'),
             'new_apiid': meta.get('new_apiid'),
+            'original_apiid': meta.get('old_apiid'),
             'redirect': url_for('quickform.task_detail', task_id=task.id),
         }), 200
     except requests.HTTPError as e:
@@ -5706,6 +5849,61 @@ def api_online_task_import():
         db.rollback()
         logger.exception('online import failed')
         return jsonify({'success': False, 'message': str(e) or '导入失败'}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/api/qf/test_connection', methods=['POST'])
+@login_required
+def api_qf_test_connection():
+    """测试 quickform.cn CLI 连接（教师版同款）。"""
+    data = request.get_json(silent=True) or {}
+    db = SessionLocal()
+    try:
+        auth, err = _resolve_online_credentials_from_request(data, db)
+        if err:
+            return jsonify({'success': False, 'message': err}), 400
+        base_url = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
+        res = _online_cli_post(base_url, '/cli/list', auth, timeout_sec=15)
+        if res.get('success'):
+            return jsonify({'success': True, 'message': '连接成功', 'tasks': res.get('tasks', [])})
+        return jsonify({'success': False, 'message': res.get('message') or '认证失败'}), 401
+    except requests.RequestException as e:
+        return jsonify({'success': False, 'message': f'连接失败：{e}'}), 502
+    except Exception as e:
+        logger.exception('qf test_connection failed')
+        return jsonify({'success': False, 'message': str(e) or '连接失败'}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/api/qf/import_data', methods=['POST'])
+@login_required
+def api_qf_import_data():
+    """从在线版导入某任务的提交数据（教师版 /api/qf/import_data）。"""
+    data = request.get_json(silent=True) or {}
+    task_id = data.get('task_id')
+    apiid = (data.get('apiid') or '').strip()
+    online_base = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
+
+    if not task_id or not apiid:
+        return jsonify({'success': False, 'message': '缺少 task_id 或 apiid'}), 400
+
+    db = SessionLocal()
+    try:
+        task = db.get(Task, int(task_id))
+        if not task or task.user_id != current_user.id:
+            return jsonify({'success': False, 'message': '任务不存在或无权访问'}), 403
+        count = _import_online_submissions_for_task(db, task, apiid, online_base)
+        return jsonify({
+            'success': True,
+            'message': f'成功导入 {count} 条数据',
+            'count': count,
+        }), 200
+    except Exception as e:
+        db.rollback()
+        logger.exception('import_data failed')
+        return jsonify({'success': False, 'message': str(e) or '导入数据失败'}), 500
     finally:
         db.close()
 
@@ -6181,6 +6379,23 @@ def profile():
                     db.commit()
                     flash('密码修改成功', 'success')
             
+            elif 'update_qf_config' in request.form:
+                qf_username = (request.form.get('qf_username') or '').strip()
+                qf_password = request.form.get('qf_password') or ''
+                qf_auth_code = (request.form.get('qf_auth_code') or '').strip()
+                if not qf_username:
+                    flash('请填写在线版用户名', 'danger')
+                else:
+                    _save_user_qf_config(
+                        db,
+                        current_user.id,
+                        qf_username,
+                        password=qf_password,
+                        auth_code=qf_auth_code,
+                    )
+                    flash('在线版凭据已保存', 'success')
+                return redirect(url_for('quickform.profile') + '#qf')
+
             elif 'update_profile' in request.form:
                 # 修改个人信息
                 username = request.form.get('username', '').strip()
@@ -6227,10 +6442,12 @@ def profile():
         email_val = (u.email or '').strip()
         email_is_placeholder = _is_placeholder_or_empty_email(email_val)
         email_display = '' if email_is_placeholder else email_val
+        qf_config = _get_user_qf_config(db, current_user.id)
         return render_template(
             'profile.html',
             user=u,
             ai_config=ai_config,
+            qf_config=qf_config,
             pending_cert_request=pending_cert_request,
             last_cert_request=last_cert_request,
             email_is_placeholder=email_is_placeholder,

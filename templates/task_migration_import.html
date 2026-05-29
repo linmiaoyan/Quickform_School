@@ -34,11 +34,19 @@
             </div>
             <div class="col-md-6">
               <label class="form-label">quickform.cn 用户名</label>
-              <input type="text" class="form-control" id="qf-online-username" autocomplete="username">
+              <input type="text" class="form-control" id="qf-online-username" autocomplete="username"
+                     value="{{ qf_config.username if qf_config and qf_config.username else '' }}">
             </div>
             <div class="col-md-6">
-              <label class="form-label">quickform.cn 密码</label>
-              <input type="password" class="form-control" id="qf-online-password" autocomplete="current-password">
+              <label class="form-label">密码 或 CLI 授权码</label>
+              <input type="password" class="form-control" id="qf-online-password" autocomplete="current-password"
+                     placeholder="密码（与授权码二选一）">
+            </div>
+            <div class="col-12">
+              <label class="form-label">CLI 授权码（可选，与密码二选一）</label>
+              <input type="text" class="form-control" id="qf-online-auth-code" autocomplete="off"
+                     placeholder="qf 开头授权码；填写后优先使用授权码"
+                     value="{{ qf_config.auth_code if qf_config and qf_config.auth_code else '' }}">
             </div>
           </div>
 
@@ -80,7 +88,7 @@
               </tbody>
             </table>
           </div>
-          <div class="form-text mt-2">导入时会下载 HTML 等附件，并自动把附件中的接口地址改写为当前系统的 API 地址。</div>
+          <div class="form-text mt-2">导入时会下载 HTML 等附件，并改写接口地址；导入成功后可选择<strong>同时导入在线版历史提交数据</strong>（与教师版 2.5 一致）。</div>
         </div>
       </div>
     </div>
@@ -93,8 +101,17 @@
       listAll: {{ url_for("quickform.api_online_tasks_list")|tojson }},
       resolveOne: {{ url_for("quickform.api_online_tasks_one")|tojson }},
       importOne: {{ url_for("quickform.api_online_task_import")|tojson }},
+      importData: {{ url_for("quickform.api_qf_import_data")|tojson }},
     }
   };
+</script>
+<script>
+  (function () {
+    var pw = document.getElementById('qf-online-password');
+    if (pw && {{ (qf_config.password if qf_config and qf_config.password else '')|tojson }}) {
+      pw.value = {{ (qf_config.password if qf_config and qf_config.password else '')|tojson }};
+    }
+  })();
 </script>
 <script src="{{ url_for('static', filename='js/task_migration_import.js') }}"></script>
 {% endblock %}
