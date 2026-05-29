@@ -951,24 +951,47 @@ def _is_local_request_host(host_header: str) -> bool:
     return h in ('localhost', '127.0.0.1', '0.0.0.0', '[::1]')
 
 
+def _resolve_public_url_scheme(host_header: str) -> str:
+    """推断对外 URL scheme；HTTPS 反代后应用进程内常为 http，需结合转发头与配置。"""
+    req = request
+    xf_proto = (req.headers.get('X-Forwarded-Proto') or '').split(',')[0].strip().lower()
+    if xf_proto in ('http', 'https'):
+        proto = xf_proto
+    elif getattr(req, 'is_secure', False):
+        proto = 'https'
+    else:
+        proto = (req.scheme or 'http').split(',')[0].strip().lower()
+        if proto not in ('http', 'https'):
+            proto = 'http'
+    if not _is_local_request_host(host_header):
+        preferred = (current_app.config.get('PREFERRED_URL_SCHEME') or '').strip().lower()
+        if preferred == 'https' and proto == 'http':
+            proto = 'https'
+    return proto
+
+
 def _public_site_base_url():
     """
     生成对外站点根 URL（含 scheme://host，无末尾斜杠），用于一键生成里嵌入的 API 根地址等。
     优先顺序：PUBLIC_BASE_URL（或 QUICKFORM_PUBLIC_BASE_URL）环境变量/应用配置
-    → X-Forwarded-Proto / X-Forwarded-Host
+    → X-Forwarded-Proto / request.is_secure / PREFERRED_URL_SCHEME（非 localhost）
     → request.host_url
     """
     cfg = (current_app.config.get('PUBLIC_BASE_URL') or '').strip().rstrip('/')
     if cfg:
         return cfg
     req = request
-    xf_proto = (req.headers.get('X-Forwarded-Proto') or req.scheme or 'http').split(',')[0].strip().lower()
     xf_host = (req.headers.get('X-Forwarded-Host') or req.headers.get('Host') or '').split(',')[0].strip()
     host = xf_host or (getattr(req, 'host', None) or '')
-    proto = xf_proto
     if host:
+        proto = _resolve_public_url_scheme(host)
         return f'{proto}://{host}'.rstrip('/')
-    return (req.host_url or req.url_root or '').rstrip('/')
+    base = (req.host_url or req.url_root or '').rstrip('/')
+    fallback_host = (req.headers.get('Host') or getattr(req, 'host', None) or '').split(',')[0].strip()
+    if base.startswith('http://') and fallback_host and not _is_local_request_host(fallback_host):
+        if _resolve_public_url_scheme(fallback_host) == 'https':
+            base = 'https://' + base[len('http://'):]
+    return base
 
 
 def _load_oneclick_prompt_tuples(db):
@@ -1099,6 +1122,15 @@ def _task_html_file_links(task):
 @quickform_bp.context_processor
 def inject_upload_url():
     return dict(get_upload_file_url=get_upload_file_url)
+
+
+@quickform_bp.context_processor
+def inject_public_site_base_url():
+    """全站模板可用 {{ public_site_base_url }}，避免 request.url_root 在 HTTPS 反代下仍为 http。"""
+    try:
+        return dict(public_site_base_url=_public_site_base_url())
+    except Exception:
+        return dict(public_site_base_url='')
 
 
 def _task_has_any_html(task) -> bool:
@@ -4268,7 +4300,7 @@ def cli_cert_pending():
             .limit(limit)
             .all()
         )
-        base = (request.url_root or '').rstrip('/')
+        base = _public_site_base_url()
         material_path = url_for('quickform.cli_cert_material')
         material_url = base + material_path
         items = []
@@ -5805,7 +5837,7 @@ def _task_migration_export_impl(task_id):
         html_rows = _migration_collect_html_files(task)
         export_base = ''
         try:
-            export_base = (request.url_root or '').strip()
+            export_base = _public_site_base_url()
         except Exception:
             export_base = ''
 
@@ -5908,7 +5940,7 @@ def _task_migration_import_impl():
         old_base_in = (request.form.get('migration_old_api_base') or '').strip().rstrip('/')
         new_base_in = (request.form.get('migration_new_api_base') or '').strip().rstrip('/')
         try:
-            default_new_base = (request.url_root or '').strip().rstrip('/')
+            default_new_base = _public_site_base_url()
         except Exception:
             default_new_base = ''
         new_base = new_base_in or default_new_base
@@ -7119,7 +7151,7 @@ def uploaded_file(filename):
                     
                     # 构建增强脚本的URL
                     # 使用请求的基础URL构建静态文件路径
-                    base_url = request.url_root.rstrip('/')
+                    base_url = _public_site_base_url()
                     script_url = f'{base_url}/static/js/form-enhancements.js'
                     
                     # 注入增强脚本
