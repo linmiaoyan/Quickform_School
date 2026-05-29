@@ -57,7 +57,7 @@
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
                         <li><a class="dropdown-item" href="{{ url_for('quickform.profile') }}">{{ translate('nav.profile') }}</a></li>
                         <li>
-                            <a class="dropdown-item" href="#" onclick="openImportTaskModal(); return false;">
+                            <a class="dropdown-item" href="{{ url_for('quickform.import_task') }}">
                                 <i class="bi bi-box-arrow-in-down me-2"></i>{{ translate('dashboard.import_task') }}
                             </a>
                         </li>
