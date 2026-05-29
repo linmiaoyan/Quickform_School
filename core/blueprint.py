@@ -3196,9 +3196,12 @@ def task_detail(task_id):
 
         multimodal_enabled = False
         is_qflink_user = False
+        task_multimodal_enabled = False
         if current_user.is_authenticated:
             is_qflink_user = _is_qflink_user(current_user)
             multimodal_enabled = _user_multimodal_enabled(current_user)
+        if API_FILE_UPLOAD_ENABLED:
+            task_multimodal_enabled = _task_multimodal_enabled(task, db)
         has_api_uploads = _has_api_upload_files(task.task_id)
 
         return render_template(
@@ -3221,6 +3224,7 @@ def task_detail(task_id):
             can_request_quota_relief=can_request_quota_relief,
             api_base_url=_public_site_base_url(),
             multimodal_enabled=multimodal_enabled,
+            task_multimodal_enabled=task_multimodal_enabled,
             is_qflink_user=is_qflink_user,
             api_file_upload_enabled=API_FILE_UPLOAD_ENABLED,
             has_api_uploads=has_api_uploads,
