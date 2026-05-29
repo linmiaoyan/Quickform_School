@@ -6,14 +6,14 @@
 <div class="row justify-content-center">
     <div class="col-md-10">
         <div class="card mb-4 border-0 shadow-sm" style="border-radius: 10px; overflow: hidden;">
-            <div class="card-header" style="background-color: #b8956a; color: white; font-weight: 600; border-bottom: none; padding: 1rem 1.5rem; border-radius: 10px 10px 0 0 !important;">
+            <div class="card-header" style="background-color: #0d9488; color: white; font-weight: 600; border-bottom: none; padding: 1rem 1.5rem; border-radius: 10px 10px 0 0 !important;">
                 <h5 class="mb-0" style="color: white; font-weight: 600;">{{ translate('nav.import_task') }}</h5>
             </div>
             <div class="card-body" style="padding: 2rem;">
                 <div class="mb-4">
-                    <p class="mb-4" style="color: #6b7280;">本功能可以导入 quickform.cn 的任务列表，请确保已在「个人资料」的 <a href="{{ url_for('quickform.profile') }}#qf" style="color: #b8956a;">QFLink / 在线版</a> 中配置用户名与密码或 CLI 授权码。</p>
+                    <p class="mb-4" style="color: #6b7280;">本功能可以导入 quickform.cn 的任务列表，请确保已在「个人资料」的 <a href="{{ url_for('quickform.profile') }}#qf" style="color: #0d9488;">QFLink / 在线版</a> 中配置用户名与密码或 CLI 授权码。</p>
                     <p class="mb-4">
-                        QuickForm 接口文档说明：<a href="https://quickform.cn/cli" target="_blank" rel="noopener" style="color: #b8956a; text-decoration: none; font-weight: 500;">https://quickform.cn/cli</a>
+                        QuickForm 接口文档说明：<a href="https://quickform.cn/cli" target="_blank" rel="noopener" style="color: #0d9488; text-decoration: none; font-weight: 500;">https://quickform.cn/cli</a>
                     </p>
                 </div>
 
@@ -28,7 +28,7 @@
                 </div>
                 {% endif %}
 
-                <button type="button" id="fetchTasksBtn" class="btn" style="background-color: #b8956a; color: white; font-weight: 500; border-radius: 8px; padding: 0.75rem 1.5rem; transition: all 0.3s ease; display: inline-block; white-space: nowrap;" onclick="fetchTasks()" {% if not qf_config_ready %}disabled title="请先配置 QFLink"{% endif %}>
+                <button type="button" id="fetchTasksBtn" class="btn" style="background-color: #0d9488; color: white; font-weight: 500; border-radius: 8px; padding: 0.75rem 1.5rem; transition: all 0.3s ease; display: inline-block; white-space: nowrap;" onclick="fetchTasks()" {% if not qf_config_ready %}disabled title="请先配置 QFLink"{% endif %}>
                     获取全部任务
                 </button>
                 <button type="button" class="btn" style="background-color: #16a34a; color: white; font-weight: 500; border-radius: 8px; padding: 0.75rem 1.5rem; transition: all 0.3s ease; display: inline-block; white-space: nowrap; margin-left: 0.5rem;" onclick="showImportModal()">
@@ -36,7 +36,7 @@
                 </button>
 
                 <div style="margin-top: 1rem;">
-                    <button type="button" class="btn" style="background-color: #9d7a50; color: white; font-weight: 500; border-radius: 8px; padding: 0.75rem 1.5rem; transition: all 0.3s ease; display: inline-block; white-space: nowrap;" onclick="showFileImportModal()">
+                    <button type="button" class="btn" style="background-color: #0f766e; color: white; font-weight: 500; border-radius: 8px; padding: 0.75rem 1.5rem; transition: all 0.3s ease; display: inline-block; white-space: nowrap;" onclick="showFileImportModal()">
                         从文件（zip 格式）导入数据任务
                     </button>
                 </div>
@@ -48,7 +48,7 @@
                         <input type="text" id="taskUrl" class="form-control" placeholder="" style="border-radius: 8px; border: 1px solid #e5e7eb; padding: 0.75rem 1rem; margin-bottom: 15px;">
                         <div style="text-align: right;">
                             <button type="button" class="btn" style="background-color: #6b7280; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;" onclick="closeImportModal()">取消</button>
-                            <button type="button" class="btn" style="background-color: #b8956a; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem; margin-left: 0.5rem;" onclick="submitTaskUrl()">确定</button>
+                            <button type="button" class="btn" style="background-color: #0d9488; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem; margin-left: 0.5rem;" onclick="submitTaskUrl()">确定</button>
                         </div>
                     </div>
                 </div>
@@ -67,7 +67,7 @@
             </div>
             <div style="text-align: right;">
                 <button type="button" class="btn" style="background-color: #6b7280; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;" onclick="closeFileImportModal()">取消</button>
-                <button type="submit" class="btn" style="background-color: #9d7a50; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem; margin-left: 0.5rem;">确定</button>
+                <button type="submit" class="btn" style="background-color: #0f766e; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem; margin-left: 0.5rem;">确定</button>
             </div>
         </form>
     </div>
@@ -98,7 +98,7 @@
                                 <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px;">{{ task.task_intro or task.description or '无' }}</td>
                                 <td><code>{{ task.apiid }}</code></td>
                                 <td>
-                                    <button type="button" class="btn" style="background-color: #b8956a; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;" onclick="importTask('{{ task.apiid }}', {{ (task.task_name or task.title or task.name or '')|tojson }})">
+                                    <button type="button" class="btn" style="background-color: #0d9488; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;" onclick="importTask('{{ task.apiid }}', {{ (task.task_name or task.title or task.name or '')|tojson }})">
                                         导入
                                     </button>
                                 </td>

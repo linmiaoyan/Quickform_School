@@ -226,7 +226,7 @@
             const zoomDisplay = document.createElement('span');
             zoomDisplay.className = 'zoom-display';
             zoomDisplay.textContent = '100%';
-            zoomDisplay.style.cssText = 'min-width: 50px; text-align: center; font-weight: 600; color: #2563eb; margin: 0 8px;';
+            zoomDisplay.style.cssText = 'min-width: 50px; text-align: center; font-weight: 600; color: #0d9488; margin: 0 8px;';
 
             const zoomOutBtn = document.createElement('button');
             zoomOutBtn.textContent = '−';
