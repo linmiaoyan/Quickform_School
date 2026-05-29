@@ -603,7 +603,7 @@ a.qf-btn-create-task.btn-primary:active {
                     </div>
                     <div class="mb-3">
                         <label class="form-label">{{ translate('task_detail.migration_new_api_base') }}</label>
-                        <input class="form-control" type="text" name="migration_new_api_base" value="{{ request.url_root.rstrip('/') }}" readonly>
+                        <input class="form-control" type="text" name="migration_new_api_base" value="{{ public_site_base_url or api_base_url }}" readonly>
                     </div>
 
                     <hr>
