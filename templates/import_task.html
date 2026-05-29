@@ -98,7 +98,9 @@
                                 <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px;">{{ task.task_intro or task.description or '无' }}</td>
                                 <td><code>{{ task.apiid }}</code></td>
                                 <td>
-                                    <button type="button" class="btn" style="background-color: #0d9488; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;" onclick="importTask('{{ task.apiid }}', {{ (task.task_name or task.title or task.name or '')|tojson }})">
+                                    <button type="button" class="btn qf-import-one-btn" style="background-color: #0d9488; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;"
+                                            data-apiid="{{ task.apiid|e }}"
+                                            data-task-name="{{ (task.task_name or task.title or task.name or '')|e }}">
                                         导入
                                     </button>
                                 </td>
@@ -233,6 +235,11 @@ async function fetchTasks() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    document.body.addEventListener('click', function(e) {
+        const btn = e.target && e.target.closest ? e.target.closest('.qf-import-one-btn') : null;
+        if (!btn) return;
+        importTask(btn.getAttribute('data-apiid') || '', btn.getAttribute('data-task-name') || '');
+    });
     var modal = document.getElementById('importModal');
     if (modal) {
         modal.addEventListener('click', function(e) {
