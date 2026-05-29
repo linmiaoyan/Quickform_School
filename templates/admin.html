@@ -54,7 +54,7 @@
         <!-- {{ translate('admin.export_data') }}卡片 -->
         <div class="row mb-4 g-3 row-cols-1 row-cols-sm-2 row-cols-lg-3">
             <div class="col">
-                <div class="stat-card" style="border-left: 4px solid #2563eb;">
+                <div class="stat-card" style="border-left: 4px solid #0d9488;">
                     <div class="stat-label">{{ translate('admin.total_users') }}</div>
                     <div class="stat-number">{{ stats.total_users }}</div>
                 </div>
@@ -66,7 +66,7 @@
                 </div>
             </div>
             <div class="col">
-                <div class="stat-card" style="border-left: 4px solid #3b82f6;">
+                <div class="stat-card" style="border-left: 4px solid #14b8a6;">
                     <div class="stat-label">{{ translate('admin.total_tasks') }}</div>
                     <div class="stat-number">{{ stats.total_tasks }}</div>
                 </div>
@@ -149,7 +149,7 @@
                                     {% if user_search %}
                                     <a class="btn btn-outline-secondary" href="{{ url_for('quickform.admin_panel') }}">{{ translate('admin.reset') }}</a>
                                     {% endif %}
-                                    <button class="btn" type="submit" style="background-color: #2563eb; color: white; border: none;">{{ translate('admin.search_btn') }}</button>
+                                    <button class="btn" type="submit" style="background-color: #0d9488; color: white; border: none;">{{ translate('admin.search_btn') }}</button>
                                 </div>
                             </form>
                             <div class="text-muted small text-lg-end w-100 w-lg-auto">
@@ -306,7 +306,7 @@
                                 <a class="btn btn-sm" style="background-color:#10b981;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='submissions', limit=20, format='xlsx') }}">
                                     导出提交数 Top20
                                 </a>
-                                <a class="btn btn-sm" style="background-color:#3b82f6;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='storage', limit=20, format='xlsx') }}">
+                                <a class="btn btn-sm" style="background-color:#14b8a6;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='storage', limit=20, format='xlsx') }}">
                                     导出空间占用 Top20
                                 </a>
                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="taskTitlesRefreshBtn">刷新标题缓存</button>
@@ -364,7 +364,7 @@
                                         <td>
                                             <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" 
                                                class="btn btn-sm" 
-                                               style="background-color: #2563eb; color: white; border: none; white-space: nowrap;">
+                                               style="background-color: #0d9488; color: white; border: none; white-space: nowrap;">
                                                 <i class="bi bi-eye" style="margin-right: 0.25rem;"></i>
                                                 查看
                                             </a>
@@ -982,7 +982,7 @@
     cursor: pointer;
 }
 .public-pending-select-table tbody tr.public-pending-row:hover {
-    background-color: rgba(37, 99, 235, 0.06);
+    background-color: rgba(13, 148, 136, 0.06);
 }
 
 /* 移动端表格优化 */
@@ -1436,7 +1436,7 @@
 密码：123456</textarea>
                                 </div>
                                 <button class="btn" 
-                                        style="background-color: #2563eb; color: white; border: none;"
+                                        style="background-color: #0d9488; color: white; border: none;"
                                         onclick="copyPasswordInfo()">复制信息</button>
                             </div>
                             <div class="modal-footer">
@@ -1551,7 +1551,7 @@
                         tooltip: { trigger: 'axis' },
                         xAxis: { type: 'category', data: dates, axisLabel: { rotate: 45 } },
                         yAxis: { type: 'value', name: '注册人数', minInterval: 1 },
-                        series: [{ name: '注册人数', type: 'bar', data: counts, itemStyle: { color: '#2563eb' } }]
+                        series: [{ name: '注册人数', type: 'bar', data: counts, itemStyle: { color: '#0d9488' } }]
                     });
                     window.addEventListener('resize', function() { chart.resize(); });
                 })
@@ -1745,7 +1745,7 @@
                 span.style.fontSize = size + 'px';
                 span.style.marginRight = '10px';
                 span.style.display = 'inline-block';
-                span.style.color = ratio > 0.66 ? '#2563eb' : (ratio > 0.33 ? '#06b6d4' : '#64748b');
+                span.style.color = ratio > 0.66 ? '#0d9488' : (ratio > 0.33 ? '#06b6d4' : '#64748b');
                 wc.appendChild(span);
             });
         }

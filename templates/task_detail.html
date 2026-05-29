@@ -95,7 +95,7 @@
                             <i class="bi bi-building"></i> {{ task.organization.name }}
                         </span>
                         {% else %}
-                        <span class="badge" style="background-color: #2563eb; color: white;">
+                        <span class="badge" style="background-color: #0d9488; color: white;">
                             <i class="bi bi-person"></i> {{ task_author_name or (task.author.username if task.author else '') }}
                         </span>
                         {% endif %}
@@ -125,7 +125,7 @@
                             <i class="bi bi-share-fill"></i> {{ translate('task_detail.shared') }}
                         </span>
                         {% else %}
-                        <span class="badge" style="background-color: #93c5fd; color: #ffffff;">
+                        <span class="badge" style="background-color: #99f6e4; color: #ffffff;">
                             <i class="bi bi-lock-fill"></i> {{ translate('task_detail.private') }}
                         </span>
                         {% endif %}
@@ -386,7 +386,7 @@
                             <div class="card-body">
                                 <p class="mb-2 text-muted small">
                                     共
-                                    <span class="d-inline-block align-middle" style="font-size: 1.25rem; font-weight: 900; color: #1d4ed8; letter-spacing: 0.3px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+                                    <span class="d-inline-block align-middle" style="font-size: 1.25rem; font-weight: 900; color: #0f766e; letter-spacing: 0.3px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
                                         {{ total_submissions }}
                                     </span>
                                     条提交。在新页面中可查看具体数据，该页面每 30 秒自动刷新。
@@ -437,7 +437,7 @@
                                         <div class="card-body">
                                             <div class="d-flex align-items-center mb-3">
                                                 <i class="bi bi-code-square me-2" style="font-size: 1.5rem; color: #4a90e2;"></i>
-                                                <h5 class="mb-0" style="font-weight: 600; color: #2563eb;">
+                                                <h5 class="mb-0" style="font-weight: 600; color: #0d9488;">
                                                     {{ translate('task_detail.debug_test') }}
                                                 </h5>
                                             </div>

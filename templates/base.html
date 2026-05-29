@@ -22,7 +22,7 @@
         
         body {
             background:
-                linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
+                linear-gradient(180deg, var(--qf-bg-top) 0%, var(--qf-bg-bottom) 100%);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -31,7 +31,7 @@
             overflow-x: hidden;
         }
 
-        /* 全站底纹（Tech Circuit 低干扰版）：大部分页面生效，不影响内容可读性 */
+        /* 全站底纹：淡绿网格 + 麦绿光晕 */
         body::before {
             content: "";
             position: fixed;
@@ -39,8 +39,8 @@
             pointer-events: none;
             z-index: -2;
             background:
-                linear-gradient(90deg, rgba(30, 64, 175, 0.10) 0 2px, transparent 2px),
-                linear-gradient(rgba(30, 64, 175, 0.08) 0 2px, transparent 2px);
+                linear-gradient(90deg, rgba(15, 118, 110, 0.09) 0 2px, transparent 2px),
+                linear-gradient(rgba(15, 118, 110, 0.07) 0 2px, transparent 2px);
             background-size: 120px 24px, 24px 120px;
             mask-image: radial-gradient(ellipse at 50% 45%, #000 56%, transparent 95%);
             -webkit-mask-image: radial-gradient(ellipse at 50% 45%, #000 56%, transparent 95%);
@@ -54,17 +54,17 @@
             pointer-events: none;
             z-index: -3;
             background:
-                radial-gradient(circle at 20% 35%, rgba(59, 130, 246, 0.12), transparent 30%),
-                radial-gradient(circle at 78% 65%, rgba(99, 102, 241, 0.10), transparent 28%);
+                radial-gradient(circle at 20% 35%, rgba(20, 184, 166, 0.11), transparent 30%),
+                radial-gradient(circle at 78% 65%, rgba(181, 196, 138, 0.14), transparent 28%);
         }
         
-        /* 导航栏 - 深蓝色主色调 */
+        /* 导航栏 — 青绿渐变 + 麦绿点缀 */
         .navbar {
             background:
-                radial-gradient(112% 122% at 82% 86%, rgba(244, 114, 182, 0.10), transparent 38%),
-                radial-gradient(90% 100% at 16% 12%, rgba(255, 255, 255, 0.16), transparent 34%),
-                linear-gradient(148deg, #1d4ed8 0%, #2b65e6 60%, #1fa9e8 100%) !important;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                radial-gradient(112% 122% at 82% 86%, rgba(181, 196, 138, 0.18), transparent 38%),
+                radial-gradient(90% 100% at 16% 12%, rgba(255, 255, 255, 0.14), transparent 34%),
+                var(--qf-navbar-gradient) !important;
+            box-shadow: 0 2px 8px var(--qf-shadow-soft);
             padding: 0.75rem 0;
         }
         
@@ -113,10 +113,9 @@
         }
         
         .card-header {
-            /* 与导航同源配色：深蓝主导，浅蓝收尾；只做轻微方向变化保持一致性 */
             background:
                 radial-gradient(88% 95% at 16% 12%, rgba(255, 255, 255, 0.08), transparent 34%),
-                linear-gradient(148deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
+                var(--qf-card-header-gradient);
             color: white;
             font-weight: 600;
             border-bottom: none;
@@ -129,25 +128,25 @@
         .card:nth-of-type(4n + 1) > .card-header {
             background:
                 radial-gradient(88% 95% at 14% 10%, rgba(255, 255, 255, 0.08), transparent 34%),
-                linear-gradient(126deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
+                linear-gradient(126deg, #0f766e 0%, #0d9488 62%, #10b981 100%);
         }
         .row > [class*="col"]:nth-child(4n + 2) .card > .card-header,
         .card:nth-of-type(4n + 2) > .card-header {
             background:
                 radial-gradient(88% 95% at 86% 12%, rgba(255, 255, 255, 0.07), transparent 34%),
-                linear-gradient(162deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
+                linear-gradient(162deg, #0f766e 0%, #0d9488 62%, #10b981 100%);
         }
         .row > [class*="col"]:nth-child(4n + 3) .card > .card-header,
         .card:nth-of-type(4n + 3) > .card-header {
             background:
                 radial-gradient(88% 95% at 22% 20%, rgba(255, 255, 255, 0.07), transparent 34%),
-                linear-gradient(206deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
+                linear-gradient(206deg, #0f766e 0%, #0d9488 62%, #10b981 100%);
         }
         .row > [class*="col"]:nth-child(4n + 4) .card > .card-header,
         .card:nth-of-type(4n + 4) > .card-header {
             background:
                 radial-gradient(88% 95% at 78% 8%, rgba(255, 255, 255, 0.08), transparent 34%),
-                linear-gradient(308deg, #1d4ed8 0%, #2b65e6 62%, #1a8fd4 100%);
+                linear-gradient(308deg, #0f766e 0%, #0d9488 62%, #10b981 100%);
         }
         
         .card-body {
@@ -201,8 +200,8 @@
         
         /* 按钮样式 - 主按钮为纯色填充，次要按钮为边框样式 */
         .btn-primary {
-            background-color: #2563eb;
-            border-color: #2563eb;
+            background-color: var(--qf-green-primary);
+            border-color: var(--qf-green-primary);
             color: white;
             font-weight: 500;
             padding: 0.625rem 1.5rem;
@@ -211,16 +210,16 @@
         }
         
         .btn-primary:hover {
-            background-color: #1d4ed8;
-            border-color: #1d4ed8;
+            background-color: var(--qf-green-deep);
+            border-color: var(--qf-green-deep);
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
+            box-shadow: 0 4px 8px var(--qf-shadow-primary);
             color: white;
         }
         
         .btn-outline-primary {
-            color: #2563eb;
-            border-color: #2563eb;
+            color: var(--qf-green-primary);
+            border-color: var(--qf-green-primary);
             background-color: transparent;
             font-weight: 500;
             padding: 0.625rem 1.5rem;
@@ -229,10 +228,10 @@
         }
         
         .btn-outline-primary:hover {
-            background-color: #2563eb;
+            background-color: var(--qf-green-primary);
             color: white;
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
+            box-shadow: 0 4px 8px var(--qf-shadow-primary);
         }
         
         /* 其他按钮变体 - 扁平风格，有底色 */
@@ -274,16 +273,16 @@
         .btn-info {
             font-family: 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif !important;
             font-weight: 500 !important;
-            background-color: #3b82f6 !important;
+            background-color: var(--qf-green-mid) !important;
             border: none !important;
             color: white !important;
         }
         
         .btn-info:hover {
-            background-color: #2563eb !important;
+            background-color: var(--qf-green-primary) !important;
             color: white !important;
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+            box-shadow: 0 4px 8px var(--qf-shadow-primary);
         }
         
         .btn-secondary {
@@ -333,7 +332,7 @@
         }
         
         .badge.bg-info {
-            background-color: #3b82f6 !important;
+            background-color: var(--qf-green-mid) !important;
         }
         
         .badge.bg-secondary {
@@ -349,8 +348,8 @@
         }
         
         .form-control:focus, .form-select:focus {
-            border-color: #2563eb;
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+            border-color: var(--qf-green-primary);
+            box-shadow: 0 0 0 3px var(--qf-focus-ring);
         }
         
         .form-label {
@@ -429,15 +428,15 @@
 
         /* 通用：蓝金渐变“新手引导”按钮（首页/控制台复用） */
         .qf-btn-onboard-gradient{
-            background-color: #1d4ed8;
+            background-color: var(--qf-green-deep);
             background-image: linear-gradient(
                 115deg,
-                #1d4ed8 0%,
-                #2563eb 20%,
-                #60a5fa 45%,
-                #f59e0b 70%,
-                #2563eb 90%,
-                #1d4ed8 100%
+                #0f766e 0%,
+                #0d9488 22%,
+                #5eead4 42%,
+                #b5c48a 68%,
+                #10b981 90%,
+                #0f766e 100%
             );
             background-size: 260% 100%;
             background-position: 0% 50%;
@@ -445,13 +444,13 @@
             border: none;
             font-weight: 700;
             border-radius: 0.8rem;
-            box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+            box-shadow: 0 10px 24px var(--qf-shadow-primary);
             transition: transform 0.22s ease, box-shadow 0.28s ease, filter 0.22s ease;
         }
         .qf-btn-onboard-gradient:hover{
             color:#fff !important;
             filter: brightness(0.98);
-            box-shadow: 0 12px 28px rgba(37, 99, 235, 0.28);
+            box-shadow: 0 12px 28px rgba(13, 148, 136, 0.32);
             animation: qf-onboard-gradient-flow 2.6s ease-in-out infinite;
         }
         .qf-btn-onboard-gradient:active{
@@ -486,7 +485,7 @@
         .footer-helper-wrap {
             position: relative;
             cursor: pointer;
-            color: #2563eb;
+            color: var(--qf-green-primary);
             font-weight: 500;
         }
         .footer-helper-wrap:hover {
@@ -519,7 +518,7 @@
             border-bottom: 1px dotted currentColor;
         }
         .qf-footer-slogan:focus {
-            outline: 2px solid rgba(37, 99, 235, 0.35);
+            outline: 2px solid var(--qf-focus-ring);
             outline-offset: 2px;
         }
         /* Tooltip 默认挂到 footer（与 BS5.1 兼容，避免依赖 customClass） */
@@ -597,6 +596,9 @@
                     {% if current_user.is_authenticated %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.dashboard') }}"><i class="bi bi-database"></i> {{ translate('nav.dashboard') if translate('nav.dashboard') != 'nav.dashboard' else '我的数据任务' }}</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('quickform.import_task') }}"><i class="bi bi-box-arrow-in-down"></i> {{ translate('nav.import_task') }}</a>
                     </li>
                     {% if current_user.is_admin() %}
                     <li class="nav-item">

@@ -57,7 +57,7 @@
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
                         <li><a class="dropdown-item" href="{{ url_for('quickform.profile') }}">{{ translate('nav.profile') }}</a></li>
                         <li>
-                            <a class="dropdown-item" href="#" onclick="openImportTaskModal(); return false;">
+                            <a class="dropdown-item" href="{{ url_for('quickform.import_task') }}">
                                 <i class="bi bi-box-arrow-in-down me-2"></i>{{ translate('dashboard.import_task') }}
                             </a>
                         </li>
@@ -193,37 +193,37 @@
   justify-content: center;
   padding: 0;
 }
-/* 创建新任务：悬停时渐变沿背景流动（与全站蓝/青/紫 banner 气质一致） */
+/* 创建新任务：青绿 + 麦绿流动渐变 */
 a.qf-btn-create-task.btn-primary {
   font-weight: 500;
   color: #fff !important;
   border: 1px solid rgba(255, 255, 255, 0.22);
-  background-color: #1d4ed8;
+  background-color: #0f766e;
   background-image: linear-gradient(
     115deg,
-    #1d4ed8 0%,
-    #2563eb 18%,
-    #0ea5e9 38%,
-    #6366f1 58%,
-    #3b82f6 78%,
-    #1d4ed8 100%
+    #0f766e 0%,
+    #0d9488 20%,
+    #5eead4 40%,
+    #b5c48a 60%,
+    #10b981 80%,
+    #0f766e 100%
   );
   background-size: 260% 100%;
   background-position: 0% 50%;
-  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.28);
+  box-shadow: 0 2px 10px rgba(13, 148, 136, 0.28);
   transition: transform 0.22s ease, box-shadow 0.28s ease, border-color 0.22s ease;
 }
 a.qf-btn-create-task.btn-primary:hover,
 a.qf-btn-create-task.btn-primary:focus-visible {
   color: #fff !important;
   border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 8px 26px rgba(59, 130, 246, 0.42);
+  box-shadow: 0 8px 26px rgba(20, 184, 166, 0.42);
   transform: translateY(-2px);
   animation: qf-dash-create-gradient-flow 2.6s ease-in-out infinite;
 }
 a.qf-btn-create-task.btn-primary:active {
   transform: translateY(0);
-  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 3px 12px rgba(13, 148, 136, 0.35);
 }
 @keyframes qf-dash-create-gradient-flow {
   0% { background-position: 0% 50%; }
@@ -317,7 +317,7 @@ a.qf-btn-create-task.btn-primary:active {
                             {% if task.organization_id and task.organization %}
                             <span class="badge" style="background-color: #8b5cf6;">{{ task.organization.name }}</span>
                             {% else %}
-                            <span class="badge" style="background-color: #93c5fd; color: #1e40af;">{{ task.author.username }}</span>
+                            <span class="badge" style="background-color: #99f6e4; color: #115e59;">{{ task.author.username }}</span>
                             {% endif %}
                         </td>
                         <td>{{ submission_count_map.get(task.id, 0) }}</td>
@@ -500,7 +500,7 @@ a.qf-btn-create-task.btn-primary:active {
                     </div>
                     <div class="card-footer" style="background-color: #f9fafb; border-top: 1px solid #e5e7eb; padding: 1rem;">
                         <div class="d-flex flex-wrap align-items-center gap-2" style="min-width: 0;">
-                            <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm" style="font-weight: 500; background-color: white; color: #2563eb; border: 1px solid #2563eb; height: 36px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; flex-shrink: 0;">
+                            <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm" style="font-weight: 500; background-color: white; color: #0d9488; border: 1px solid #0d9488; height: 36px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; flex-shrink: 0;">
                                 <i class="bi bi-eye" style="margin-right: 0.375rem;"></i>{{ translate('dashboard.view_detail') }}
                             </a>
                             <a href="{{ url_for('quickform.export_data', task_id=task.id) }}" class="btn btn-sm" style="font-weight: 500; background-color: white; color: #10b981; border: 1px solid #10b981; height: 36px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; flex-shrink: 0;">

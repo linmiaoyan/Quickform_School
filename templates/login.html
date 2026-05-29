@@ -46,7 +46,7 @@
 }
 
 #loginTabs .nav-link.active {
-    color: #2563eb !important;
+    color: #0d9488 !important;
     font-weight: 600 !important;
     background: #f8fafc !important;
     border: 1px solid #e5e7eb !important;
@@ -81,9 +81,9 @@
                     <label class="form-check-label" for="remember" style="color: #6b7280;">{{ translate('login.remember') }}</label>
                 </div>
                 <div class="d-flex align-items-center gap-2">
-                    <a href="{{ url_for('quickform.forgot_username') }}" style="font-size: 0.9rem; color: #2563eb; text-decoration: none;">忘记用户名？</a>
+                    <a href="{{ url_for('quickform.forgot_username') }}" style="font-size: 0.9rem; color: #0d9488; text-decoration: none;">忘记用户名？</a>
                     <span class="text-muted" style="opacity: 0.6;">|</span>
-                    <a href="{{ url_for('quickform.forgot_password') }}" style="font-size: 0.9rem; color: #2563eb; text-decoration: none;">忘记密码？</a>
+                    <a href="{{ url_for('quickform.forgot_password') }}" style="font-size: 0.9rem; color: #0d9488; text-decoration: none;">忘记密码？</a>
                 </div>
             </div>
             <button type="submit" class="btn btn-primary w-100 py-2" style="font-weight: 500; font-size: 1rem;">{{ translate('login.submit') }}</button>
@@ -106,8 +106,8 @@
             <div class="tab-pane fade" id="qflinkPane" role="tabpanel">
                 <style>
                     #qflinkPane .qf-login-shared-user .form-control {
-                        border-color: #2563eb;
-                        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+                        border-color: #0d9488;
+                        box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.12);
                     }
                     #qflinkPane .qf-login-method {
                         border: 2px solid #e5e7eb;
@@ -117,8 +117,8 @@
                         transition: border-color 0.2s, box-shadow 0.2s;
                     }
                     #qflinkPane .qf-login-method.qf-expanded {
-                        border-color: #2563eb;
-                        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+                        border-color: #0d9488;
+                        box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
                     }
                     #qflinkPane .qf-method-head {
                         display: flex;
@@ -311,7 +311,7 @@
         <div class="mt-4 text-center">
             <p style="color: #6b7280; margin: 0;">{{ translate('login.no_account') if translate('login.no_account') != 'login.no_account' else '还没有账户？' }}
                 {% if syscfg and syscfg.registration_enabled %}
-                <a href="{{ url_for('quickform.register') }}" style="color: #2563eb; text-decoration: none; font-weight: 500;">{{ translate('login.register_link') if translate('login.register_link') != 'login.register_link' else '立即注册' }}</a>
+                <a href="{{ url_for('quickform.register') }}" style="color: #0d9488; text-decoration: none; font-weight: 500;">{{ translate('login.register_link') if translate('login.register_link') != 'login.register_link' else '立即注册' }}</a>
                 {% else %}
                 <span class="text-muted">注册已关闭</span>
                 {% endif %}

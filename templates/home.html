@@ -195,7 +195,7 @@
     width: 1.65rem;
     height: 1.65rem;
     border-radius: 8px;
-    background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+    background: linear-gradient(135deg, #0d9488 0%, #34d399 100%);
     color: #fff;
     font-size: 0.8rem;
     font-weight: 700;
@@ -240,7 +240,7 @@
     padding: 0.2rem 0.45rem;
     border-radius: 6px;
     background: #eff6ff;
-    color: #1d4ed8;
+    color: #0f766e;
     text-decoration: none;
     font-weight: 500;
     border: 1px solid #bfdbfe;
@@ -269,15 +269,15 @@
 }
 
 .qf-step-ai-row a:hover {
-    border-color: #93c5fd;
-    color: #1d4ed8;
+    border-color: #99f6e4;
+    color: #0f766e;
     background: #eff6ff;
 }
 
 /* 从任务详情「去 AI 生成网页」跳转时短暂高亮第 3 步与 AI 链接行 */
 @keyframes qf-home-step-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45); }
-    100% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+    0% { box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.45); }
+    100% { box-shadow: 0 0 0 10px rgba(13, 148, 136, 0); }
 }
 @keyframes qf-home-ai-pulse {
     0% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.4); }
@@ -285,7 +285,7 @@
 }
 .qf-home-step-pulse {
     animation: qf-home-step-pulse 1.1s ease-out 2;
-    border-color: #93c5fd !important;
+    border-color: #99f6e4 !important;
 }
 .qf-home-ai-pulse {
     border-radius: 10px;
@@ -429,14 +429,14 @@
 }
 
 .qf-video-float-play:focus-visible {
-    outline: 2px solid #2563eb;
+    outline: 2px solid #0d9488;
     outline-offset: -2px;
 }
 
 .qf-video-thumb {
     position: relative;
     aspect-ratio: 16 / 9;
-    background: linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%);
+    background: linear-gradient(135deg, #0f766e 0%, #34d399 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -458,7 +458,7 @@
     font-weight: 600;
     border: none;
     border-radius: 999px;
-    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+    background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
     color: #fff;
     box-shadow: 0 8px 24px rgba(29, 78, 216, 0.4);
     display: none;
@@ -561,7 +561,7 @@
 }
 
 .feature-showcase-link {
-    color: #2563eb;
+    color: #0d9488;
     text-decoration: none;
     font-weight: 500;
     font-size: 1.125rem;
@@ -572,7 +572,7 @@
 }
 
 .feature-showcase-link:hover {
-    color: #1d4ed8;
+    color: #0f766e;
 }
 
 .feature-showcase-visual {
@@ -636,7 +636,7 @@
     min-width: 0;
 }
 .community-spot-title a {
-    color: #1d4ed8;
+    color: #0f766e;
     text-decoration: none;
     white-space: nowrap;
     overflow: hidden;
@@ -1026,7 +1026,7 @@
         <div class="feature-showcase-content">
             <h2 class="qf-home-section-title">{{ translate('home.about') if translate('home.about') != 'home.about' else '关于QuickForm' }}</h2>
             <p class="qf-home-about-text">
-                <strong style="color: #2563eb;">QuickForm</strong>是一款基于 Web 的智能表单管理服务，由温州科技高中 AI 科创中心团队与温州大学联合开发。与多数只能在自己站点里填表的方案不同，你可以把<strong style="color: #1e40af;">提交接口接到任意网页、AI 生成的页面或第三方活动页</strong>，数据仍统一回到同一后台管理与分析。
+                <strong style="color: #0d9488;">QuickForm</strong>是一款基于 Web 的智能表单管理服务，由温州科技高中 AI 科创中心团队与温州大学联合开发。与多数只能在自己站点里填表的方案不同，你可以把<strong style="color: #115e59;">提交接口接到任意网页、AI 生成的页面或第三方活动页</strong>，数据仍统一回到同一后台管理与分析。
             </p>
             <p class="qf-home-about-text qf-home-about-text--last">
                 系统支持表单管理、数据收集、智能分析、报告生成和AI集成等功能，能够自动识别数据趋势、生成可视化图表和详细报告，辅助教师优化教学策略。

@@ -5849,19 +5849,420 @@ def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict,
     return new_task, {'old_apiid': apiid, 'new_apiid': new_apiid, 'attachments_saved': len(stored_list)}
 
 
-@quickform_bp.route('/task/migration', methods=['GET'])
+def _qf_config_has_online_auth(cfg) -> bool:
+    if not cfg or not (cfg.username or '').strip():
+        return False
+    return bool((cfg.password or '').strip() or (cfg.auth_code or '').strip())
+
+
+def _import_task_precheck(db, redirect_url: str):
+    """导入新任务前的配额与邮箱校验；通过返回 None，否则返回 redirect 响应。"""
+    task_count = db.query(Task).filter_by(user_id=current_user.id).count()
+    if current_user.is_admin():
+        return None
+    if not current_user.can_create_task(SessionLocal, Task):
+        task_limit = current_user.task_limit if current_user.task_limit != -1 else '无限制'
+        flash(
+            '您已达到任务数量上限（%s个）。如需导入为新任务，请先删除部分任务或申请提升上限。' % task_limit,
+            'warning',
+        )
+        return redirect(redirect_url)
+    block = _email_requirement_block_for_next_task(db, current_user, task_count)
+    if block == 'bind_email':
+        flash('创建或导入新任务前请先在个人资料中绑定邮箱。', 'warning')
+        return redirect(url_for('quickform.profile', next=redirect_url))
+    if block == 'verify_email':
+        flash('创建或导入新任务前请先完成邮箱验证。', 'warning')
+        return redirect(url_for('quickform.verify_email', next=redirect_url))
+    return None
+
+
+def _parse_import_task_list_param():
+    tasks_param = request.args.get('tasks')
+    if not tasks_param:
+        return []
+    try:
+        raw = json.loads(tasks_param)
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for t in raw:
+        if not isinstance(t, dict):
+            continue
+        apiid = (t.get('apiid') or '').strip()
+        if not apiid:
+            continue
+        name = (t.get('task_name') or t.get('title') or t.get('name') or '').strip()
+        intro = (t.get('task_intro') or t.get('description') or t.get('intro') or '').strip()
+        out.append({
+            'apiid': apiid,
+            'task_name': name,
+            'task_intro': intro,
+            'title': name,
+            'description': intro,
+        })
+    return out
+
+
+def _import_task_from_quickform_export_zip(raw: bytes, db):
+    """从 quickform.cn 导出的 ZIP 迁移包导入任务（教师版 2.5 import_task_from_file 同款）。"""
+    max_zip = _migration_zip_max_bytes()
+    if len(raw) > max_zip:
+        raise ValueError('压缩包过大，请控制在环境变量 TASK_MIGRATION_ZIP_MAX_BYTES 限制内')
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile:
+        raise ValueError('无效的压缩包文件')
+    ok, err = _migration_validate_zip(zf)
+    if not ok:
+        zf.close()
+        raise ValueError(err or '迁移包校验失败')
+    try:
+        man_raw = zf.read(TASK_MIGRATION_MANIFEST)
+    except KeyError:
+        zf.close()
+        raise ValueError('压缩包内缺少 %s' % TASK_MIGRATION_MANIFEST)
+    try:
+        task_data = json.loads(man_raw.decode('utf-8'))
+    except Exception:
+        zf.close()
+        raise ValueError('迁移清单 JSON 解析失败')
+
+    original_api_id = (task_data.get('api_id') or '').strip()
+    title = (task_data.get('title') or '未命名任务').strip()
+    description = (task_data.get('description') or '').strip()
+    html_files = task_data.get('html_files') or []
+    if not title:
+        raise ValueError('迁移包缺少任务标题')
+    if not original_api_id:
+        raise ValueError('迁移包缺少原 API ID')
+
+    new_api_id = _pick_task_id_keep_if_free(db, original_api_id)
+    static_uploads = _static_uploads_dir()
+    stored_list = []
+    online_base_norm = _normalize_base_url(ONLINE_QUICKFORM_BASE_URL)
+    local_base = _public_site_base_url().rstrip('/')
+
+    for html_file_info in html_files:
+        if not isinstance(html_file_info, dict):
+            continue
+        archive_name = (html_file_info.get('archive_name') or '').replace('\\', '/')
+        original_name = (html_file_info.get('original_name') or 'page.html').strip() or 'page.html'
+        if not archive_name or archive_name.startswith('/') or '..' in archive_name.split('/'):
+            continue
+        try:
+            body = zf.read(archive_name)
+        except KeyError:
+            continue
+        try:
+            text = body.decode('utf-8')
+        except UnicodeDecodeError:
+            text = body.decode('utf-8', errors='replace')
+        text = _rewrite_html_migration_endpoints(text, original_api_id, new_api_id, online_base_norm, local_base)
+        text = _rewrite_html_migration_endpoints(text, original_api_id, new_api_id, '', '')
+        if len(text.encode('utf-8')) > MAX_HTML_FILE_SIZE:
+            zf.close()
+            raise ValueError('某个 HTML 超过单文件大小限制（4MB）')
+        bio = io.BytesIO(text.encode('utf-8'))
+        fs = FileStorage(stream=bio, filename=original_name)
+        unique_filename, filepath = save_uploaded_file(fs, static_uploads, ALLOWED_EXTENSIONS)
+        if not unique_filename or not filepath:
+            zf.close()
+            raise ValueError('保存迁移 HTML 失败')
+        stored_list.append({'original_name': original_name, 'saved_name': unique_filename})
+
+    new_task = Task(
+        title=title,
+        description=description or None,
+        user_id=current_user.id,
+        task_id=new_api_id,
+        sharing_type='private',
+        organization_id=None,
+        file_name=None,
+        file_path=None,
+        html_files=None,
+    )
+    if stored_list:
+        new_task.html_files = json.dumps(stored_list, ensure_ascii=False)
+        new_task.file_name = stored_list[0]['original_name']
+        new_task.file_path = os.path.join(static_uploads, stored_list[0]['saved_name'])
+        if new_task.file_path and str(new_task.file_path).lower().endswith(('.html', '.htm')):
+            _auto_approve_task_html(new_task, current_user.id)
+
+    db.add(new_task)
+    db.flush()
+
+    for sub_info in task_data.get('submissions') or []:
+        if not isinstance(sub_info, dict):
+            continue
+        raw_data = sub_info.get('data', '{}')
+        if isinstance(raw_data, dict):
+            raw_str = json.dumps(raw_data, ensure_ascii=False)
+        else:
+            raw_str = str(raw_data)
+        if original_api_id and original_api_id != new_api_id:
+            raw_str = raw_str.replace(original_api_id, new_api_id)
+        db.add(Submission(task_id=new_task.id, data=raw_str, submitted_at=datetime.now()))
+
+    api_uploads = task_data.get('api_uploads') or []
+    if api_uploads:
+        upload_dir = os.path.join(UPLOAD_FOLDER, 'api_files', new_api_id)
+        os.makedirs(upload_dir, exist_ok=True)
+        for api_file_info in api_uploads:
+            if not isinstance(api_file_info, dict):
+                continue
+            arc_name = (api_file_info.get('archive_name') or '').replace('\\', '/')
+            original_name = (api_file_info.get('original_name') or '').strip()
+            if not arc_name or not original_name or arc_name.startswith('/') or '..' in arc_name.split('/'):
+                continue
+            try:
+                file_content = zf.read(arc_name)
+            except KeyError:
+                continue
+            save_path = os.path.join(upload_dir, os.path.basename(original_name))
+            with open(save_path, 'wb') as f:
+                f.write(file_content)
+
+    db.commit()
+    zf.close()
+    if new_task.file_path and str(new_task.file_path).lower().endswith(('.html', '.htm')):
+        try:
+            analyze_html_file(
+                new_task.id,
+                current_user.id,
+                new_task.file_path,
+                SessionLocal,
+                Task,
+                AIConfig,
+                read_file_content,
+                call_ai_model,
+            )
+        except Exception as ex:
+            logger.warning('ZIP 导入后自动分析 HTML 未启动: %s', ex)
+    return new_task, new_api_id, original_api_id
+
+
+@quickform_bp.route('/import_task', methods=['GET', 'POST'])
 @login_required
-def task_migration_import_page():
-    """任务迁移入口页：从在线版导入任务（列表选择 / 粘贴 API 地址）。"""
+def import_task():
+    """教师版 2.5 顶栏「导入任务」页面：在线列表 / 指定 URL / ZIP 文件。"""
     if not TASK_MIGRATION_ACTIVE:
         flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
         return redirect(url_for('quickform.dashboard'))
+    error = None
+    tasks = []
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+        auth_code = (request.form.get('auth_code') or '').strip()
+        base_url = _normalize_base_url(request.form.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
+        auth, err = _online_cli_auth_payload(username, password=password, auth_code=auth_code)
+        if err:
+            error = err
+        else:
+            try:
+                res = _online_cli_post(base_url, '/cli/list', auth, timeout_sec=20)
+                if res.get('success'):
+                    tasks = res.get('tasks') or []
+                    db = SessionLocal()
+                    try:
+                        _save_user_qf_config(
+                            db,
+                            current_user.id,
+                            auth['username'],
+                            password=auth.get('password') or '',
+                            auth_code=auth.get('auth_code') or '',
+                        )
+                    finally:
+                        db.close()
+                else:
+                    error = res.get('message') or '获取任务列表失败'
+            except Exception as e:
+                error = '请求失败: %s' % e
+    else:
+        tasks = _parse_import_task_list_param()
     db = SessionLocal()
     try:
-        qf_config = _get_user_qf_config(db, current_user.id)
+        qf_ready = _qf_config_has_online_auth(_get_user_qf_config(db, current_user.id))
     finally:
         db.close()
-    return render_template('task_migration_import.html', qf_config=qf_config)
+    return render_template(
+        'import_task.html',
+        tasks=tasks,
+        error=error,
+        qf_config_ready=qf_ready,
+    )
+
+
+@quickform_bp.route('/import_task_action/<string:apiid>')
+@login_required
+def import_task_action(apiid):
+    """教师版：从在线版导入单个任务（支持 ?ajax=1 返回 JSON）。"""
+    if not TASK_MIGRATION_ACTIVE:
+        flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
+        return redirect(url_for('quickform.import_task'))
+    task_name = request.args.get('task_name', '导入的任务')
+    is_ajax = request.args.get('ajax') == '1'
+    apiid = (apiid or '').strip()
+    if not apiid:
+        msg = '缺少 API ID'
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg})
+        flash(msg, 'danger')
+        return redirect(url_for('quickform.import_task'))
+
+    db = SessionLocal()
+    try:
+        pre = _import_task_precheck(db, url_for('quickform.import_task'))
+        if pre is not None:
+            return pre
+        auth, err = _resolve_online_credentials_from_request({}, db)
+        if err:
+            msg = '请先在「个人资料 → QFLink / 在线版」中配置在线账号，或先点击「获取全部任务」完成验证'
+            if is_ajax:
+                return jsonify({'success': False, 'message': msg})
+            flash(msg, 'danger')
+            return redirect(url_for('quickform.import_task'))
+        base_url = _normalize_base_url(ONLINE_QUICKFORM_BASE_URL)
+        task, meta = _campus_import_task_from_online(db, base_url, auth, apiid)
+        new_api_id = meta.get('new_apiid')
+        success_msg = '任务"%s"导入成功，API ID: %s' % (task.title or task_name, new_api_id)
+        if is_ajax:
+            return jsonify({
+                'success': True,
+                'message': success_msg,
+                'task_id': task.id,
+                'new_api_id': new_api_id,
+                'new_apiid': new_api_id,
+                'original_apiid': meta.get('old_apiid'),
+            })
+        flash(success_msg, 'success')
+        return redirect(url_for('quickform.task_detail', task_id=task.id))
+    except Exception as e:
+        db.rollback()
+        msg = '任务导入失败: %s' % e
+        logger.exception('import_task_action failed apiid=%s', apiid)
+        if is_ajax:
+            return jsonify({'success': False, 'message': msg})
+        flash(msg, 'danger')
+        return redirect(url_for('quickform.import_task'))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/import_task_by_url')
+@login_required
+def import_task_by_url():
+    """教师版：从粘贴的 API 地址解析 apiid 并导入。"""
+    if not TASK_MIGRATION_ACTIVE:
+        flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
+        return redirect(url_for('quickform.import_task'))
+    task_url = request.args.get('url', '')
+    apiid = _extract_apiid_from_api_url(task_url)
+    if not apiid:
+        flash('无效的任务 URL 格式', 'danger')
+        return redirect(url_for('quickform.import_task'))
+    return redirect(url_for(
+        'quickform.import_task_action',
+        apiid=apiid,
+        task_name='任务%s' % apiid,
+    ))
+
+
+@quickform_bp.route('/import_task_from_file', methods=['POST'])
+@login_required
+def import_task_from_file():
+    """教师版：从 quickform.cn 导出的 ZIP 文件导入任务。"""
+    if not TASK_MIGRATION_ACTIVE:
+        flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
+        return redirect(url_for('quickform.import_task'))
+    if 'task_file' not in request.files:
+        flash('没有文件上传', 'danger')
+        return redirect(url_for('quickform.import_task'))
+    file = request.files['task_file']
+    if not file or not file.filename:
+        flash('没有选择文件', 'danger')
+        return redirect(url_for('quickform.import_task'))
+
+    db = SessionLocal()
+    try:
+        pre = _import_task_precheck(db, url_for('quickform.import_task'))
+        if pre is not None:
+            return pre
+        raw = file.read()
+        new_task, new_api_id, old_api_id = _import_task_from_quickform_export_zip(raw, db)
+        info = ''
+        if old_api_id and old_api_id != new_api_id:
+            info = '（原 API %s 已存在，已分配为 %s）' % (old_api_id, new_api_id)
+        flash('任务"%s"导入成功，API ID: %s%s' % (new_task.title, new_api_id, info), 'success')
+        return redirect(url_for('quickform.task_detail', task_id=new_task.id))
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), 'danger')
+        return redirect(url_for('quickform.import_task'))
+    except Exception as e:
+        db.rollback()
+        logger.exception('import_task_from_file failed')
+        flash('导入失败: %s' % e, 'danger')
+        return redirect(url_for('quickform.import_task'))
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/api/qf/list', methods=['GET'])
+@login_required
+def api_qf_list():
+    """教师版：使用个人资料中保存的 QFLink 凭据拉取在线任务列表。"""
+    if not TASK_MIGRATION_ACTIVE:
+        return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
+    db = SessionLocal()
+    try:
+        cfg = _get_user_qf_config(db, current_user.id)
+        if not _qf_config_has_online_auth(cfg):
+            return jsonify({'success': False, 'message': '请先在「个人资料 → QFLink / 在线版」中配置用户名与密码或 CLI 授权码'}), 400
+        auth, err = _resolve_online_credentials_from_request({}, db)
+        if err:
+            return jsonify({'success': False, 'message': err}), 400
+        base_url = _normalize_base_url(ONLINE_QUICKFORM_BASE_URL)
+        res = _online_cli_post(base_url, '/cli/list', auth, timeout_sec=20)
+        if res.get('success'):
+            tasks = res.get('tasks') or []
+            normalized = []
+            for t in tasks:
+                if not isinstance(t, dict):
+                    continue
+                apiid = (t.get('apiid') or '').strip()
+                if not apiid:
+                    continue
+                name = (t.get('name') or t.get('title') or '').strip()
+                normalized.append({
+                    'apiid': apiid,
+                    'name': name,
+                    'task_name': name,
+                    'title': name,
+                    'task_intro': (t.get('intro') or t.get('description') or '').strip(),
+                })
+            return jsonify({'success': True, 'tasks': normalized})
+        return jsonify({'success': False, 'message': res.get('message') or '认证失败'}), 401
+    except requests.RequestException as e:
+        return jsonify({'success': False, 'message': '连接失败: %s' % e}), 502
+    except Exception as e:
+        logger.exception('api_qf_list failed')
+        return jsonify({'success': False, 'message': str(e) or '获取失败'}), 500
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/task/migration', methods=['GET'])
+@login_required
+def task_migration_import_page():
+    """兼容旧入口：重定向到教师版同款「导入任务」页。"""
+    if not TASK_MIGRATION_ACTIVE:
+        flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
+        return redirect(url_for('quickform.dashboard'))
+    return redirect(url_for('quickform.import_task'))
 
 
 @quickform_bp.route('/task/migration/online/list', methods=['POST'])

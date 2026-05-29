@@ -99,10 +99,13 @@ python app.py
 - **APIID 已存在**：自动重新生成新的 APIID
 - 会下载任务的 **HTML 附件** 并将其中的接口地址从在线版改写为本系统的接口地址
 
-入口：
+入口（与教师版 2.5 一致）：
 
+- 顶栏导航 **「导入任务」**
 - 仪表盘右上角用户菜单的「导入任务」
-- 或直接访问：`/task/migration`
+- 或直接访问：`/import_task`（旧路径 `/task/migration` 会自动跳转）
+
+使用前请在 **个人资料 → QFLink / 在线版** 保存 quickform.cn 用户名与密码或 CLI 授权码。支持从 ZIP 文件导入（quickform.cn 导出的迁移包）。
 
 ## 文档索引
 

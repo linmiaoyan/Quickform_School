@@ -1,13 +1,29 @@
-/* QuickForm 统一样式系统 - 深蓝色主题 */
+/* QuickForm 校园版统一样式 — 淡绿 / 青绿 / 麦绿 */
 
 /* ========== 配色变量 ========== */
 :root {
-    --primary-blue: #2563eb;        /* 主色调：偏亮的正蓝色 */
-    --primary-blue-dark: #1d4ed8;   /* 主色调深色 */
-    --primary-blue-light: #3b82f6;  /* 主色调浅色 */
+    /* 青绿（主色） */
+    --qf-green-deep: #0f766e;
+    --qf-green-primary: #0d9488;
+    --qf-green-mid: #14b8a6;
+    --qf-green-bright: #2dd4bf;
+  /* 淡绿（背景 / 浅强调） */
+    --qf-green-pale: #a7f3d0;
+    --qf-green-mist: #d1fae5;
+    --qf-bg-top: #f4fbf7;
+    --qf-bg-bottom: #ecfdf5;
+    /* 麦绿（点缀 / 渐变暖调） */
+    --qf-wheat: #b5c48a;
+    --qf-wheat-light: #d4dfb8;
+
+    /* 兼容旧命名（模板与脚本可能仍引用） */
+    --primary-blue: var(--qf-green-primary);
+    --primary-blue-dark: var(--qf-green-deep);
+    --primary-blue-light: var(--qf-green-mid);
+
     --bg-white: #ffffff;
-    --bg-light: #f5f5f5;
-    --bg-gray: #f9fafb;
+    --bg-light: #f4fbf7;
+    --bg-gray: #f0fdf9;
     --text-primary: #111827;
     --text-secondary: #6b7280;
     --text-muted: #9ca3af;
@@ -15,14 +31,59 @@
     --success-color: #10b981;
     --warning-color: #f59e0b;
     --danger-color: #ef4444;
-    --info-color: #3b82f6;
+    --info-color: var(--qf-green-mid);
+
+    --qf-navbar-gradient: linear-gradient(
+        148deg,
+        var(--qf-green-deep) 0%,
+        var(--qf-green-primary) 52%,
+        #10b981 88%
+    );
+    --qf-card-header-gradient: linear-gradient(
+        148deg,
+        var(--qf-green-deep) 0%,
+        var(--qf-green-primary) 62%,
+        #10b981 100%
+    );
+    --qf-shadow-primary: rgba(13, 148, 136, 0.28);
+    --qf-shadow-soft: rgba(15, 118, 110, 0.12);
+    --qf-focus-ring: rgba(13, 148, 136, 0.18);
+}
+
+/* ========== Bootstrap 主色覆盖 ========== */
+.btn-primary {
+    background-color: var(--qf-green-primary) !important;
+    border-color: var(--qf-green-primary) !important;
+}
+.btn-primary:hover,
+.btn-primary:focus {
+    background-color: var(--qf-green-deep) !important;
+    border-color: var(--qf-green-deep) !important;
+}
+.btn-outline-primary {
+    color: var(--qf-green-primary) !important;
+    border-color: var(--qf-green-primary) !important;
+}
+.btn-outline-primary:hover {
+    background-color: var(--qf-green-primary) !important;
+    border-color: var(--qf-green-primary) !important;
+    color: #fff !important;
+}
+.text-primary {
+    color: var(--qf-green-primary) !important;
+}
+.border-primary {
+    border-color: var(--qf-green-primary) !important;
+}
+.bg-primary {
+    background-color: var(--qf-green-primary) !important;
 }
 
 /* ========== 统一菜单栏样式 ========== */
 .top-navbar {
-    background-color: var(--primary-blue);
+    background: var(--qf-navbar-gradient);
     padding: 15px 0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 8px var(--qf-shadow-soft);
     position: sticky;
     top: 0;
     z-index: 1000;
@@ -38,7 +99,7 @@
     gap: 30px;
 }
 
-.nav-link {
+.top-navbar .nav-link {
     color: white;
     text-decoration: none;
     font-size: 16px;
@@ -48,12 +109,12 @@
     transition: all 0.2s ease;
 }
 
-.nav-link:hover {
+.top-navbar .nav-link:hover {
     background-color: rgba(255, 255, 255, 0.15);
     color: white;
 }
 
-.nav-link.active {
+.top-navbar .nav-link.active {
     background-color: rgba(255, 255, 255, 0.25);
 }
 
@@ -64,22 +125,8 @@
     padding: 20px;
 }
 
-/* ========== 主页样式 ========== */
-body {
-    font-family: 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-    background-color: var(--bg-light);
-    color: var(--text-primary);
-}
-
-header {
-    text-align: center;
-    margin-bottom: 30px;
-}
-
-h1 {
-    color: var(--primary-blue);
+header h1 {
+    color: var(--qf-green-primary);
     margin-bottom: 10px;
     font-weight: 700;
 }
@@ -101,7 +148,7 @@ h1 {
 }
 
 .assistant-card h2 {
-    color: var(--primary-blue);
+    color: var(--qf-green-primary);
     margin-top: 0;
     font-weight: 700;
 }
@@ -114,7 +161,7 @@ h1 {
 
 .assistant-card a {
     display: inline-block;
-    background-color: var(--primary-blue);
+    background-color: var(--qf-green-primary);
     color: white;
     text-decoration: none;
     padding: 10px 20px;
@@ -124,9 +171,9 @@ h1 {
 }
 
 .assistant-card a:hover {
-    background-color: var(--primary-blue-dark);
+    background-color: var(--qf-green-deep);
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
+    box-shadow: 0 4px 8px var(--qf-shadow-primary);
 }
 
 .ai-assistants {
@@ -173,15 +220,6 @@ h1 {
 }
 
 /* ========== 状态标签样式 ========== */
-.status-badge {
-    display: inline-block;
-    padding: 0.5rem 0.875rem;
-    border-radius: 20px;
-    font-weight: 500;
-    font-size: 0.875rem;
-    line-height: 1;
-}
-
 .status-badge.running {
     background-color: var(--info-color);
     color: white;
@@ -242,14 +280,14 @@ footer {
 
 .admin-sidebar .sidebar-item:hover {
     background-color: var(--bg-gray);
-    color: var(--primary-blue);
-    border-left-color: var(--primary-blue);
+    color: var(--qf-green-primary);
+    border-left-color: var(--qf-green-primary);
 }
 
 .admin-sidebar .sidebar-item.active {
-    background-color: rgba(37, 99, 235, 0.1);
-    color: var(--primary-blue);
-    border-left-color: var(--primary-blue);
+    background-color: rgba(13, 148, 136, 0.1);
+    color: var(--qf-green-deep);
+    border-left-color: var(--qf-green-primary);
     font-weight: 600;
 }
 
@@ -273,48 +311,47 @@ footer {
         gap: 8px;
         padding: 0 15px;
     }
-    
-    .nav-link {
+
+    .top-navbar .nav-link {
         font-size: 14px;
         padding: 8px 12px;
         flex: 1 1 auto;
         min-width: 0;
         text-align: center;
     }
-    
+
     .main-container {
         padding: 15px;
     }
-    
+
     header {
         margin-bottom: 20px;
     }
-    
+
     header h1 {
         font-size: 1.5rem;
     }
-    
+
     .ai-assistants {
         flex-direction: column;
         align-items: stretch;
         gap: 15px;
         margin: 20px 0;
     }
-    
+
     .assistant-card {
         width: 100%;
         max-width: 100%;
     }
-    
+
     .stat-card .stat-number {
         font-size: 1.5rem;
     }
-    
-    /* 移动端侧边栏改为顶部导航 */
+
     .admin-layout {
         flex-direction: column;
     }
-    
+
     .admin-sidebar {
         width: 100%;
         height: auto;
@@ -326,19 +363,19 @@ footer {
         display: flex;
         overflow-x: auto;
     }
-    
+
     .admin-sidebar .sidebar-item {
         white-space: nowrap;
         border-left: none;
         border-bottom: 3px solid transparent;
     }
-    
+
     .admin-sidebar .sidebar-item:hover,
     .admin-sidebar .sidebar-item.active {
         border-left: none;
-        border-bottom-color: var(--primary-blue);
+        border-bottom-color: var(--qf-green-primary);
     }
-    
+
     .admin-content {
         padding: 1rem;
     }
@@ -349,43 +386,42 @@ footer {
         flex-direction: column;
         gap: 5px;
     }
-    
-    .nav-link {
+
+    .top-navbar .nav-link {
         width: 100%;
         padding: 10px;
     }
-    
+
     .main-container {
         padding: 10px;
     }
-    
+
     header h1 {
         font-size: 1.3rem;
     }
-    
+
     header p {
         font-size: 0.9rem;
     }
-    
+
     .assistant-card {
         padding: 15px;
     }
-    
+
     .assistant-card h2 {
         font-size: 1.2rem;
     }
-    
+
     .assistant-card p {
         font-size: 0.9rem;
     }
-    
+
     .assistant-card a {
         width: 100%;
         padding: 10px;
     }
-    
+
     .stat-card .stat-number {
         font-size: 1.25rem;
     }
 }
-
