@@ -38,13 +38,13 @@
                      value="{{ qf_config.username if qf_config and qf_config.username else '' }}">
             </div>
             <div class="col-md-6">
-              <label class="form-label">密码 或 CLI 授权码</label>
+              <label class="form-label">密码 或 QFLink 授权码</label>
               <input type="password" class="form-control" id="qf-online-password" autocomplete="current-password"
                      placeholder="密码（与授权码二选一）">
             </div>
             <div class="col-12">
-              <label class="form-label">CLI 授权码（可选，与密码二选一）</label>
-              <input type="text" class="form-control" id="qf-online-auth-code" autocomplete="off"
+              <label class="form-label">QFLink 授权码（可选，与密码二选一）</label>
+              <input type="password" class="form-control" id="qf-online-auth-code" autocomplete="off"
                      placeholder="qf 开头授权码；填写后优先使用授权码"
                      value="{{ qf_config.auth_code if qf_config and qf_config.auth_code else '' }}">
             </div>

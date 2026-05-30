@@ -91,8 +91,8 @@
                     <!-- QFLink / 在线版凭据（任务迁移） -->
                     <div class="tab-pane fade" id="qf">
                         <div class="alert alert-info small">
-                            在 <a href="https://quickform.cn/" target="_blank" rel="noopener">quickform.cn</a> 调试任务后，可在此保存账号或 CLI 授权码，供「任务迁移」自动填充。
-                            授权码用法：<strong>用户名 + 授权码</strong>（无需密码），见 <a href="https://quickform.cn/cli" target="_blank" rel="noopener">CLI 说明</a>。
+                            在 <a href="https://quickform.cn/" target="_blank" rel="noopener">quickform.cn</a> 调试任务后，可在此保存账号或 QFLink 授权码，供「任务迁移」自动填充。
+                            授权码用法：<strong>用户名 + QFLink 授权码</strong>（无需密码），见 <a href="https://quickform.cn/cli" target="_blank" rel="noopener">QFLink 说明</a>。
                         </div>
                         <form method="POST" action="{{ url_for('quickform.profile') }}" id="qfProfileForm">
                             <input type="hidden" name="update_qf_config" value="1">
@@ -107,8 +107,8 @@
                                        value="{{ qf_config.password if qf_config and qf_config.password else '' }}" autocomplete="new-password">
                             </div>
                             <div class="form-group mb-3">
-                                <label for="qf_auth_code" class="form-label" style="color: #000; font-weight: 500;">CLI 授权码（与密码二选一）</label>
-                                <input type="text" class="form-control" id="qf_auth_code" name="qf_auth_code"
+                                <label for="qf_auth_code" class="form-label" style="color: #000; font-weight: 500;">QFLink 授权码（与密码二选一）</label>
+                                <input type="password" class="form-control" id="qf_auth_code" name="qf_auth_code"
                                        value="{{ qf_config.auth_code if qf_config and qf_config.auth_code else '' }}" autocomplete="off"
                                        placeholder="qf 开头授权码">
                             </div>
@@ -246,6 +246,50 @@
                                 <div id="test-ai-result" class="mt-2 small"></div>
                                 <p class="small text-muted mt-3 mb-0">测试将使用当前选择的模型及上方填写的密钥（无需先保存），便于切换不同 API 后立即验证。</p>
                             </div>
+
+                        <div class="card mt-4">
+                            <div class="card-header">
+                                <h5 class="mb-0">API Key 获取指南</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>每个服务商需要分别注册和获取相应的密钥，密钥获取的注册网址和 key 的获取方式如下表所示（右拉可查看如何获取 key）：</p>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>服务商</th>
+                                                <th>注册/控制台链接</th>
+                                                <th>获取方式</th>
+                                                <th>备注</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>硅基流动</td>
+                                                <td><a href="https://www.siliconflow.cn/" target="_blank" rel="noopener">https://www.siliconflow.cn/</a></td>
+                                                <td>登陆后即可看到「API 密钥」</td>
+                                                <td>
+                                                    <button type="button"
+                                                            class="btn btn-sm btn-primary text-nowrap"
+                                                            data-bs-toggle="modal"
+                                                            data-bs-target="#sfSupportModal"
+                                                            style="font-weight: 600; white-space: nowrap;">
+                                                        <i class="bi bi-heart-fill me-1"></i>支持我们
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            <tr><td>deepseek(深度求索)</td><td><a href="https://platform.deepseek.com/api_keys" target="_blank">https://platform.deepseek.com/api_keys</a></td><td>左侧 API keys - 创建 API key</td><td>500万 tokens（注意要去首页认证领取）</td></tr>
+                                            <tr><td>阿里云百炼</td><td><a href="https://dashscope.console.aliyun.com/apiKey" target="_blank">https://dashscope.console.aliyun.com/apiKey</a></td><td>API-KEY 管理 - 创建新的 API-KEY Key</td><td>无</td></tr>
+                                            <tr><td>豆包（火山引擎）</td><td><a href="https://console.volcengine.com/home" target="_blank">https://console.volcengine.com/home</a></td><td>在「火山方舟」中选「API Key 管理」</td><td>50万 tokens</td></tr>
+                                            <tr><td>moonshot(月之暗面)</td><td><a href="https://platform.moonshot.cn/console/api-keys" target="_blank">https://platform.moonshot.cn/console/api-keys</a></td><td>左侧 API Key 管理 - 新建</td><td>15.00 元（认证后领取）</td></tr>
+                                            <tr><td>glm(智谱清言)</td><td><a href="https://open.bigmodel.cn/usercenter/apikeys" target="_blank">https://open.bigmodel.cn/usercenter/apikeys</a></td><td>左侧 API keys - 创建 API key</td><td>2500万 tokens（有效期1个月）</td></tr>
+                                            <tr><td>ernie(文心一言)</td><td><a href="https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application" target="_blank">百度千帆控制台</a></td><td>左侧应用接入 - 创建应用（不能重名）- 同时需要 API Key 与 Secret Key</td><td>无（注意要实名认证开启服务，可在个人中心确认）</td></tr>
+                                            <tr><td>openrouter（AI模型聚合平台）</td><td><a href="https://openrouter.ai/settings/keys" target="_blank">https://openrouter.ai/settings/keys</a></td><td>创建 API Key</td><td>—</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- 密码修改标签页 -->
@@ -273,51 +317,6 @@
                         </form>
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <div class="card">
-            <div class="card-header ">
-                <h5 class="mb-0">API Key 获取指南</h5>
-            </div>
-            <div class="card-body">
-                <p>每个服务商需要分别注册和获取相应的密钥，密钥获取的注册网址和 key 的获取方式如下表所示（右拉可查看如何获取 key）：</p>
-                <div class="table-responsive">
-                    <table class="table table-bordered table-sm">
-                        <thead>
-                            <tr>
-                                <th>服务商</th>
-                                <th>注册/控制台链接</th>
-                                <th>获取方式</th>
-                                <th>备注</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>硅基流动</td>
-                                <td><a href="https://www.siliconflow.cn/" target="_blank" rel="noopener">https://www.siliconflow.cn/</a></td>
-                                <td>登陆后即可看到「API 密钥」</td>
-                                <td>
-                                    <button type="button"
-                                            class="btn btn-sm btn-primary text-nowrap"
-                                            data-bs-toggle="modal"
-                                            data-bs-target="#sfSupportModal"
-                                            style="font-weight: 600; white-space: nowrap;">
-                                        <i class="bi bi-heart-fill me-1"></i>支持我们
-                                    </button>
-                                </td>
-                            </tr>
-                            <tr><td>deepseek(深度求索)</td><td><a href="https://platform.deepseek.com/api_keys" target="_blank">https://platform.deepseek.com/api_keys</a></td><td>左侧 API keys - 创建 API key</td><td>500万 tokens（注意要去首页认证领取）</td></tr>
-                            <tr><td>阿里云百炼</td><td><a href="https://dashscope.console.aliyun.com/apiKey" target="_blank">https://dashscope.console.aliyun.com/apiKey</a></td><td>API-KEY 管理 - 创建新的 API-KEY Key</td><td>无</td></tr>
-                            <tr><td>豆包（火山引擎）</td><td><a href="https://console.volcengine.com/home" target="_blank">https://console.volcengine.com/home</a></td><td>在「火山方舟」中选「API Key 管理」</td><td>50万 tokens</td></tr>
-                            <tr><td>moonshot(月之暗面)</td><td><a href="https://platform.moonshot.cn/console/api-keys" target="_blank">https://platform.moonshot.cn/console/api-keys</a></td><td>左侧 API Key 管理 - 新建</td><td>15.00 元（认证后领取）</td></tr>
-                            <tr><td>glm(智谱清言)</td><td><a href="https://open.bigmodel.cn/usercenter/apikeys" target="_blank">https://open.bigmodel.cn/usercenter/apikeys</a></td><td>左侧 API keys - 创建 API key</td><td>2500万 tokens（有效期1个月）</td></tr>
-                            <tr><td>ernie(文心一言)</td><td><a href="https://console.bce.baidu.com/qianfan/ais/console/applicationConsole/application" target="_blank">百度千帆控制台</a></td><td>左侧应用接入 - 创建应用（不能重名）- 同时需要 API Key 与 Secret Key</td><td>无（注意要实名认证开启服务，可在个人中心确认）</td></tr>
-                            <tr><td>openrouter（AI模型聚合平台）</td><td><a href="https://openrouter.ai/settings/keys" target="_blank">https://openrouter.ai/settings/keys</a></td><td>创建 API Key</td><td>—</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-
             </div>
         </div>
     </div>

@@ -2011,7 +2011,7 @@ def _online_cli_auth_payload(username: str, password: str = '', auth_code: str =
         return {'username': u, 'auth_code': code}, None
     if pwd:
         return {'username': u, 'password': pwd}, None
-    return None, '缺少在线版密码或 CLI 授权码'
+    return None, '缺少在线版密码或 QFLink 授权码'
 
 
 def _get_user_qf_config(db, user_id):
@@ -2086,7 +2086,7 @@ def _qflink_verify_via_getuser(
     if not username:
         return False, '请输入 quickform.cn 用户名', {}
     if not auth_code and not password:
-        return False, '缺少在线版密码或 CLI 授权码', {}
+        return False, '缺少在线版密码或 QFLink 授权码', {}
 
     url = f"{ONLINE_CLI_BASE_URL.rstrip('/')}/cli/getuser"
     timeout = max(3, int(os.getenv('QFLINK_VERIFY_TIMEOUT_SECONDS', str(ONLINE_CLI_TIMEOUT_SECONDS))))
@@ -6207,6 +6207,140 @@ def _parse_import_task_list_param():
     return _normalize_import_task_rows(raw)
 
 
+def _migration_read_manifest_from_zip(zf):
+    """从 ZIP 读取迁移清单，兼容 quickform.cn 导出包多种命名。"""
+    candidates = [
+        TASK_MIGRATION_MANIFEST,
+        'quickform-task-export.json',
+        'task_export.json',
+    ]
+    for name in candidates:
+        try:
+            raw = zf.read(name)
+            return json.loads(raw.decode('utf-8')), name
+        except KeyError:
+            continue
+        except Exception:
+            raise ValueError('迁移清单 JSON 解析失败')
+    for info in zf.infolist():
+        n = (info.filename or '').replace('\\', '/').lstrip('./')
+        if not n.endswith('.json') or '/' in n.rstrip('/'):
+            continue
+        try:
+            raw = zf.read(info.filename)
+            data = json.loads(raw.decode('utf-8'))
+        except Exception:
+            continue
+        if isinstance(data, dict) and ((data.get('api_id') or '').strip() or (data.get('title') or '').strip()):
+            return data, n
+    raise ValueError('压缩包内缺少迁移清单 JSON（%s 等）' % TASK_MIGRATION_MANIFEST)
+
+
+def _migration_collect_upload_entries(task_data):
+    uploads = task_data.get('api_uploads')
+    if uploads is None:
+        uploads = task_data.get('attachments')
+    if not isinstance(uploads, list):
+        return []
+    return uploads
+
+
+def _migration_rewrite_submission_data(raw_str, old_api_id, new_api_id, file_map=None, online_base='', local_base=''):
+    if not raw_str:
+        return raw_str
+    s = str(raw_str)
+    if old_api_id and new_api_id and old_api_id != new_api_id:
+        s = s.replace(old_api_id, new_api_id)
+    online_base_norm = _normalize_base_url(online_base) if online_base else ''
+    if online_base_norm and local_base:
+        s = s.replace(online_base_norm, local_base.rstrip('/'))
+    if file_map:
+        for old_ref, new_ref in sorted(file_map.items(), key=lambda x: -len(str(x[0] or ''))):
+            if old_ref and old_ref in s:
+                s = s.replace(old_ref, new_ref)
+    if old_api_id and new_api_id:
+        s = s.replace('/uploads/api_files/%s/' % old_api_id, '/static/uploads/%s/' % new_api_id)
+        if old_api_id != new_api_id:
+            s = s.replace('/uploads/api_files/%s/' % new_api_id, '/static/uploads/%s/' % new_api_id)
+    return s
+
+
+def _migration_import_api_uploads(zf, upload_entries, new_api_id, old_api_id):
+    """解压多模态附件到 static/uploads/<api_id>/，返回旧路径到新 URL 的映射。"""
+    import uuid as _uuid
+
+    if not upload_entries:
+        return {}
+    upload_dir = _api_upload_dir_for_task(new_api_id)
+    file_map = {}
+    used_names = set()
+
+    for api_file_info in upload_entries:
+        if not isinstance(api_file_info, dict):
+            continue
+        arc_name = (api_file_info.get('archive_name') or api_file_info.get('path') or '').replace('\\', '/')
+        original_name = (api_file_info.get('original_name') or api_file_info.get('name') or '').strip()
+        if not arc_name:
+            continue
+        if arc_name.startswith('/') or '..' in arc_name.split('/'):
+            continue
+        try:
+            file_content = zf.read(arc_name)
+        except KeyError:
+            continue
+        save_name = os.path.basename(original_name) if original_name else os.path.basename(arc_name)
+        if not save_name or save_name in ('.', '..'):
+            save_name = _uuid.uuid4().hex[:10]
+        if save_name in used_names:
+            stem, ext = os.path.splitext(save_name)
+            save_name = '%s_%s%s' % (_uuid.uuid4().hex[:6], stem, ext)
+        used_names.add(save_name)
+        save_path = os.path.join(upload_dir, save_name)
+        with open(save_path, 'wb') as f:
+            f.write(file_content)
+        new_url = '/static/uploads/%s/%s' % (new_api_id, save_name)
+        refs = {save_name, new_url}
+        if original_name:
+            refs.add(original_name)
+            refs.add(os.path.basename(original_name))
+        if old_api_id:
+            refs.add('/static/uploads/%s/%s' % (old_api_id, os.path.basename(save_name)))
+            refs.add('/uploads/api_files/%s/%s' % (old_api_id, os.path.basename(save_name)))
+        for ref in refs:
+            if ref:
+                file_map[ref] = new_url
+    return file_map
+
+
+def _migration_import_submissions(db, task_data, new_task_id, old_api_id, new_api_id, file_map=None):
+    """导入 ZIP 包中的 submissions，并重写附件路径。"""
+    online_base = _normalize_base_url(task_data.get('export_api_base') or ONLINE_QUICKFORM_BASE_URL)
+    local_base = _public_site_base_url().rstrip('/')
+    imported = 0
+    for sub_info in task_data.get('submissions') or []:
+        if not isinstance(sub_info, dict):
+            continue
+        raw_data = sub_info.get('data', sub_info)
+        if isinstance(raw_data, dict):
+            raw_str = json.dumps(raw_data, ensure_ascii=False)
+        else:
+            raw_str = str(raw_data)
+        raw_str = _migration_rewrite_submission_data(
+            raw_str, old_api_id, new_api_id, file_map=file_map,
+            online_base=online_base, local_base=local_base,
+        )
+        submitted_at = datetime.now()
+        ts = sub_info.get('submitted_at') or sub_info.get('created_at')
+        if ts:
+            try:
+                submitted_at = datetime.fromisoformat(str(ts).replace('Z', '+00:00').split('+')[0])
+            except Exception:
+                pass
+        db.add(Submission(task_id=new_task_id, data=raw_str, submitted_at=submitted_at))
+        imported += 1
+    return imported
+
+
 def _import_task_from_quickform_export_zip(raw: bytes, db):
     """从 quickform.cn 导出的 ZIP 迁移包导入任务（教师版 2.5 import_task_from_file 同款）。"""
     max_zip = _migration_zip_max_bytes()
@@ -6221,12 +6355,10 @@ def _import_task_from_quickform_export_zip(raw: bytes, db):
         zf.close()
         raise ValueError(err or '迁移包校验失败')
     try:
-        man_raw = zf.read(TASK_MIGRATION_MANIFEST)
-    except KeyError:
+        task_data, _manifest_name = _migration_read_manifest_from_zip(zf)
+    except ValueError as e:
         zf.close()
-        raise ValueError('压缩包内缺少 %s' % TASK_MIGRATION_MANIFEST)
-    try:
-        task_data = json.loads(man_raw.decode('utf-8'))
+        raise
     except Exception:
         zf.close()
         raise ValueError('迁移清单 JSON 解析失败')
@@ -6295,36 +6427,9 @@ def _import_task_from_quickform_export_zip(raw: bytes, db):
     db.add(new_task)
     db.flush()
 
-    for sub_info in task_data.get('submissions') or []:
-        if not isinstance(sub_info, dict):
-            continue
-        raw_data = sub_info.get('data', '{}')
-        if isinstance(raw_data, dict):
-            raw_str = json.dumps(raw_data, ensure_ascii=False)
-        else:
-            raw_str = str(raw_data)
-        if original_api_id and original_api_id != new_api_id:
-            raw_str = raw_str.replace(original_api_id, new_api_id)
-        db.add(Submission(task_id=new_task.id, data=raw_str, submitted_at=datetime.now()))
-
-    api_uploads = task_data.get('api_uploads') or []
-    if api_uploads:
-        upload_dir = os.path.join(UPLOAD_FOLDER, 'api_files', new_api_id)
-        os.makedirs(upload_dir, exist_ok=True)
-        for api_file_info in api_uploads:
-            if not isinstance(api_file_info, dict):
-                continue
-            arc_name = (api_file_info.get('archive_name') or '').replace('\\', '/')
-            original_name = (api_file_info.get('original_name') or '').strip()
-            if not arc_name or not original_name or arc_name.startswith('/') or '..' in arc_name.split('/'):
-                continue
-            try:
-                file_content = zf.read(arc_name)
-            except KeyError:
-                continue
-            save_path = os.path.join(upload_dir, os.path.basename(original_name))
-            with open(save_path, 'wb') as f:
-                f.write(file_content)
+    upload_entries = _migration_collect_upload_entries(task_data)
+    file_map = _migration_import_api_uploads(zf, upload_entries, new_api_id, original_api_id)
+    _migration_import_submissions(db, task_data, new_task.id, original_api_id, new_api_id, file_map=file_map)
 
     db.commit()
     zf.close()
@@ -6522,7 +6627,7 @@ def api_qf_list():
     try:
         cfg = _get_user_qf_config(db, current_user.id)
         if not _qf_config_has_online_auth(cfg):
-            return jsonify({'success': False, 'message': '请先在「个人资料 → QFLink / 在线版」中配置用户名与密码或 CLI 授权码'}), 400
+            return jsonify({'success': False, 'message': '请先在「个人资料 → QFLink / 在线版」中配置用户名与密码或 QFLink 授权码'}), 400
         auth, err = _resolve_online_credentials_from_request({}, db)
         if err:
             return jsonify({'success': False, 'message': err}), 400
@@ -6789,7 +6894,16 @@ def _task_migration_export_impl(task_id):
             'tutorial_link': (getattr(task, 'tutorial_link', None) or '') or '',
             'export_api_base': export_base,
             'html_files': [],
+            'submissions': [],
+            'api_uploads': [],
         }
+
+        subs = db.query(Submission).filter_by(task_id=task.id).order_by(Submission.submitted_at.asc()).all()
+        for sub in subs:
+            manifest['submissions'].append({
+                'data': sub.data,
+                'submitted_at': sub.submitted_at.isoformat(timespec='seconds') if sub.submitted_at else None,
+            })
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
@@ -6808,6 +6922,22 @@ def _task_migration_export_impl(task_id):
                     logger.warning('迁移导出跳过缺失文件: %s', row.get('abs_path'))
                     continue
                 manifest['html_files'].append({'original_name': orig, 'archive_name': arc})
+
+            api_id = manifest['api_id']
+            upload_dir = _api_upload_dir_for_task(api_id)
+            if os.path.isdir(upload_dir):
+                for fn in sorted(os.listdir(upload_dir)):
+                    fp = os.path.join(upload_dir, fn)
+                    if not os.path.isfile(fp):
+                        continue
+                    arc = 'api_uploads/%s' % fn
+                    try:
+                        with open(fp, 'rb') as fh:
+                            zf.writestr(arc, fh.read())
+                    except OSError:
+                        logger.warning('迁移导出跳过缺失附件: %s', fp)
+                        continue
+                    manifest['api_uploads'].append({'original_name': fn, 'archive_name': arc})
 
             zf.writestr(
                 TASK_MIGRATION_MANIFEST,
@@ -6892,20 +7022,19 @@ def _task_migration_import_impl():
                 zf.close()
                 return redirect(next_url)
             try:
-                man_raw = zf.read(TASK_MIGRATION_MANIFEST)
-            except KeyError:
+                data, _manifest_name = _migration_read_manifest_from_zip(zf)
+            except ValueError as e:
                 zf.close()
-                flash('ZIP 中缺少 %s，请使用本站「导出任务」生成的迁移包' % TASK_MIGRATION_MANIFEST, 'danger')
+                flash(str(e), 'danger')
                 return redirect(next_url)
-            try:
-                data = json.loads(man_raw.decode('utf-8'))
             except Exception:
                 zf.close()
                 flash('迁移清单 JSON 解析失败', 'danger')
                 return redirect(next_url)
-            zf.close()
 
-            if int(data.get('template_version') or 0) < 2:
+            ver = int(data.get('template_version') or 0)
+            if ver > 0 and ver < 2:
+                zf.close()
                 flash('迁移包版本过低或损坏', 'danger')
                 return redirect(next_url)
 
@@ -6941,52 +7070,52 @@ def _task_migration_import_impl():
                 # 按规则：若本地不存在该 APIID，则沿用；若已存在则重新生成一个。
                 new_api_id = _pick_task_id_keep_if_free(db, old_api_id)
             except RuntimeError:
+                zf.close()
                 flash('无法分配新的 API ID，请稍后重试', 'danger')
                 return redirect(next_url)
 
-            zf = zipfile.ZipFile(io.BytesIO(raw))
             static_uploads = _static_uploads_dir()
             stored_list = []
-            try:
-                for entry in data.get('html_files') or []:
-                    if not isinstance(entry, dict):
-                        continue
-                    arc = entry.get('archive_name')
-                    oname = (entry.get('original_name') or 'page.html').strip() or 'page.html'
-                    if not isinstance(arc, str) or not arc:
-                        continue
-                    arc_norm = arc.replace('\\', '/')
-                    if arc_norm.startswith('/') or '..' in arc_norm.split('/'):
-                        continue
-                    try:
-                        body = zf.read(arc_norm)
-                    except KeyError:
-                        continue
-                    try:
-                        text = body.decode('utf-8')
-                    except UnicodeDecodeError:
-                        text = body.decode('utf-8', errors='replace')
+            for entry in data.get('html_files') or []:
+                if not isinstance(entry, dict):
+                    continue
+                arc = entry.get('archive_name')
+                oname = (entry.get('original_name') or 'page.html').strip() or 'page.html'
+                if not isinstance(arc, str) or not arc:
+                    continue
+                arc_norm = arc.replace('\\', '/')
+                if arc_norm.startswith('/') or '..' in arc_norm.split('/'):
+                    continue
+                try:
+                    body = zf.read(arc_norm)
+                except KeyError:
+                    continue
+                try:
+                    text = body.decode('utf-8')
+                except UnicodeDecodeError:
+                    text = body.decode('utf-8', errors='replace')
 
-                    if rewrite_host and ob and nb:
-                        text = _rewrite_html_migration_endpoints(text, old_api_id, new_api_id, ob, nb)
-                    else:
-                        text = _rewrite_html_migration_endpoints(text, old_api_id, new_api_id, '', '')
+                if rewrite_host and ob and nb:
+                    text = _rewrite_html_migration_endpoints(text, old_api_id, new_api_id, ob, nb)
+                else:
+                    text = _rewrite_html_migration_endpoints(text, old_api_id, new_api_id, '', '')
 
-                    if len(text.encode('utf-8')) > MAX_HTML_FILE_SIZE:
-                        flash('某个 HTML 超过单文件大小限制（4MB），请压缩后重新导出', 'warning')
-                        return redirect(next_url)
+                if len(text.encode('utf-8')) > MAX_HTML_FILE_SIZE:
+                    zf.close()
+                    flash('某个 HTML 超过单文件大小限制（4MB），请压缩后重新导出', 'warning')
+                    return redirect(next_url)
 
-                    bio = io.BytesIO(text.encode('utf-8'))
-                    fs = FileStorage(stream=bio, filename=oname)
-                    unique_filename, filepath = save_uploaded_file(fs, static_uploads, ALLOWED_EXTENSIONS)
-                    if not unique_filename or not filepath:
-                        flash('保存迁移 HTML 失败', 'danger')
-                        return redirect(next_url)
-                    stored_list.append({'original_name': oname, 'saved_name': unique_filename})
-            finally:
-                zf.close()
+                bio = io.BytesIO(text.encode('utf-8'))
+                fs = FileStorage(stream=bio, filename=oname)
+                unique_filename, filepath = save_uploaded_file(fs, static_uploads, ALLOWED_EXTENSIONS)
+                if not unique_filename or not filepath:
+                    zf.close()
+                    flash('保存迁移 HTML 失败', 'danger')
+                    return redirect(next_url)
+                stored_list.append({'original_name': oname, 'saved_name': unique_filename})
 
             if data.get('html_files') and not stored_list:
+                zf.close()
                 flash('迁移包声明了 HTML 文件但均未成功解压或保存，请检查包是否完整', 'danger')
                 return redirect(next_url)
 
@@ -7011,7 +7140,14 @@ def _task_migration_import_impl():
                     _auto_approve_task_html(new_task, current_user.id)
 
             db.add(new_task)
+            db.flush()
+            upload_entries = _migration_collect_upload_entries(data)
+            file_map = _migration_import_api_uploads(zf, upload_entries, new_api_id, old_api_id)
+            sub_count = _migration_import_submissions(db, data, new_task.id, old_api_id, new_api_id, file_map=file_map)
+            if sub_count:
+                new_task.submission_count_total = sub_count
             db.commit()
+            zf.close()
             if new_task.file_path and str(new_task.file_path).lower().endswith(('.html', '.htm')):
                 try:
                     analyze_html_file(
@@ -8144,6 +8280,13 @@ def admin_panel():
         qflink_users = []
         attachment_search_q = ''
 
+        try:
+            pending_users = load_pending_users()
+            if not isinstance(pending_users, dict):
+                pending_users = {}
+        except Exception:
+            pending_users = {}
+
         # ---------- 仅当前 tab 才执行对应查询 ----------
         if current_tab == 'users':
             user_page = request.args.get('user_page', 1, type=int) or 1
@@ -8259,12 +8402,6 @@ def admin_panel():
                 syscfg = load_system_config()
             except Exception:
                 syscfg = SystemConfig()
-            try:
-                pending_users = load_pending_users()
-                if not isinstance(pending_users, dict):
-                    pending_users = {}
-            except Exception:
-                pending_users = {}
 
         elif current_tab == 'attachment-recovery':
             if not _attachment_recovery_enabled():
@@ -8446,7 +8583,7 @@ def admin_pending_user_approve():
     action = (request.form.get('action') or '').strip().lower()
     if not username:
         flash('缺少用户名', 'danger')
-        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+        return redirect(url_for('quickform.admin_panel', tab='users'))
     try:
         if action == 'approve':
             set_user_pending(username, False)
@@ -8459,7 +8596,7 @@ def admin_pending_user_approve():
     except Exception as e:
         logger.exception('审批待审核用户失败: %s', e)
         flash('操作失败，请稍后重试。', 'danger')
-    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+    return redirect(url_for('quickform.admin_panel', tab='users'))
 
 
 @quickform_bp.route('/admin/users/bulk_import', methods=['POST'])
@@ -8928,6 +9065,54 @@ def admin_user_qflink_multimodal_toggle(user_id):
         )
     finally:
         db.close()
+    return redirect(url_for('quickform.admin_panel', tab='qflink'))
+
+
+@quickform_bp.route('/admin/qflink/batch', methods=['POST'])
+@admin_required
+def admin_qflink_batch():
+    """管理员：批量禁用/启用/多模态 QFLink 用户。"""
+    action = (request.form.get('action') or '').strip().lower()
+    raw_ids = request.form.getlist('user_ids') or request.form.getlist('user_ids[]')
+    if not raw_ids:
+        flash('请先勾选要操作的用户。', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='qflink'))
+    valid_actions = {'disable', 'enable', 'multimodal_on', 'multimodal_off'}
+    if action not in valid_actions:
+        flash('未知批量操作。', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='qflink'))
+
+    db = SessionLocal()
+    updated = 0
+    try:
+        for raw_id in raw_ids:
+            try:
+                uid = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            user = db.get(User, uid)
+            if not user or not getattr(user, 'qflink_uid', None):
+                continue
+            if action == 'disable':
+                user.qflink_disabled = True
+            elif action == 'enable':
+                user.qflink_disabled = False
+            elif action == 'multimodal_on':
+                user.qflink_multimodal_enabled = True
+            elif action == 'multimodal_off':
+                user.qflink_multimodal_enabled = False
+            updated += 1
+        db.commit()
+    finally:
+        db.close()
+
+    labels = {
+        'disable': '禁用',
+        'enable': '启用',
+        'multimodal_on': '开启多模态',
+        'multimodal_off': '关闭多模态',
+    }
+    flash('已批量%s %s 个 QFLink 用户。' % (labels.get(action, action), updated), 'success')
     return redirect(url_for('quickform.admin_panel', tab='qflink'))
 
 

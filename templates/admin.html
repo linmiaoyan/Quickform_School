@@ -12,6 +12,7 @@
         <div class="px-3 pt-2 pb-1 text-muted small fw-semibold">运营</div>
         <a href="{{ url_for('quickform.admin_panel', tab='users') }}" class="sidebar-item {{ 'active' if current_tab == 'users' else '' }}" data-tab="users">
             <i class="bi bi-people" style="margin-right: 0.75rem;"></i> {{ translate('admin.user_management') }}
+            {% if pending_users and pending_users|length > 0 %}<span class="badge bg-warning text-dark ms-auto">{{ pending_users|length }}</span>{% endif %}
         </a>
         <a href="{{ url_for('quickform.admin_panel', tab='tasks') }}" class="sidebar-item {{ 'active' if current_tab == 'tasks' else '' }}" data-tab="tasks">
             <i class="bi bi-list-task" style="margin-right: 0.75rem;"></i> {{ translate('admin.task_report') }}
@@ -35,7 +36,6 @@
         <div class="px-3 pt-3 pb-1 text-muted small fw-semibold">系统</div>
         <a href="{{ url_for('quickform.admin_panel', tab='system-config') }}" class="sidebar-item {{ 'active' if current_tab == 'system-config' else '' }}" data-tab="system-config">
             <i class="bi bi-gear" style="margin-right: 0.75rem;"></i> 系统配置
-            {% if pending_users and pending_users|length > 0 %}<span class="badge bg-warning text-dark ms-auto">{{ pending_users|length }}</span>{% endif %}
         </a>
 
         <a href="{{ url_for('quickform.admin_panel', tab='qflink') }}" class="sidebar-item {{ 'active' if current_tab == 'qflink' else '' }}" data-tab="qflink">
@@ -144,6 +144,54 @@
         <div class="tab-content" id="adminTabsContent">
             <!-- 用户管理标签页 -->
             <div class="tab-pane fade {{ 'show active' if current_tab == 'users' else '' }}" id="users" role="tabpanel">
+                {% if pending_users and pending_users|length > 0 %}
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">待审核用户</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 220px;">用户名</th>
+                                        <th>备注</th>
+                                        <th style="width: 220px;">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for uname, meta in pending_users.items() %}
+                                    <tr>
+                                        <td>{{ uname }}</td>
+                                        <td class="small text-muted">
+                                            {% if meta is mapping %}
+                                                {% if meta.created_at %}创建：{{ meta.created_at }}{% endif %}
+                                                {% if meta.source %}<br>来源：{{ meta.source }}{% endif %}
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <form method="POST" action="{{ url_for('quickform.admin_pending_user_approve') }}" class="d-inline">
+                                                <input type="hidden" name="username" value="{{ uname }}">
+                                                <input type="hidden" name="action" value="approve">
+                                                <button type="submit" class="btn btn-sm btn-success">通过</button>
+                                            </form>
+                                            <form method="POST" action="{{ url_for('quickform.admin_pending_user_approve') }}" class="d-inline" onsubmit="return confirm('确定拒绝该用户审核吗？（不会删除账号，仅移除待审核标记）');">
+                                                <input type="hidden" name="username" value="{{ uname }}">
+                                                <input type="hidden" name="action" value="reject">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">拒绝</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0" style="color: white;">{{ translate('admin.user_list_title') }}</h5>
@@ -171,40 +219,50 @@
 
                         <div class="table-responsive">
                             {% if users %}
-                            <table class="table table-striped table-hover">
+                            <table class="table table-striped table-hover admin-user-table">
                                 <thead>
                                     <tr>
                                         <th style="width: 50px;">ID</th>
-                                        <th style="width: 100px;">用户名</th>
-                                        <th style="width: 180px;">邮箱</th>
-                                        <th style="width: 220px; min-width: 180px;">{{ translate('admin.school') }}</th>
-                                        <th style="width: 120px;">手机号</th>
-                                        <th style="width: 80px;">角色</th>
-                                        <th style="width: 100px;">任务数量</th>
-                                        <th style="width: 150px;">{{ translate('admin.register_time') }}</th>
-                                        <th style="width: 100px;">{{ translate('admin.actions') }}</th>
+                                        <th style="width: 120px;">用户名</th>
+                                        <th style="width: 200px;">邮箱</th>
+                                        <th style="width: 110px;">用户类型</th>
+                                        <th style="width: 90px;">任务数</th>
+                                        <th style="width: 140px;">{{ translate('admin.register_time') }}</th>
+                                        <th style="width: 90px;">{{ translate('admin.actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for user in users %}
-                                    <tr>
+                                    <tr class="admin-user-row" role="button" tabindex="0"
+                                        data-user-id="{{ user.id }}"
+                                        data-username="{{ user.username | e }}"
+                                        data-email="{{ user.email | e }}"
+                                        data-school="{{ (user.school or '') | e }}"
+                                        data-phone="{{ (user.phone or '') | e }}"
+                                        data-user-type="{% if user.role == 'admin' %}admin{% elif user.qflink_uid %}qflink{% else %}builtin{% endif %}"
+                                        data-qflink-uid="{{ (user.qflink_uid or '') | e }}"
+                                        data-task-count="{{ user.tasks|length }}"
+                                        data-created-at="{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '' }}"
+                                        onclick="adminShowUserDetail(this)">
                                         <td style="white-space: nowrap;">{{ user.id }}</td>
-                                        <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.username }}">{{ user.username }}</td>
-                                        <td style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.email }}">{{ user.email }}</td>
-                                        <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.school or translate('admin.not_filled') }}">{{ user.school or translate('admin.not_filled') }}</td>
-                                        <td style="white-space: nowrap;">{{ user.phone or translate('admin.not_filled') }}</td>
+                                        <td style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.username }}">{{ user.username }}</td>
+                                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ user.email }}">{{ user.email }}</td>
                                         <td>
-                                            <span class="badge {% if user.role == 'admin' %}bg-danger{% else %}bg-secondary{% endif %}">
-                                                {% if user.role == 'admin' %}{{ translate('admin.admin_role') }}{% else %}{{ translate('admin.user_role') }}{% endif %}
-                                            </span>
+                                            {% if user.role == 'admin' %}
+                                            <span class="badge bg-danger">管理员</span>
+                                            {% elif user.qflink_uid %}
+                                            <span class="badge bg-primary">QFLink用户</span>
+                                            {% else %}
+                                            <span class="badge bg-secondary">内置用户</span>
+                                            {% endif %}
                                         </td>
                                         <td>{{ user.tasks|length }}</td>
                                         <td style="white-space: nowrap; font-size: 0.9em;">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                                        <td>
+                                        <td onclick="event.stopPropagation();">
                                             {% if user.id != current_user.id %}
                                             <div class="dropdown">
                                                 <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="white-space: nowrap;">
-                                                    <i class="bi bi-three-dots-vertical"></i> {{ translate('admin.actions') }}
+                                                    <i class="bi bi-three-dots-vertical"></i>
                                                 </button>
                                                 <ul class="dropdown-menu">
                                                     <li>
@@ -622,56 +680,6 @@
                         </form>
                     </div>
                 </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">待审核用户</h5>
-                    </div>
-                    <div class="card-body">
-                        {% if pending_users and pending_users|length > 0 %}
-                        <div class="table-responsive">
-                            <table class="table table-striped table-hover">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 220px;">用户名</th>
-                                        <th>备注</th>
-                                        <th style="width: 220px;">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for uname, meta in pending_users.items() %}
-                                    <tr>
-                                        <td>{{ uname }}</td>
-                                        <td class="small text-muted">
-                                            {% if meta is mapping %}
-                                                {% if meta.created_at %}创建：{{ meta.created_at }}{% endif %}
-                                                {% if meta.source %}<br>来源：{{ meta.source }}{% endif %}
-                                            {% else %}
-                                                —
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            <form method="POST" action="{{ url_for('quickform.admin_pending_user_approve') }}" class="d-inline">
-                                                <input type="hidden" name="username" value="{{ uname }}">
-                                                <input type="hidden" name="action" value="approve">
-                                                <button type="submit" class="btn btn-sm btn-success">通过</button>
-                                            </form>
-                                            <form method="POST" action="{{ url_for('quickform.admin_pending_user_approve') }}" class="d-inline" onsubmit="return confirm('确定拒绝该用户审核吗？（不会删除账号，仅移除待审核标记）');">
-                                                <input type="hidden" name="username" value="{{ uname }}">
-                                                <input type="hidden" name="action" value="reject">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger">拒绝</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                        {% else %}
-                        <p class="text-muted mb-0">暂无待审核用户。</p>
-                        {% endif %}
-                    </div>
-                </div>
             </div>
 
             <!-- 其他审核：公开项目 / 团队入驻（HTML 不再做管理员审核门禁） -->
@@ -966,7 +974,7 @@
                                 <label class="form-check-label" for="qflink_enabled">启用全站 QFLink 登录</label>
                             </div>
                             <div class="text-muted small mt-2">
-                                关闭后，登录页将不显示 QFLink 入口；已创建的嘉宾用户也无法通过 QFLink 登录。
+                                关闭后，登录页将不显示 QFLink 入口；已绑定的 QFLink 用户也无法通过 QFLink 登录。
                             </div>
                             <div class="mt-3">
                                 <button type="submit" class="btn btn-primary btn-sm">保存</button>
@@ -976,32 +984,47 @@
                         <p class="text-muted small mb-2">系统用户（非 QFLink）默认开启多模态附件；QFLink 用户需在下方单独「开启多模态」。</p>
                         <h6 class="fw-semibold mb-2">QFLink 用户（最近 200 条）</h6>
                         {% if qflink_users %}
+                        <form method="post" action="{{ url_for('quickform.admin_qflink_batch') }}" id="qflinkBatchForm">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" id="qflinkSelectAll">
+                                    <label class="form-check-label" for="qflinkSelectAll">全选</label>
+                                </div>
+                                <button type="submit" name="action" value="disable" class="btn btn-sm btn-outline-danger" onclick="return confirm('确定批量禁用所选用户吗？');">批量禁用</button>
+                                <button type="submit" name="action" value="enable" class="btn btn-sm btn-outline-success">批量启用</button>
+                                <button type="submit" name="action" value="multimodal_on" class="btn btn-sm btn-outline-primary">批量开启多模态</button>
+                                <button type="submit" name="action" value="multimodal_off" class="btn btn-sm btn-outline-secondary">批量关闭多模态</button>
+                            </div>
                         <div class="table-responsive">
                             <table class="table table-striped table-hover">
                                 <thead>
                                     <tr>
+                                        <th style="width: 44px;">选择</th>
                                         <th style="width: 70px;">ID</th>
                                         <th style="width: 140px;">用户名</th>
-                                        <th style="width: 240px;">QFLink UID</th>
-                                        <th style="width: 120px;">嘉宾</th>
                                         <th style="width: 120px;">状态</th>
                                         <th style="width: 120px;">多模态</th>
-                                        <th style="width: 200px;">操作</th>
+                                        <th style="width: 120px;">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for u in qflink_users %}
-                                    <tr>
+                                    <tr class="qflink-user-row" role="button" tabindex="0"
+                                        data-user-id="{{ u.id }}"
+                                        data-username="{{ u.username | e }}"
+                                        data-email="{{ u.email | e }}"
+                                        data-school="{{ (u.school or '') | e }}"
+                                        data-phone="{{ (u.phone or '') | e }}"
+                                        data-qflink-uid="{{ (u.qflink_uid or '') | e }}"
+                                        data-qflink-disabled="{{ '1' if u.qflink_disabled else '0' }}"
+                                        data-qflink-multimodal="{{ '1' if u.qflink_multimodal_enabled else '0' }}"
+                                        data-created-at="{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '' }}"
+                                        onclick="adminShowQflinkUserDetail(this)">
+                                        <td onclick="event.stopPropagation();">
+                                            <input class="form-check-input qflink-user-check" type="checkbox" name="user_ids" value="{{ u.id }}" form="qflinkBatchForm">
+                                        </td>
                                         <td>{{ u.id }}</td>
                                         <td>{{ u.username }}</td>
-                                        <td style="max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ u.qflink_uid }}">{{ u.qflink_uid }}</td>
-                                        <td>
-                                            {% if u.qflink_only %}
-                                                <span class="badge bg-info text-dark">是</span>
-                                            {% else %}
-                                                <span class="badge bg-secondary">否</span>
-                                            {% endif %}
-                                        </td>
                                         <td>
                                             {% if u.qflink_disabled %}
                                                 <span class="badge bg-danger">已禁用</span>
@@ -1016,7 +1039,7 @@
                                                 <span class="badge bg-secondary">未开启</span>
                                             {% endif %}
                                         </td>
-                                        <td class="d-flex flex-wrap gap-1">
+                                        <td class="d-flex flex-wrap gap-1" onclick="event.stopPropagation();">
                                             <form method="post" action="{{ url_for('quickform.admin_user_qflink_toggle', user_id=u.id) }}" onsubmit="return confirm('确定要{% if u.qflink_disabled %}启用{% else %}禁用{% endif %}该 QFLink 用户吗？');">
                                                 <button type="submit" class="btn btn-sm {% if u.qflink_disabled %}btn-success{% else %}btn-outline-danger{% endif %}">
                                                     {% if u.qflink_disabled %}启用{% else %}禁用{% endif %}
@@ -1033,6 +1056,7 @@
                                 </tbody>
                             </table>
                         </div>
+                        </form>
                         {% else %}
                         <div class="text-muted">暂无 QFLink 用户。</div>
                         {% endif %}
@@ -1062,6 +1086,15 @@
     cursor: pointer;
 }
 .public-pending-select-table tbody tr.public-pending-row:hover {
+    background-color: rgba(13, 148, 136, 0.06);
+}
+
+.admin-user-table tbody tr.admin-user-row,
+.table tbody tr.qflink-user-row {
+    cursor: pointer;
+}
+.admin-user-table tbody tr.admin-user-row:hover,
+.table tbody tr.qflink-user-row:hover {
     background-color: rgba(13, 148, 136, 0.06);
 }
 
@@ -1479,6 +1512,70 @@
     })();
 
     // 密码重置功能
+    function adminShowUserDetail(row) {
+        if (!row || !row.dataset) return;
+        var typeLabels = { admin: '管理员', qflink: 'QFLink用户', builtin: '内置用户' };
+        var typeKey = row.dataset.userType || 'builtin';
+        var html = '<dl class="row mb-0">' +
+            '<dt class="col-sm-3">ID</dt><dd class="col-sm-9">' + (row.dataset.userId || '—') + '</dd>' +
+            '<dt class="col-sm-3">用户名</dt><dd class="col-sm-9">' + (row.dataset.username || '—') + '</dd>' +
+            '<dt class="col-sm-3">邮箱</dt><dd class="col-sm-9">' + (row.dataset.email || '—') + '</dd>' +
+            '<dt class="col-sm-3">学校</dt><dd class="col-sm-9">' + (row.dataset.school || '未填写') + '</dd>' +
+            '<dt class="col-sm-3">手机号</dt><dd class="col-sm-9">' + (row.dataset.phone || '未填写') + '</dd>' +
+            '<dt class="col-sm-3">用户类型</dt><dd class="col-sm-9">' + (typeLabels[typeKey] || typeKey) + '</dd>' +
+            '<dt class="col-sm-3">任务数</dt><dd class="col-sm-9">' + (row.dataset.taskCount || '0') + '</dd>' +
+            '<dt class="col-sm-3">注册时间</dt><dd class="col-sm-9">' + (row.dataset.createdAt || '—') + '</dd>';
+        if (row.dataset.qflinkUid) {
+            html += '<dt class="col-sm-3">QFLink UID</dt><dd class="col-sm-9"><code class="small">' + row.dataset.qflinkUid + '</code></dd>';
+        }
+        html += '</dl>';
+        adminOpenInfoModal('用户详情 — ' + (row.dataset.username || ''), html);
+    }
+
+    function adminShowQflinkUserDetail(row) {
+        if (!row || !row.dataset) return;
+        var html = '<dl class="row mb-0">' +
+            '<dt class="col-sm-3">ID</dt><dd class="col-sm-9">' + (row.dataset.userId || '—') + '</dd>' +
+            '<dt class="col-sm-3">用户名</dt><dd class="col-sm-9">' + (row.dataset.username || '—') + '</dd>' +
+            '<dt class="col-sm-3">邮箱</dt><dd class="col-sm-9">' + (row.dataset.email || '—') + '</dd>' +
+            '<dt class="col-sm-3">学校</dt><dd class="col-sm-9">' + (row.dataset.school || '未填写') + '</dd>' +
+            '<dt class="col-sm-3">手机号</dt><dd class="col-sm-9">' + (row.dataset.phone || '未填写') + '</dd>' +
+            '<dt class="col-sm-3">QFLink UID</dt><dd class="col-sm-9"><code class="small">' + (row.dataset.qflinkUid || '—') + '</code></dd>' +
+            '<dt class="col-sm-3">登录状态</dt><dd class="col-sm-9">' + (row.dataset.qflinkDisabled === '1' ? '已禁用' : '正常') + '</dd>' +
+            '<dt class="col-sm-3">多模态</dt><dd class="col-sm-9">' + (row.dataset.qflinkMultimodal === '1' ? '已开启' : '未开启') + '</dd>' +
+            '<dt class="col-sm-3">注册时间</dt><dd class="col-sm-9">' + (row.dataset.createdAt || '—') + '</dd>' +
+            '</dl>';
+        adminOpenInfoModal('QFLink 用户 — ' + (row.dataset.username || ''), html);
+    }
+
+    function adminOpenInfoModal(title, bodyHtml) {
+        var existing = document.getElementById('adminInfoModal');
+        if (existing) existing.remove();
+        var modal = document.createElement('div');
+        modal.className = 'modal fade show';
+        modal.id = 'adminInfoModal';
+        modal.style.display = 'block';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        modal.innerHTML = '<div class="modal-dialog modal-dialog-centered modal-lg">' +
+            '<div class="modal-content">' +
+            '<div class="modal-header"><h5 class="modal-title">' + title + '</h5>' +
+            '<button type="button" class="btn-close" onclick="document.getElementById(\'adminInfoModal\').remove()"></button></div>' +
+            '<div class="modal-body">' + bodyHtml + '</div>' +
+            '<div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById(\'adminInfoModal\').remove()">关闭</button></div>' +
+            '</div></div>';
+        document.body.appendChild(modal);
+    }
+
+    (function () {
+        var selectAll = document.getElementById('qflinkSelectAll');
+        if (!selectAll) return;
+        selectAll.addEventListener('change', function () {
+            document.querySelectorAll('.qflink-user-check').forEach(function (cb) {
+                cb.checked = selectAll.checked;
+            });
+        });
+    })();
+
     function resetPassword(userId, username) {
         if (!confirm(`确定要将用户 "${username}" 的密码重置为 123456 吗？`)) {
             return;

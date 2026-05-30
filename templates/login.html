@@ -198,20 +198,20 @@
                     <div class="qf-login-method qf-expanded qf-method-auth" id="qflinkMethodAuthCode" data-method="auth_code">
                         <div class="qf-method-head" role="tab" aria-selected="true" aria-controls="qflinkBodyAuthCode" tabindex="0">
                             <input class="form-check-input mt-0" type="radio" name="qflink_method" id="qflinkRadioAuthCode" value="auth_code" checked>
-                            <label for="qflinkRadioAuthCode">CLI 授权码 <span class="text-muted fw-normal small">（无需密码）</span></label>
+                            <label for="qflinkRadioAuthCode">QFLink 授权码 <span class="text-muted fw-normal small">（无需密码）</span></label>
                             <span class="qf-method-chevron" aria-hidden="true">▼</span>
                         </div>
                         <div class="qf-method-body" id="qflinkBodyAuthCode" role="tabpanel">
                             <form method="POST" action="{{ url_for('quickform.qflink_auth_code_login') }}" id="qflinkAuthCodeForm">
                                 <input type="hidden" name="qflink_username" id="qflink_hidden_username_code" value="">
-                                <label for="auth_code" class="form-label small mb-1" style="font-weight: 600;">授权码</label>
-                                <input type="text" class="form-control mb-2" id="auth_code" name="auth_code"
+                                <label for="auth_code" class="form-label small mb-1" style="font-weight: 600;">QFLink 授权码</label>
+                                <input type="password" class="form-control mb-2" id="auth_code" name="auth_code"
                                        placeholder="qf 开头" style="padding: 0.65rem 0.75rem;" autocomplete="off">
                                 <button type="submit" class="btn btn-primary w-100 py-2" style="font-weight: 500;">
                                     登录
                                 </button>
                                 <p class="qf-auth-code-tip mb-0">
-                                    在 quickform.cn 个人中心「CLI 授权码」生成，仅显示一次，请妥善保存。
+                                    在 quickform.cn 个人中心「QFLink 授权码」生成，仅显示一次，请妥善保存。
                                 </p>
                             </form>
                         </div>
