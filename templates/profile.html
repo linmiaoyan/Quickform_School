@@ -358,6 +358,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/online_cli_errors.js') }}"></script>
 <script>
 function qfCopyText(text, btnEl) {
     var t = (text || '').toString();
@@ -439,7 +440,15 @@ document.addEventListener('DOMContentLoaded', function(){
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                alert(data.message || (data.success ? '连接成功' : '连接失败'));
+                if (data.success) {
+                    alert(data.message || '连接成功');
+                    return;
+                }
+                if (window.OnlineCliErrors) {
+                    OnlineCliErrors.alertOnlineCliError(data);
+                } else {
+                    alert(data.message || '连接失败');
+                }
             })
             .catch(function (e) { alert(e.message || '连接失败'); })
             .finally(function () { testQfBtn.disabled = false; });

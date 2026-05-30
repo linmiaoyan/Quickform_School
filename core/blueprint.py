@@ -1905,7 +1905,7 @@ def login():
 
             ok, msg, user_payload = _qflink_verify_password(qf_username, qf_password)
             if not ok:
-                flash(msg or 'QFLink 账号或密码错误', 'danger')
+                flash(msg or 'QFLink 账号或密码错误', 'warning' if '教师认证' in (msg or '') else 'danger')
                 return _qflink_login_render(qflink_enabled=qflink_enabled)
 
             redirect_resp = _qflink_login_user_from_payload(
@@ -2072,6 +2072,100 @@ def _qflink_user_payload_from_getuser(user: dict) -> dict:
     return out
 
 
+def _online_cli_error_from_response(r, data=None):
+    """解析 quickform.cn CLI/QFLink 错误响应（含 certification_required）。"""
+    if data is None and r is not None:
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    code = (data.get('code') or '').strip()
+    is_certified = data.get('is_certified')
+    if code == 'certification_required' or is_certified is False:
+        cert_url = (data.get('certification_url') or '').strip() or 'https://quickform.cn/certification/request'
+        message = (data.get('message') or '').strip() or (
+            '该账号尚未完成教师认证，无法使用 QFLink / CLI 连接在线版。'
+            '用户名+密码与 QFLink 授权码均不可用，请先完成教师认证。'
+        )
+        hint = (data.get('hint') or '').strip() or (
+            '请登录 quickform.cn 个人中心提交「教师认证」申请，审核通过后再从校园版重试。'
+        )
+        return {
+            'code': 'certification_required',
+            'message': message,
+            'hint': hint,
+            'certification_url': cert_url,
+            'is_certified': False,
+        }
+
+    status = int(getattr(r, 'status_code', 0) or 0)
+    message = (data.get('message') or data.get('msg') or '').strip()
+    if not message:
+        if status == 401:
+            message = '用户名或密码/授权码错误'
+        elif status == 403:
+            message = '在线版拒绝了本次请求（HTTP 403），请确认账号权限或是否已完成教师认证'
+        elif status == 429:
+            message = '在线版认证尝试过于频繁，请稍后再试'
+        elif status:
+            message = f'在线版请求失败（HTTP {status}）'
+        else:
+            message = '在线版请求失败'
+    out = {'message': message}
+    if code:
+        out['code'] = code
+    hint = (data.get('hint') or '').strip()
+    if hint:
+        out['hint'] = hint
+    cert_url = (data.get('certification_url') or '').strip()
+    if cert_url:
+        out['certification_url'] = cert_url
+    if is_certified is not None:
+        out['is_certified'] = is_certified
+    return out
+
+
+def _online_cli_user_message(err):
+    """供 flash / 简单 alert 使用的多行纯文本提示。"""
+    if not isinstance(err, dict):
+        return str(err or '在线版请求失败')
+    parts = [err.get('message') or '在线版请求失败']
+    if err.get('hint'):
+        parts.append(str(err['hint']))
+    if err.get('certification_url'):
+        parts.append(f"认证入口：{err['certification_url']}")
+    return '\n'.join(p for p in parts if p)
+
+
+def _jsonify_online_cli_failure(res, default_status=401):
+    """将在线版失败响应转为 JSON（保留 certification_required 等字段）。"""
+    res = res if isinstance(res, dict) else {}
+    status = 403 if res.get('code') == 'certification_required' else default_status
+    body = {'success': False, 'message': res.get('message') or '请求失败'}
+    for key in ('code', 'hint', 'certification_url', 'is_certified'):
+        if res.get(key) is not None:
+            body[key] = res[key]
+    return jsonify(body), status
+
+
+class OnlineCliResponseError(Exception):
+    """在线版 CLI 返回的业务错误（含 certification_required）。"""
+
+    def __init__(self, payload: dict):
+        self.payload = payload if isinstance(payload, dict) else {}
+        super().__init__(self.payload.get('message') or '在线版请求失败')
+
+
+def _online_cli_raise_if_failed(res: dict, default_message: str = '在线版请求失败'):
+    if isinstance(res, dict) and res.get('success'):
+        return res
+    payload = res if isinstance(res, dict) else {'message': default_message}
+    raise OnlineCliResponseError(payload)
+
+
 def _qflink_verify_via_getuser(
     username: str,
     password: str = '',
@@ -2133,7 +2227,8 @@ def _qflink_verify_via_getuser(
         ), {}
 
     if r.status_code >= 400:
-        return False, f'在线校验失败: HTTP {r.status_code}', {}
+        err = _online_cli_error_from_response(r)
+        return False, _online_cli_user_message(err), {}
 
     try:
         j = r.json()
@@ -2141,7 +2236,8 @@ def _qflink_verify_via_getuser(
         return False, '在线版返回格式异常', {}
 
     if not isinstance(j, dict) or not j.get('success'):
-        return False, (j.get('message') if isinstance(j, dict) else None) or '验证失败', {}
+        err = _online_cli_error_from_response(r, j)
+        return False, _online_cli_user_message(err), {}
 
     user = j.get('user') if isinstance(j, dict) else None
     user_payload = _qflink_user_payload_from_getuser(user if isinstance(user, dict) else {})
@@ -2175,25 +2271,26 @@ def _qflink_verify_post(payload: dict) -> tuple[bool, str, dict]:
 
     try:
         r = requests.post(verify_url, json=body, headers=headers, timeout=timeout)
-        if r.status_code >= 400:
-            detail = ''
-            try:
-                j = r.json()
-                if isinstance(j, dict) and j.get('message'):
-                    detail = str(j.get('message'))
-            except Exception:
-                detail = (r.text or '').strip()[:120]
+        try:
+            j = r.json()
+        except Exception:
+            j = {}
+        if not isinstance(j, dict):
+            j = {}
+
+        if r.status_code >= 400 or not j.get('success', r.status_code < 400):
+            err = _online_cli_error_from_response(r, j)
             if r.status_code >= 500:
                 return False, (
                     f'在线版 quickform.cn 服务器异常（HTTP {r.status_code}）。'
                     '若用户名与授权码确认无误，可能是在线版处理该账号时出错；'
                     '请尝试「方式一：在线密码」登录，或在在线版重新生成授权码后再试。'
                 ), {}
-            return False, detail or f'在线校验失败: HTTP {r.status_code}', {}
-        j = r.json()
-        ok = bool(j.get("success", j.get("ok", False))) if isinstance(j, dict) else False
-        msg = (j.get("message") or j.get("msg") or ("验证成功" if ok else "验证失败")) if isinstance(j, dict) else ""
-        user_payload = _qflink_extract_user_payload(j if isinstance(j, dict) else {})
+            return False, _online_cli_user_message(err), {}
+
+        ok = bool(j.get("success", j.get("ok", False)))
+        msg = (j.get("message") or j.get("msg") or ("验证成功" if ok else "验证失败"))
+        user_payload = _qflink_extract_user_payload(j)
         if not ok and user_payload:
             ok = True
             msg = msg or "验证成功"
@@ -2342,7 +2439,7 @@ def qflink_auth_code_login():
     auth_code = (request.form.get('auth_code') or '').strip()
     ok, msg, user_payload = _qflink_verify_auth_code(qf_username, auth_code)
     if not ok:
-        flash(msg or '用户名或授权码错误', 'danger')
+        flash(msg or '用户名或授权码错误', 'warning' if '教师认证' in (msg or '') else 'danger')
         return redirect(url_for('quickform.login'))
 
     redirect_resp = _qflink_login_user_from_payload(
@@ -5748,13 +5845,33 @@ def _online_cli_post_json(base: str, path: str, payload: dict, timeout_seconds: 
     if not b:
         raise ValueError('missing base url')
     url = b.rstrip('/') + path
+    import requests as _rq  # type: ignore
     try:
-        import requests as _rq  # type: ignore
         r = _rq.post(url, json=payload, timeout=timeout_seconds)
-        r.raise_for_status()
-        return r.json()
     except Exception as e:
         raise RuntimeError(f"online cli request failed: {e}") from e
+
+    try:
+        data = r.json()
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    if r.status_code >= 400:
+        err = _online_cli_error_from_response(r, data)
+        out = {'success': False}
+        out.update({k: v for k, v in err.items() if v is not None})
+        return out
+
+    if data.get('success') is False:
+        err = _online_cli_error_from_response(r, data)
+        if err.get('code') == 'certification_required':
+            out = {'success': False}
+            out.update({k: v for k, v in err.items() if v is not None})
+            return out
+
+    return data
 
 
 def _import_task_from_online_cli(db, online_base: str, online_username: str, online_password: str, apiid: str):
@@ -5770,8 +5887,7 @@ def _import_task_from_online_cli(db, online_base: str, online_username: str, onl
         timeout_seconds=25,
     )
     if not isinstance(show, dict) or not show.get('success'):
-        msg = (show.get('message') if isinstance(show, dict) else '') or '在线版返回失败'
-        raise RuntimeError(msg)
+        raise OnlineCliResponseError(show if isinstance(show, dict) else {'message': '在线版返回失败'})
 
     title = (show.get('name') or '').strip()
     intro = (show.get('intro') or '').strip()
@@ -5966,10 +6082,26 @@ def _online_cli_post(base_url: str, path: str, payload: dict, timeout_sec: int =
     base = _normalize_base_url(base_url)
     url = base + path
     r = requests.post(url, json=payload, timeout=timeout_sec)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        data = r.json()
+    except Exception:
+        data = {}
     if not isinstance(data, dict):
-        raise RuntimeError('在线版返回格式异常')
+        data = {}
+
+    if r.status_code >= 400:
+        err = _online_cli_error_from_response(r, data)
+        out = {'success': False}
+        out.update({k: v for k, v in err.items() if v is not None})
+        return out
+
+    if data.get('success') is False:
+        err = _online_cli_error_from_response(r, data)
+        if err.get('code') == 'certification_required':
+            out = {'success': False}
+            out.update({k: v for k, v in err.items() if v is not None})
+            return out
+
     return data
 
 
@@ -6050,7 +6182,7 @@ def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict,
         timeout_sec=20,
     )
     if not show.get('success'):
-        raise RuntimeError(show.get('message') or '在线版任务获取失败')
+        raise OnlineCliResponseError(show if isinstance(show, dict) else {'message': '在线版任务获取失败'})
 
     title = (show.get('name') or '').strip()
     description = (show.get('intro') or '').strip()
@@ -6458,6 +6590,7 @@ def import_task():
         flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
         return redirect(url_for('quickform.dashboard'))
     error = None
+    online_cli_error = None
     tasks = []
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip()
@@ -6484,7 +6617,11 @@ def import_task():
                     finally:
                         db.close()
                 else:
-                    error = res.get('message') or '获取任务列表失败'
+                    if res.get('code') == 'certification_required':
+                        online_cli_error = res
+                        error = _online_cli_user_message(res)
+                    else:
+                        error = res.get('message') or '获取任务列表失败'
             except Exception as e:
                 error = '请求失败: %s' % e
     else:
@@ -6498,6 +6635,7 @@ def import_task():
         'import_task.html',
         tasks=tasks,
         error=error,
+        online_cli_error=online_cli_error,
         qf_config_ready=qf_ready,
     )
 
@@ -6546,6 +6684,17 @@ def import_task_action(apiid):
             })
         flash(success_msg, 'success')
         return redirect(url_for('quickform.task_detail', task_id=task.id))
+    except OnlineCliResponseError as e:
+        db.rollback()
+        if is_ajax:
+            body = {'success': False, 'message': e.payload.get('message') or str(e)}
+            for key in ('code', 'hint', 'certification_url', 'is_certified'):
+                if e.payload.get(key) is not None:
+                    body[key] = e.payload[key]
+            status = 403 if e.payload.get('code') == 'certification_required' else 401
+            return jsonify(body), status
+        flash(_online_cli_user_message(e.payload), 'warning' if e.payload.get('code') == 'certification_required' else 'danger')
+        return redirect(url_for('quickform.import_task'))
     except Exception as e:
         db.rollback()
         msg = '任务导入失败: %s' % e
@@ -6636,7 +6785,7 @@ def api_qf_list():
         if res.get('success'):
             tasks = res.get('tasks') or []
             return jsonify({'success': True, 'tasks': _normalize_import_task_rows(tasks)})
-        return jsonify({'success': False, 'message': res.get('message') or '认证失败'}), 401
+        return _jsonify_online_cli_failure(res, default_status=401)
     except requests.RequestException as e:
         return jsonify({'success': False, 'message': '连接失败: %s' % e}), 502
     except Exception as e:
@@ -6688,7 +6837,7 @@ def api_online_tasks_list():
     try:
         res = _online_cli_post(base_url, '/cli/list', auth, timeout_sec=20)
         if not res.get('success'):
-            return jsonify({'success': False, 'message': res.get('message') or '在线版认证失败'}), 401
+            return _jsonify_online_cli_failure(res, default_status=401)
         tasks = []
         for t in res.get('tasks') or []:
             if not isinstance(t, dict):
@@ -6770,6 +6919,8 @@ def api_online_task_import():
             'original_apiid': meta.get('old_apiid'),
             'redirect': url_for('quickform.task_detail', task_id=task.id),
         }), 200
+    except OnlineCliResponseError as e:
+        return _jsonify_online_cli_failure(e.payload)
     except requests.HTTPError as e:
         return jsonify({'success': False, 'message': f'在线版返回错误：{e}'}), 502
     except requests.RequestException as e:
@@ -6796,7 +6947,7 @@ def api_qf_test_connection():
         res = _online_cli_post(base_url, '/cli/list', auth, timeout_sec=15)
         if res.get('success'):
             return jsonify({'success': True, 'message': '连接成功', 'tasks': res.get('tasks', [])})
-        return jsonify({'success': False, 'message': res.get('message') or '认证失败'}), 401
+        return _jsonify_online_cli_failure(res, default_status=401)
     except requests.RequestException as e:
         return jsonify({'success': False, 'message': f'连接失败：{e}'}), 502
     except Exception as e:

@@ -28,9 +28,9 @@
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.success === false) {
-      const msg = data.message || `请求失败（${r.status}）`;
-      const err = new Error(msg);
+      const err = new Error(data.message || `请求失败（${r.status}）`);
       err.data = data;
+      err.status = r.status;
       throw err;
     }
     return data;
@@ -96,7 +96,11 @@
       }
       alert(data.message || '导入成功');
     } catch (e) {
-      alert(e.message || '导入失败');
+      if (window.OnlineCliErrors && e.data) {
+        OnlineCliErrors.alertOnlineCliError(e.data);
+      } else {
+        alert(e.message || '导入失败');
+      }
     } finally {
       setLoading(btn, false);
     }
@@ -110,7 +114,11 @@
       const data = await postJson(endpoint, credentialsPayload());
       renderTasks(data.tasks || []);
     } catch (e) {
-      alert(e.message || '获取失败');
+      if (window.OnlineCliErrors && e.data) {
+        OnlineCliErrors.alertOnlineCliError(e.data);
+      } else {
+        alert(e.message || '获取失败');
+      }
     } finally {
       setLoading(btn, false);
     }
@@ -127,7 +135,11 @@
         await importByApiId(data.apiid, '');
       }
     } catch (e) {
-      alert(e.message || '获取失败');
+      if (window.OnlineCliErrors && e.data) {
+        OnlineCliErrors.alertOnlineCliError(e.data);
+      } else {
+        alert(e.message || '获取失败');
+      }
     } finally {
       setLoading(btn, false);
     }

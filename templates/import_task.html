@@ -18,7 +18,16 @@
                 </div>
 
                 {% if error %}
-                <div class="alert alert-danger mb-4" style="border-radius: 8px;">{{ error }}</div>
+                <div class="alert {% if online_cli_error and online_cli_error.code == 'certification_required' %}alert-warning{% else %}alert-danger{% endif %} mb-4" style="border-radius: 8px;" id="serverImportError">
+                    {% if online_cli_error and online_cli_error.code == 'certification_required' %}
+                    <div class="fw-semibold mb-1">需完成教师认证</div>
+                    <div class="mb-2">{{ online_cli_error.message }}</div>
+                    {% if online_cli_error.hint %}<div class="text-muted small mb-2">{{ online_cli_error.hint }}</div>{% endif %}
+                    <a class="btn btn-sm btn-warning" href="{{ online_cli_error.certification_url or 'https://quickform.cn/certification/request' }}" target="_blank" rel="noopener">前往 quickform.cn 提交教师认证</a>
+                    {% else %}
+                    {{ error }}
+                    {% endif %}
+                </div>
                 {% endif %}
                 <div id="errorMessage" class="alert alert-danger mb-4" style="border-radius: 8px; display: none;"></div>
 
@@ -119,6 +128,7 @@
 
 {% block scripts %}
 {{ super() }}
+<script src="{{ url_for('static', filename='js/online_cli_errors.js') }}"></script>
 <script>
 function showImportModal() {
     document.getElementById('importModal').style.display = 'block';
@@ -167,7 +177,11 @@ function importTask(apiid, taskName) {
                 window.location.href = '/task/' + result.task_id;
             }
         } else {
-            alert('导入失败: ' + (result.message || '未知错误'));
+            if (window.OnlineCliErrors) {
+                OnlineCliErrors.alertOnlineCliError(result);
+            } else {
+                alert('导入失败: ' + (result.message || '未知错误'));
+            }
         }
     })
     .catch(error => {
@@ -233,8 +247,12 @@ async function fetchTasks() {
             }
             window.location.href = '{{ url_for("quickform.import_task") }}';
         } else {
-            errorDiv.textContent = result.message || '获取失败';
-            errorDiv.style.display = 'block';
+            if (window.OnlineCliErrors) {
+                OnlineCliErrors.showOnlineCliErrorIn(errorDiv, result);
+            } else {
+                errorDiv.textContent = result.message || '获取失败';
+                errorDiv.style.display = 'block';
+            }
         }
     } catch (error) {
         errorDiv.textContent = '获取失败: ' + error.message;
