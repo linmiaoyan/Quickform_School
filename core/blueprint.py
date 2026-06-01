@@ -319,16 +319,8 @@ def _admin_apply_user_email_change(db, target_user, acting_user, new_email_raw):
 
 
 def _email_requirement_block_for_next_task(db, user, task_count):
-    """非管理员在已有至少 1 个任务时再创建新项目，须绑定真实邮箱并完成验证（第二个任务起）。"""
-    if user.is_admin() or task_count < 1:
-        return None
-    refreshed_user = db.get(User, user.id)
-    if not refreshed_user:
-        return 'bind_email'
-    if _is_placeholder_or_empty_email(refreshed_user.email):
-        return 'bind_email'
-    if not getattr(refreshed_user, 'email_verified', True):
-        return 'verify_email'
+    """校园版：创建第二个及后续任务时不校验邮箱绑定/验证（校内教师账号）。"""
+    del db, user, task_count  # 保留签名供各创建/导入入口统一调用
     return None
 
 
@@ -1834,34 +1826,16 @@ def register():
 @quickform_bp.route('/verify_email', methods=['GET', 'POST'])
 @login_required
 def verify_email():
-    """创建第二个任务前验证邮箱：发送验证码到当前用户邮箱并校验"""
+    """校园版：不再要求创建第二任务前验证邮箱；旧链接重定向回目标页。"""
     next_url = request.args.get('next') or url_for('quickform.dashboard')
-    db = SessionLocal()
-    try:
-        user = db.get(User, current_user.id)
-        if not user or not user.email:
-            flash('您的账号未绑定邮箱，请先在个人资料中填写邮箱后再验证。', 'danger')
-            return redirect(url_for('quickform.profile'))
-        if getattr(user, 'email_verified', False):
-            return redirect(next_url)
-        if request.method == 'POST':
-            email_code = (request.form.get('email_code') or '').strip()
-            if not email_code or not verify_email_code(user.email, email_code):
-                flash('验证码错误或已过期，请重新获取', 'danger')
-                return redirect(url_for('quickform.verify_email', next=next_url))
-            user.email_verified = True
-            db.commit()
-            flash('邮箱验证成功，可以创建更多任务。', 'success')
-            return redirect(next_url)
-        return render_template('verify_email.html', next_url=next_url, email=user.email)
-    finally:
-        db.close()
+    flash('校园版无需邮箱验证即可创建多个任务。', 'info')
+    return redirect(next_url)
 
 
 @quickform_bp.route('/api/email/send_verify_code', methods=['POST'])
 @login_required
 def api_send_verify_code():
-    """已登录用户：向当前用户绑定邮箱发送验证码（用于创建第二任务前的验证）"""
+    """已登录用户发送邮箱验证码（校园版创建任务不再强制验证；保留接口供兼容）。"""
     try:
         db = SessionLocal()
         try:

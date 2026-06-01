@@ -22,7 +22,7 @@ class User(UserMixin, Base):
     __tablename__ = 'user'
     id = Column(Integer, primary_key=True)
     username = Column(String(50), unique=True, nullable=False)
-    email = Column(String(100), unique=True, nullable=False)  # 注册可不填时存占位邮箱 {username}@noreply.local；创建第二个任务时需绑定并验证
+    email = Column(String(100), unique=True, nullable=False)  # 注册可不填时存占位邮箱 {username}@noreply.local
     password = Column(String(200), nullable=False)
     school = Column(String(200))
     # 学校所在省份（仅用于统计/地区编码；支持管理员手动覆盖，避免自动解析错误）
@@ -33,7 +33,7 @@ class User(UserMixin, Base):
     phone = Column(String(20))
     role = Column(String(20), default='user')
     task_limit = Column(Integer, default=-1)  # 校园版：不限制任务数；-1 表示无限制
-    email_verified = Column(Boolean, default=False)  # 创建第二个任务前需验证邮箱
+    email_verified = Column(Boolean, default=False)  # 历史字段；校园版创建任务不再强制验证
     # QFLink v2（QFLink 登录）
     qflink_uid = Column(String(128), unique=True, nullable=True)  # 在线端用户唯一标识（如 uid/open_id）
     qflink_only = Column(Boolean, default=False)  # 嘉宾用户：仅允许 QFLink 登录
@@ -49,7 +49,7 @@ class User(UserMixin, Base):
         return self.role == 'admin'
     
     def can_create_task(self, SessionLocal, Task):
-        """校园版：不限制每人可创建任务数量（仍可能受邮箱绑定/验证等业务规则约束）。"""
+        """校园版：不限制每人可创建任务数量，亦不强制邮箱验证。"""
         return True
 
 
