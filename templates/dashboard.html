@@ -115,8 +115,23 @@
   z-index: 2;
 }
 .qf-task-rw-trigger {
+  /* 将 rw pill 变成“圆形毛玻璃 badge”质感（沿用 header meta pill 风格） */
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
   opacity: 1 !important;
-  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  backdrop-filter: blur(11px);
+  -webkit-backdrop-filter: blur(11px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  font-weight: 600;
+  padding: 0.38em 0.7em;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
 }
 .task-card-wrapper.rw-updating {
   opacity: 0.78;
