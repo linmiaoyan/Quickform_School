@@ -134,23 +134,27 @@
   color: #111827 !important;
   text-shadow: none;
 }
-.card .card-header .qf-dash-header-meta .task-status-pill--rw-11 {
+.qf-task-rw-trigger.task-status-pill--rw-11 {
   background: rgba(13, 148, 136, 0.42) !important;
   border-color: rgba(255, 255, 255, 0.45);
 }
-.card .card-header .qf-dash-header-meta .task-status-pill--rw-10 {
+.qf-task-rw-trigger.task-status-pill--rw-10 {
   background: rgba(147, 197, 253, 0.55) !important;
   border-color: rgba(255, 255, 255, 0.55);
 }
-.card .card-header .qf-dash-header-meta .task-status-pill--rw-01 {
+.qf-task-rw-trigger.task-status-pill--rw-01 {
   background: rgba(110, 231, 183, 0.5) !important;
   border-color: rgba(255, 255, 255, 0.5);
 }
-.card .card-header .qf-dash-header-meta .task-status-pill--rw-00 {
+.qf-task-rw-trigger.task-status-pill--rw-00 {
   background: rgba(229, 231, 235, 0.72) !important;
   color: #374151 !important;
   border-color: rgba(255, 255, 255, 0.4);
 }
+.qf-dash-task-table .qf-dash-rw-cell { position: relative; white-space: nowrap; overflow: visible; }
+.qf-dash-task-row--inactive { opacity: 0.72; }
+.qf-dash-task-row--inactive td { color: #6b7280; }
+.qf-dash-task-row.rw-updating { opacity: 0.78; filter: saturate(0.85); }
 .task-card-wrapper.rw-updating {
   opacity: 0.78;
   filter: saturate(0.85);
@@ -326,17 +330,27 @@ a.qf-btn-create-task.btn-primary:active {
   }
 }
 </style>
+{% macro task_rw_pill(task) -%}
+{% set rw_read = (task.is_active|default(True)) and (task.api_read_enabled is not defined or task.api_read_enabled is none or task.api_read_enabled) %}
+{% set rw_write = (task.is_active|default(True)) and (task.api_write_enabled is not defined or task.api_write_enabled is none or task.api_write_enabled) %}
+{% if not (task.is_active|default(True)) %}{% set rw_read = false %}{% set rw_write = false %}{% endif %}
+{% set rw_code = ('1' if rw_read else '0') ~ ('1' if rw_write else '0') %}
+<span class="task-status-pill qf-task-rw-trigger task-status-pill--rw-{{ rw_code }}"
+      role="button" tabindex="0"
+      data-task-id="{{ task.id }}"
+      data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}"
+      data-rw-code="{{ rw_code }}"
+      title="任务读写状态"
+      aria-label="任务读写状态选择器">{{ ('1-1 可读可写' if rw_code=='11' else ('1-0 只读' if rw_code=='10' else ('0-1 只写' if rw_code=='01' else '0-0 禁用'))) }}</span>
+{%- endmacro %}
 <div class="row">
     <div class="col-md-12">
         {% set requested_view = request.args.get('view') %}
-        {% set view_mode = requested_view if requested_view in ['hybrid', 'card', 'list'] else 'card' %}
+        {% set view_mode = 'card' if requested_view == 'hybrid' else (requested_view if requested_view in ['card', 'list'] else 'card') %}
         <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
             <div class="d-flex align-items-center gap-2">
                 <h2 class="mb-0" style="color: #111827; font-weight: 700;">{{ translate('dashboard.my_tasks') if translate('dashboard.my_tasks') != 'dashboard.my_tasks' else '我的数据任务' }}</h2>
                 <div class="btn-group" role="group" aria-label="视图切换">
-                    <a href="{{ url_for('quickform.dashboard', view='hybrid') }}" class="btn btn-sm view-icon-btn {{ 'btn-primary' if view_mode == 'hybrid' else 'btn-outline-primary' }}" title="{{ translate('dashboard.view_mode_hybrid') }}" data-bs-toggle="tooltip" data-bs-placement="top" aria-label="{{ translate('dashboard.view_mode_hybrid') }}">
-                        <i class="bi bi-grid-1x2-fill"></i>
-                    </a>
                     <a href="{{ url_for('quickform.dashboard', view='card') }}" class="btn btn-sm view-icon-btn {{ 'btn-primary' if view_mode == 'card' else 'btn-outline-primary' }}" title="{{ translate('dashboard.view_mode_card') }}" data-bs-toggle="tooltip" data-bs-placement="top" aria-label="{{ translate('dashboard.view_mode_card') }}">
                         <i class="bi bi-grid-3x3-gap-fill"></i>
                     </a>
@@ -384,6 +398,7 @@ a.qf-btn-create-task.btn-primary:active {
                 <thead class="table-light">
                     <tr>
                         <th>标题</th>
+                        <th>读写</th>
                         <th>来源</th>
                         <th>提交数</th>
                         <th>创建时间</th>
@@ -392,13 +407,25 @@ a.qf-btn-create-task.btn-primary:active {
                 </thead>
                 <tbody>
                     {% for task in section_tasks %}
-                    <tr>
+                    {% set rw_read = (task.is_active|default(True)) and (task.api_read_enabled is not defined or task.api_read_enabled is none or task.api_read_enabled) %}
+                    {% set rw_write = (task.is_active|default(True)) and (task.api_write_enabled is not defined or task.api_write_enabled is none or task.api_write_enabled) %}
+                    {% if not (task.is_active|default(True)) %}{% set rw_read = false %}{% set rw_write = false %}{% endif %}
+                    {% set rw_code = ('1' if rw_read else '0') ~ ('1' if rw_write else '0') %}
+                    <tr class="qf-dash-task-row{% if task_access.get(task.id) == 'owner' and (not (task.is_active|default(True)) or rw_code == '00') %} qf-dash-task-row--inactive{% endif %}"
+                        {% if task_access.get(task.id) == 'owner' %}data-task-id="{{ task.id }}" data-is-active="{{ 'true' if (task.is_active|default(True)) and rw_code != '00' else 'false' }}"{% endif %}>
                         <td>
                             {{ task.title }}
                             {% if task.oneclick_generation_status == 'pending' %}
                             <span class="badge bg-info text-dark ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
                             {% elif task.oneclick_generation_status == 'failed' %}
                             <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="qf-dash-rw-cell">
+                            {% if task_access.get(task.id) == 'owner' %}
+                            {{ task_rw_pill(task) }}
+                            {% else %}
+                            <span class="text-muted small">—</span>
                             {% endif %}
                         </td>
                         <td>
@@ -431,70 +458,6 @@ a.qf-btn-create-task.btn-primary:active {
                 </tbody>
             </table>
         </div>
-        {% elif view_mode == 'hybrid' %}
-        {% set featured_tasks = section_tasks[:3] %}
-        {% set remaining_tasks = section_tasks[3:] %}
-        <div class="row g-3 mb-3">
-            {% for task in featured_tasks %}
-            <div class="col-md-4 col-sm-6">
-            {% if task_access.get(task.id) == 'owner' %}
-                <div class="task-card-wrapper {{ 'flipped' if not (task.is_active|default(True)) else '' }}" data-task-id="{{ task.id }}" data-is-active="{{ 'true' if (task.is_active|default(True)) else 'false' }}">
-            {% endif %}
-                <div class="card h-100">
-                    <div class="card-header" style="padding-bottom: 0.75rem;">
-                        <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}
-                            {% if task.oneclick_generation_status == 'pending' %}
-                            <span class="badge bg-dark bg-opacity-25 ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
-                            {% elif task.oneclick_generation_status == 'failed' %}
-                            <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
-                            {% endif %}
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <p class="card-text mb-2">{{ task.description or translate('dashboard.no_description') }}</p>
-                        <small class="text-muted">{{ translate('dashboard.submission_count') }}: {{ submission_count_map.get(task.id, 0) }}</small>
-                    </div>
-                    <div class="card-footer" style="background-color: #f9fafb; border-top: 1px solid #e5e7eb; padding: 0.75rem;">
-                        <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">{{ translate('dashboard.view_detail') }}</a>
-                    </div>
-                </div>
-            {% if task_access.get(task.id) == 'owner' %}
-                </div>
-            {% endif %}
-            </div>
-            {% endfor %}
-        </div>
-        {% if remaining_tasks %}
-        <div class="table-responsive mb-4">
-            <table class="table table-sm table-hover align-middle bg-white">
-                <thead class="table-light">
-                    <tr>
-                        <th>标题</th>
-                        <th>来源</th>
-                        <th>提交数</th>
-                        <th style="min-width: 160px;">操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for task in remaining_tasks %}
-                    <tr>
-                        <td>
-                            {{ task.title }}
-                            {% if task.oneclick_generation_status == 'pending' %}
-                            <span class="badge bg-info text-dark ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
-                            {% elif task.oneclick_generation_status == 'failed' %}
-                            <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
-                            {% endif %}
-                        </td>
-                        <td>{% if task.organization_id and task.organization %}{{ task.organization.name }}{% else %}{{ task.author.username }}{% endif %}</td>
-                        <td>{{ submission_count_map.get(task.id, 0) }}</td>
-                        <td><a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">{{ translate('dashboard.view_detail') }}</a></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
         {% else %}
         <div class="row g-3 mb-4">
             {% for task in section_tasks %}
@@ -513,17 +476,7 @@ a.qf-btn-create-task.btn-primary:active {
                         </h5>
                         <div class="d-flex gap-2 flex-wrap qf-dash-header-meta align-items-center">
                             {% if task_access.get(task.id) == 'owner' %}
-                            {% set rw_read = (task.is_active|default(True)) and (task.api_read_enabled is not defined or task.api_read_enabled is none or task.api_read_enabled) %}
-                            {% set rw_write = (task.is_active|default(True)) and (task.api_write_enabled is not defined or task.api_write_enabled is none or task.api_write_enabled) %}
-                            {% if not (task.is_active|default(True)) %}{% set rw_read = false %}{% set rw_write = false %}{% endif %}
-                            {% set rw_code = ('1' if rw_read else '0') ~ ('1' if rw_write else '0') %}
-                            <span class="task-status-pill qf-task-rw-trigger task-status-pill--rw-{{ rw_code }}"
-                                  role="button" tabindex="0"
-                                  data-task-id="{{ task.id }}"
-                                  data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}"
-                                  data-rw-code="{{ rw_code }}"
-                                  title="任务读写状态"
-                                  aria-label="任务读写状态选择器">{{ ('1-1 可读可写' if rw_code=='11' else ('1-0 只读' if rw_code=='10' else ('0-1 只写' if rw_code=='01' else '0-0 禁用'))) }}</span>
+                            {{ task_rw_pill(task) }}
                             {% endif %}
                             {% if task.organization_id %}
                             <span class="badge qf-dash-pill qf-dash-pill--org" style="font-size: 0.75rem;">
@@ -831,16 +784,30 @@ a.qf-btn-create-task.btn-primary:active {
     }
     // 任务读写状态切换（11/10/01/00）：仅所有者可见，点击弹出四态选择器
     (function() {
-        var currentViewMode = {{ (request.args.get('view') or 'card')|tojson }};
+        var currentViewMode = {{ view_mode|tojson }};
+        var rawViewParam = {{ (request.args.get('view') or '')|tojson }};
         var hasExplicitViewParam = {{ (request.args.get('view') is not none)|tojson }};
         var preferredKey = 'quickform_dashboard_preferred_view';
-        // 用户手动选择卡片/列表/混合时，记住偏好；下次未显式带参数时自动应用。
-        if (hasExplicitViewParam && ['card', 'list', 'hybrid'].indexOf(currentViewMode) >= 0) {
+        var validViews = ['card', 'list'];
+        // 旧版「混合」URL 统一改写为卡片视图
+        if (rawViewParam === 'hybrid') {
+            try {
+                var hybridFixUrl = new URL(window.location.href);
+                hybridFixUrl.searchParams.set('view', 'card');
+                window.location.replace(hybridFixUrl.toString());
+                return;
+            } catch (e) {}
+        }
+        if (hasExplicitViewParam && validViews.indexOf(currentViewMode) >= 0) {
             try { localStorage.setItem(preferredKey, currentViewMode); } catch (e) {}
         } else {
             try {
                 var preferredView = localStorage.getItem(preferredKey);
-                if (preferredView && ['card', 'list', 'hybrid'].indexOf(preferredView) >= 0 && preferredView !== currentViewMode) {
+                if (preferredView === 'hybrid') {
+                    preferredView = 'card';
+                    localStorage.setItem(preferredKey, 'card');
+                }
+                if (preferredView && validViews.indexOf(preferredView) >= 0 && preferredView !== currentViewMode) {
                     var redirectUrl = new URL(window.location.href);
                     redirectUrl.searchParams.set('view', preferredView);
                     window.location.replace(redirectUrl.toString());
@@ -908,7 +875,7 @@ a.qf-btn-create-task.btn-primary:active {
         }
 
         function confirmSelection() {
-            if (!activePill || !activeWrapper) return;
+            if (!activePill) return;
             var opt = RW[activeIndex];
             if (!opt) return;
             // closeMenu() 会清空 activePill/activeWrapper，先保存引用
@@ -919,12 +886,12 @@ a.qf-btn-create-task.btn-primary:active {
         }
 
         function setRwCode(pill, wrapper, code) {
-            if (!pill || !wrapper) return;
+            if (!pill) return;
             var url = pill.getAttribute('data-toggle-url');
             if (!url) return;
             var start = Date.now();
             pill.classList.add('rw-loading');
-            wrapper.classList.add('rw-updating');
+            if (wrapper) wrapper.classList.add('rw-updating');
             var oldText = pill.textContent;
             pill.textContent = '切换中…';
             fetch(url, {
@@ -944,37 +911,49 @@ a.qf-btn-create-task.btn-primary:active {
                 pill.classList.remove('task-status-pill--rw-11', 'task-status-pill--rw-10', 'task-status-pill--rw-01', 'task-status-pill--rw-00');
                 pill.classList.add('task-status-pill--rw-' + newCode);
                 var isActive = !!data.is_active && newCode !== '00';
-                wrapper.classList.toggle('flipped', !isActive || newCode === '00');
-                wrapper.setAttribute('data-is-active', isActive ? 'true' : 'false');
+                if (wrapper) {
+                    if (wrapper.classList.contains('task-card-wrapper')) {
+                        wrapper.classList.toggle('flipped', !isActive || newCode === '00');
+                    } else if (wrapper.classList.contains('qf-dash-task-row')) {
+                        wrapper.classList.toggle('qf-dash-task-row--inactive', !isActive || newCode === '00');
+                    }
+                    wrapper.setAttribute('data-is-active', isActive ? 'true' : 'false');
+                }
             }).catch(function (e) {
                 pill.textContent = oldText;
                 alert(e && e.message ? e.message : '切换失败');
             }).finally(function () {
                 pill.classList.remove('rw-loading');
-                wrapper.classList.remove('rw-updating');
+                if (wrapper) wrapper.classList.remove('rw-updating');
             });
         }
 
         function openMenu(pill) {
             closeMenu();
             activePill = pill;
-            activeWrapper = pill.closest('.task-card-wrapper');
-            if (!activeWrapper) return;
+            activeWrapper = pill.closest('.task-card-wrapper') || pill.closest('.qf-dash-task-row');
             menu = document.createElement('div');
             menu.className = 'rw-menu';
-            // 弹层位置：放在“任务所有者/来源”那行 badge 下方
-            var host = pill.closest('.qf-dash-header-meta') || pill.parentElement;
-            if (host) {
+            // 弹层位置：卡片 header meta 或列表「读写」列
+            var host = pill.closest('.qf-dash-header-meta') || pill.closest('.qf-dash-rw-cell') || pill.parentElement;
+            var inListTable = !!pill.closest('.qf-dash-task-table');
+            if (inListTable) {
+                var rect = pill.getBoundingClientRect();
+                document.body.appendChild(menu);
+                menu.style.position = 'fixed';
+                menu.style.left = rect.left + 'px';
+                menu.style.top = (rect.bottom + 6) + 'px';
+                menu.style.zIndex = '1080';
+            } else if (host) {
                 if (!host.style.position) host.style.position = 'relative';
                 host.appendChild(menu);
                 menu.style.left = '0px';
                 menu.style.top = 'calc(100% + 6px)';
             } else {
-                // fallback: viewport 定位
-                var rect = pill.getBoundingClientRect();
+                var rect2 = pill.getBoundingClientRect();
                 document.body.appendChild(menu);
-                menu.style.left = (window.scrollX + rect.left) + 'px';
-                menu.style.top = (window.scrollY + rect.bottom + 6) + 'px';
+                menu.style.left = (window.scrollX + rect2.left) + 'px';
+                menu.style.top = (window.scrollY + rect2.bottom + 6) + 'px';
             }
             menu.innerHTML = RW.map(function (x) {
                 return '<div class="rw-item" data-code="' + x.code + '">' +
