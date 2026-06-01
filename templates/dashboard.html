@@ -114,6 +114,10 @@
   opacity: 0; transition: opacity 0.2s ease;
   z-index: 2;
 }
+.qf-task-rw-trigger {
+  opacity: 1 !important;
+  position: relative;
+}
 .task-card-wrapper.rw-updating {
   opacity: 0.78;
   filter: saturate(0.85);
@@ -362,7 +366,9 @@ a.qf-btn-create-task.btn-primary:active {
                             {% if task.organization_id and task.organization %}
                             <span class="badge" style="background-color: #8b5cf6;">{{ task.organization.name }}</span>
                             {% else %}
+                            {% if section_title != '我的任务' %}
                             <span class="badge" style="background-color: #99f6e4; color: #115e59;">{{ task.author.username }}</span>
+                            {% endif %}
                             {% endif %}
                         </td>
                         <td>{{ submission_count_map.get(task.id, 0) }}</td>
@@ -397,18 +403,6 @@ a.qf-btn-create-task.btn-primary:active {
             {% endif %}
                 <div class="card h-100">
                     <div class="card-header" style="padding-bottom: 0.75rem;">
-                        {% if task_access.get(task.id) == 'owner' %}
-                        {% set rw_read = (task.is_active|default(True)) and (task.api_read_enabled is not defined or task.api_read_enabled is none or task.api_read_enabled) %}
-                        {% set rw_write = (task.is_active|default(True)) and (task.api_write_enabled is not defined or task.api_write_enabled is none or task.api_write_enabled) %}
-                        {% if not (task.is_active|default(True)) %}{% set rw_read = false %}{% set rw_write = false %}{% endif %}
-                        {% set rw_code = ('1' if rw_read else '0') ~ ('1' if rw_write else '0') %}
-                        <span class="task-status-pill rw-pill" role="button" tabindex="0"
-                              data-task-id="{{ task.id }}"
-                              data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}"
-                              data-rw-code="{{ rw_code }}"
-                              title="任务读写状态"
-                              aria-label="任务读写状态选择器">{{ ('1-1 可读可写' if rw_code=='11' else ('1-0 只读' if rw_code=='10' else ('0-1 只写' if rw_code=='01' else '0-0 禁用'))) }}</span>
-                        {% endif %}
                         <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}
                             {% if task.oneclick_generation_status == 'pending' %}
                             <span class="badge bg-dark bg-opacity-25 ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
@@ -471,18 +465,6 @@ a.qf-btn-create-task.btn-primary:active {
             {% endif %}
                 <div class="card h-100">
                     <div class="card-header" style="padding-bottom: 0.75rem;">
-                        {% if task_access.get(task.id) == 'owner' %}
-                        {% set rw_read = (task.is_active|default(True)) and (task.api_read_enabled is not defined or task.api_read_enabled is none or task.api_read_enabled) %}
-                        {% set rw_write = (task.is_active|default(True)) and (task.api_write_enabled is not defined or task.api_write_enabled is none or task.api_write_enabled) %}
-                        {% if not (task.is_active|default(True)) %}{% set rw_read = false %}{% set rw_write = false %}{% endif %}
-                        {% set rw_code = ('1' if rw_read else '0') ~ ('1' if rw_write else '0') %}
-                        <span class="task-status-pill rw-pill" role="button" tabindex="0"
-                              data-task-id="{{ task.id }}"
-                              data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}"
-                              data-rw-code="{{ rw_code }}"
-                              title="任务读写状态"
-                              aria-label="任务读写状态选择器">{{ ('1-1 可读可写' if rw_code=='11' else ('1-0 只读' if rw_code=='10' else ('0-1 只写' if rw_code=='01' else '0-0 禁用'))) }}</span>
-                        {% endif %}
                         <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}
                             {% if task.oneclick_generation_status == 'pending' %}
                             <span class="badge bg-dark bg-opacity-25 ms-1">{{ translate('dashboard.oneclick_generating_badge') }}</span>
@@ -490,15 +472,30 @@ a.qf-btn-create-task.btn-primary:active {
                             <span class="badge bg-danger ms-1">{{ translate('dashboard.oneclick_failed_badge') }}</span>
                             {% endif %}
                         </h5>
-                        <div class="d-flex gap-2 flex-wrap qf-dash-header-meta">
+                        <div class="d-flex gap-2 flex-wrap qf-dash-header-meta align-items-center">
+                            {% if task_access.get(task.id) == 'owner' %}
+                            {% set rw_read = (task.is_active|default(True)) and (task.api_read_enabled is not defined or task.api_read_enabled is none or task.api_read_enabled) %}
+                            {% set rw_write = (task.is_active|default(True)) and (task.api_write_enabled is not defined or task.api_write_enabled is none or task.api_write_enabled) %}
+                            {% if not (task.is_active|default(True)) %}{% set rw_read = false %}{% set rw_write = false %}{% endif %}
+                            {% set rw_code = ('1' if rw_read else '0') ~ ('1' if rw_write else '0') %}
+                            <span class="task-status-pill qf-task-rw-trigger task-status-pill--rw-{{ rw_code }}"
+                                  role="button" tabindex="0"
+                                  data-task-id="{{ task.id }}"
+                                  data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}"
+                                  data-rw-code="{{ rw_code }}"
+                                  title="任务读写状态"
+                                  aria-label="任务读写状态选择器">{{ ('1-1 可读可写' if rw_code=='11' else ('1-0 只读' if rw_code=='10' else ('0-1 只写' if rw_code=='01' else '0-0 禁用'))) }}</span>
+                            {% endif %}
                             {% if task.organization_id %}
                             <span class="badge qf-dash-pill qf-dash-pill--org" style="font-size: 0.75rem;">
                                 <i class="bi bi-building"></i> {{ task.organization.name }}
                             </span>
                             {% else %}
+                            {% if section_title != '我的任务' %}
                             <span class="badge qf-dash-pill qf-dash-pill--person" style="font-size: 0.75rem;">
                                 <i class="bi bi-person"></i> {{ task.author.username }}
                             </span>
+                            {% endif %}
                             {% endif %}
                             {% if task.sharing_type == 'organization' %}
                             <span class="badge qf-dash-pill qf-dash-pill--share-org" style="font-size: 0.75rem;">
@@ -966,7 +963,7 @@ a.qf-btn-create-task.btn-primary:active {
         }
 
         function bindPills() {
-            document.querySelectorAll('.rw-pill').forEach(function(pill) {
+            document.querySelectorAll('.qf-task-rw-trigger').forEach(function(pill) {
                 if (pill.dataset.bound) return;
                 pill.dataset.bound = '1';
                 pill.addEventListener('click', function(e) {
