@@ -1,68 +1,71 @@
+"""Registration approval (pending users) store.
+
+校园版的“注册需管理员审核”不使用 Alembic，为了保持部署简单，使用 JSON 文件记录待审核用户名。
+"""
+
+from __future__ import annotations
+
 import json
 import os
-import tempfile
-from typing import Dict, Any
+import threading
+from typing import Any
 
 
-def _pending_path() -> str:
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
-    os.makedirs(base_dir, exist_ok=True)
-    return os.path.join(base_dir, "pending_users.json")
+_LOCK = threading.Lock()
 
 
-def load_pending_users() -> Dict[str, Any]:
-    p = _pending_path()
-    if not os.path.exists(p):
+def _pending_users_path() -> str:
+    # Prefer explicit env; otherwise store under uploads/ which is writable in common deploys.
+    base = os.getenv("PENDING_USERS_JSON_PATH")
+    if base and base.strip():
+        return base.strip()
+    # Fallback: repo root uploads/pending_users.json
+    here = os.path.abspath(os.path.dirname(__file__))
+    root = os.path.abspath(os.path.join(here, ".."))
+    uploads = os.path.join(root, "uploads")
+    os.makedirs(uploads, exist_ok=True)
+    return os.path.join(uploads, "pending_users.json")
+
+
+def load_pending_users() -> dict[str, Any]:
+    path = _pending_users_path()
+    if not os.path.exists(path):
         return {}
     try:
-        with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f) or {}
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
 
-def save_pending_users(data: Dict[str, Any]) -> None:
-    p = _pending_path()
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(prefix="pending_users_", suffix=".json", dir=os.path.dirname(p))
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-            json.dump(data or {}, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, p)
-    finally:
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
+def _save_pending_users(data: dict[str, Any]) -> None:
+    path = _pending_users_path()
+    tmp = path + ".tmp"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data or {}, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def set_user_pending(username: str, pending: bool, meta: dict[str, Any] | None = None) -> None:
+    u = (username or "").strip()
+    if not u:
+        return
+    with _LOCK:
+        data = load_pending_users()
+        if pending:
+            data[u] = meta or {}
+        else:
+            data.pop(u, None)
+        _save_pending_users(data)
 
 
 def is_user_pending(username: str) -> bool:
-    u = (username or "").strip().lower()
+    u = (username or "").strip()
     if not u:
         return False
-    data = load_pending_users()
-    rec = data.get(u)
-    if rec is None:
-        return False
-    if isinstance(rec, dict):
-        return bool(rec.get("pending", True))
-    return True
-
-
-def set_user_pending(username: str, pending: bool, meta: Dict[str, Any] | None = None) -> None:
-    u = (username or "").strip().lower()
-    if not u:
-        return
-    data = load_pending_users()
-    if pending:
-        rec = {"pending": True}
-        if meta and isinstance(meta, dict):
-            rec.update(meta)
-        data[u] = rec
-    else:
-        # remove record to keep file small
-        data.pop(u, None)
-    save_pending_users(data)
+    with _LOCK:
+        data = load_pending_users()
+        return u in data
 

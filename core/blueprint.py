@@ -807,6 +807,7 @@ def parse_urlencoded(raw_data):
 
 # 数据库初始化已迁移到 core/db.py（校园版：PostgreSQL-only，新库起步）
 from core.db import engine, SessionLocal  # noqa: E402
+from core.pending_users import is_user_pending, load_pending_users, set_user_pending  # noqa: E402
 
 
 def _ensure_schema_ready() -> None:
@@ -822,6 +823,7 @@ def _ensure_schema_ready() -> None:
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_uid VARCHAR(128);'))
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_only BOOLEAN DEFAULT FALSE;'))
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_disabled BOOLEAN DEFAULT FALSE;'))
+                conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_multimodal_enabled BOOLEAN DEFAULT FALSE;'))
                 conn.execute(
                     text(
                         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_multimodal_enabled BOOLEAN DEFAULT FALSE;'
@@ -833,6 +835,9 @@ def _ensure_schema_ready() -> None:
                         'WHERE qflink_uid IS NOT NULL;'
                     )
                 )
+                # 任务读写状态：API 读/写开关（默认均启用）
+                conn.execute(text('ALTER TABLE "task" ADD COLUMN IF NOT EXISTS api_read_enabled BOOLEAN DEFAULT TRUE;'))
+                conn.execute(text('ALTER TABLE "task" ADD COLUMN IF NOT EXISTS api_write_enabled BOOLEAN DEFAULT TRUE;'))
         except Exception:
             # 补列失败不阻塞启动（例如权限受限/并发迁移），后续可手动执行 scripts/add_qflink_columns.py
             logger.exception("QFLink 字段补齐失败（可忽略；可手动执行 scripts/add_qflink_columns.py）")
@@ -1801,13 +1806,15 @@ def register():
                         flash('用户名或邮箱已被占用，请更换后重试', 'danger')
                     return redirect(url_for('quickform.register'))
 
-                flash('注册成功，请登录', 'success')
-                if cfg.registration_requires_approval:
+                # 注册审核：若系统开启“注册需审核”，则标记为 pending，登录时会提示等待管理员通过
+                if getattr(cfg, 'registration_requires_approval', False):
                     try:
-                        set_user_pending(username, True, meta={"created_at": datetime.now().isoformat()})
+                        set_user_pending(username, True, meta={"created_at": datetime.now().isoformat(), "source": "register"})
                     except Exception:
                         pass
-                    flash('注册成功：账号需要管理员审核后才能登录。', 'warning')
+                    flash('注册成功：该账号需管理员审核通过后才能登录。', 'warning')
+                else:
+                    flash('注册成功，请登录', 'success')
                 return redirect(url_for('quickform.login'))
             finally:
                 db.close()
@@ -1939,6 +1946,14 @@ def login():
                 (User.email == username) | 
                 (User.phone == username)
             ).first()
+
+            # 注册审核：被标记为 pending 的账号不可登录
+            try:
+                if user and is_user_pending(user.username):
+                    flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
+                    return render_template('login.html', qflink_enabled=qflink_enabled)
+            except Exception:
+                pass
             
             if user and getattr(user, "qflink_only", False):
                 flash('该账号为 QFLink 嘉宾用户，请切换到「QFLink 登录」使用在线账号或授权码。', 'warning')
@@ -4300,7 +4315,11 @@ def delete_task(task_id):
 @quickform_bp.route('/task/<int:task_id>/toggle_status', methods=['POST'])
 @login_required
 def task_toggle_status(task_id):
-    """仅任务所有者可调用：切换任务状态 正常/停用。停用后接口不再接受与返回数据。"""
+    """仅任务所有者可调用：切换任务读写状态（rw_code=11|10|01|00）。
+
+    - 兼容旧调用：不传 rw_code 时按顺序循环切换。
+    - 兼容旧字段：同步 is_active（当且仅当 read/write 都关闭时为 False）。
+    """
     db = SessionLocal()
     try:
         task = db.get(Task, task_id)
@@ -4308,9 +4327,44 @@ def task_toggle_status(task_id):
             return jsonify({'success': False, 'message': '任务不存在'}), 404
         if task.user_id != current_user.id:
             return jsonify({'success': False, 'message': '仅任务所有者可调整状态'}), 403
-        task.is_active = not getattr(task, 'is_active', True)
+        data = request.get_json(silent=True) or {}
+        rw_code = (data.get('rw_code') if isinstance(data, dict) else None) or None
+        if isinstance(rw_code, str):
+            rw_code = rw_code.strip()
+        if rw_code not in (None, '', '11', '10', '01', '00'):
+            return jsonify({'success': False, 'message': '无效的 rw_code（仅支持 11/10/01/00）'}), 400
+
+        def _bool_or_default(v, default=True):
+            return default if v is None else bool(v)
+
+        cur_read = _bool_or_default(getattr(task, 'api_read_enabled', None), default=True)
+        cur_write = _bool_or_default(getattr(task, 'api_write_enabled', None), default=True)
+        # 兼容旧数据：若任务已停用且未写入新字段，则认为 00
+        if not _bool_or_default(getattr(task, 'is_active', None), default=True) and getattr(task, 'api_read_enabled', None) is None and getattr(task, 'api_write_enabled', None) is None:
+            cur_read, cur_write = False, False
+        cur_code = ('1' if cur_read else '0') + ('1' if cur_write else '0')
+
+        if not rw_code:
+            order = ['11', '10', '01', '00']
+            try:
+                idx = order.index(cur_code)
+            except ValueError:
+                idx = 0
+            rw_code = order[(idx + 1) % len(order)]
+
+        new_read = (rw_code[0] == '1')
+        new_write = (rw_code[1] == '1')
+        task.api_read_enabled = new_read
+        task.api_write_enabled = new_write
+        task.is_active = bool(new_read or new_write)
         db.commit()
-        return jsonify({'success': True, 'is_active': task.is_active})
+        return jsonify({
+            'success': True,
+            'rw_code': rw_code,
+            'api_read_enabled': bool(task.api_read_enabled),
+            'api_write_enabled': bool(task.api_write_enabled),
+            'is_active': bool(task.is_active),
+        })
     except Exception as e:
         db.rollback()
         logger.exception("切换任务状态失败: %s", e)
@@ -5072,11 +5126,30 @@ def submit_form(task_id):
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             logger.warning(f"请求失败: 任务不存在 - task_id: {task_id}")
             return response, 404
-        if not getattr(task, 'is_active', True):
+        read_enabled = (getattr(task, 'api_read_enabled', None))
+        write_enabled = (getattr(task, 'api_write_enabled', None))
+        read_enabled = True if read_enabled is None else bool(read_enabled)
+        write_enabled = True if write_enabled is None else bool(write_enabled)
+        # 兼容旧字段：若任务停用则视为 00
+        if not getattr(task, 'is_active', True) and getattr(task, 'api_read_enabled', None) is None and getattr(task, 'api_write_enabled', None) is None:
+            read_enabled = False
+            write_enabled = False
+
+        if request.method == 'GET' and (not read_enabled):
             response = jsonify({
-                'error': 'task_disabled',
+                'error': 'task_read_disabled',
                 'task_id': task_id,
-                'message': 'This task is disabled. Submissions and data reads are not accepted.',
+                'message': 'This task is not readable now. Data reads are not allowed.',
+            })
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            return response, 403
+        if request.method == 'POST' and (not write_enabled):
+            response = jsonify({
+                'error': 'task_write_disabled',
+                'task_id': task_id,
+                'message': 'This task is not writable now. Submissions are not accepted.',
             })
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
@@ -5423,11 +5496,18 @@ def submit_form_all(task_id):
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             logger.warning(f"请求失败: 任务不存在 - task_id: {task_id}")
             return response, 404
-        if not getattr(task, 'is_active', True):
+        read_enabled = (getattr(task, 'api_read_enabled', None))
+        write_enabled = (getattr(task, 'api_write_enabled', None))
+        read_enabled = True if read_enabled is None else bool(read_enabled)
+        write_enabled = True if write_enabled is None else bool(write_enabled)
+        if not getattr(task, 'is_active', True) and getattr(task, 'api_read_enabled', None) is None and getattr(task, 'api_write_enabled', None) is None:
+            read_enabled = False
+            write_enabled = False
+        if not read_enabled:
             response = jsonify({
-                'error': 'task_disabled',
+                'error': 'task_read_disabled',
                 'task_id': task_id,
-                'message': 'This task is disabled. Data reads are not allowed.',
+                'message': 'This task is not readable now. Data reads are not allowed.',
             })
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
@@ -8430,7 +8510,6 @@ def admin_panel():
         qflink_config = load_qflink_config()
         qflink_users = []
         attachment_search_q = ''
-
         try:
             pending_users = load_pending_users()
             if not isinstance(pending_users, dict):
@@ -9300,6 +9379,30 @@ def admin_reset_password():
         return jsonify({'success': False, 'message': MSG_GENERIC}), 500
     finally:
         db.close()
+
+
+@quickform_bp.route('/admin/pending_users/batch', methods=['POST'])
+@admin_required
+def admin_pending_users_batch():
+    """批量审批注册待审核用户（目前仅支持批量通过）。"""
+    action = (request.form.get('action') or '').strip().lower()
+    usernames = request.form.getlist('usernames') or request.form.getlist('usernames[]')
+    usernames = [u.strip() for u in usernames if (u or '').strip()]
+    if not usernames:
+        flash('请先勾选要操作的用户。', 'warning')
+        return redirect(url_for('quickform.admin_panel', tab='users'))
+    if action != 'approve':
+        flash('未知批量操作。', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='users'))
+    ok = 0
+    for u in usernames:
+        try:
+            set_user_pending(u, False)
+            ok += 1
+        except Exception:
+            pass
+    flash(f'已批量通过 {ok} 个用户审核。', 'success')
+    return redirect(url_for('quickform.admin_panel', tab='users'))
 
 
 @quickform_bp.route('/admin/users/<int:user_id>/set_email', methods=['POST'])

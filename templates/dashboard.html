@@ -114,6 +114,51 @@
   opacity: 0; transition: opacity 0.2s ease;
   z-index: 2;
 }
+.task-card-wrapper.rw-updating {
+  opacity: 0.78;
+  filter: saturate(0.85);
+}
+.task-status-pill.rw-loading {
+  opacity: 1 !important;
+  pointer-events: none !important;
+}
+.rw-menu {
+  position: absolute;
+  z-index: 1080;
+  min-width: 220px;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+  padding: 6px;
+}
+.rw-menu .rw-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+.rw-menu .rw-item:hover {
+  background: rgba(37, 99, 235, 0.06);
+}
+.rw-menu .rw-item.active {
+  background: rgba(37, 99, 235, 0.12);
+  outline: 2px solid rgba(37, 99, 235, 0.28);
+}
+.rw-menu .rw-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight: 700;
+  color: #1f2937;
+}
+.rw-menu .rw-desc {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+}
 .task-card-wrapper:hover .task-status-pill { opacity: 1; }
 .task-card-wrapper .card-header { position: relative; }
 /* 卡片头部标签：彩色半透明 + 毛玻璃，保留私有/公开/团队等色系区分 */
@@ -353,7 +398,16 @@ a.qf-btn-create-task.btn-primary:active {
                 <div class="card h-100">
                     <div class="card-header" style="padding-bottom: 0.75rem;">
                         {% if task_access.get(task.id) == 'owner' %}
-                        <span class="task-status-pill" role="button" tabindex="0" data-task-id="{{ task.id }}" data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}" title="{{ translate('dashboard.task_status_toggle_hint') }}" aria-label="{{ translate('dashboard.task_status_aria') }}">{{ translate('dashboard.task_status_disabled') if not (task.is_active|default(True)) else translate('dashboard.task_status_normal') }}</span>
+                        {% set rw_read = (task.is_active|default(True)) and (task.api_read_enabled is not defined or task.api_read_enabled is none or task.api_read_enabled) %}
+                        {% set rw_write = (task.is_active|default(True)) and (task.api_write_enabled is not defined or task.api_write_enabled is none or task.api_write_enabled) %}
+                        {% if not (task.is_active|default(True)) %}{% set rw_read = false %}{% set rw_write = false %}{% endif %}
+                        {% set rw_code = ('1' if rw_read else '0') ~ ('1' if rw_write else '0') %}
+                        <span class="task-status-pill rw-pill" role="button" tabindex="0"
+                              data-task-id="{{ task.id }}"
+                              data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}"
+                              data-rw-code="{{ rw_code }}"
+                              title="任务读写状态"
+                              aria-label="任务读写状态选择器">{{ ('1-1 可读可写' if rw_code=='11' else ('1-0 只读' if rw_code=='10' else ('0-1 只写' if rw_code=='01' else '0-0 禁用'))) }}</span>
                         {% endif %}
                         <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}
                             {% if task.oneclick_generation_status == 'pending' %}
@@ -418,7 +472,16 @@ a.qf-btn-create-task.btn-primary:active {
                 <div class="card h-100">
                     <div class="card-header" style="padding-bottom: 0.75rem;">
                         {% if task_access.get(task.id) == 'owner' %}
-                        <span class="task-status-pill" role="button" tabindex="0" data-task-id="{{ task.id }}" data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}" title="{{ translate('dashboard.task_status_toggle_hint') }}" aria-label="{{ translate('dashboard.task_status_aria') }}">{{ translate('dashboard.task_status_disabled') if not (task.is_active|default(True)) else translate('dashboard.task_status_normal') }}</span>
+                        {% set rw_read = (task.is_active|default(True)) and (task.api_read_enabled is not defined or task.api_read_enabled is none or task.api_read_enabled) %}
+                        {% set rw_write = (task.is_active|default(True)) and (task.api_write_enabled is not defined or task.api_write_enabled is none or task.api_write_enabled) %}
+                        {% if not (task.is_active|default(True)) %}{% set rw_read = false %}{% set rw_write = false %}{% endif %}
+                        {% set rw_code = ('1' if rw_read else '0') ~ ('1' if rw_write else '0') %}
+                        <span class="task-status-pill rw-pill" role="button" tabindex="0"
+                              data-task-id="{{ task.id }}"
+                              data-toggle-url="{{ url_for('quickform.task_toggle_status', task_id=task.id) }}"
+                              data-rw-code="{{ rw_code }}"
+                              title="任务读写状态"
+                              aria-label="任务读写状态选择器">{{ ('1-1 可读可写' if rw_code=='11' else ('1-0 只读' if rw_code=='10' else ('0-1 只写' if rw_code=='01' else '0-0 禁用'))) }}</span>
                         {% endif %}
                         <h5 class="card-title mb-2" style="color: white; font-weight: 600;">{{ task.title }}
                             {% if task.oneclick_generation_status == 'pending' %}
@@ -730,7 +793,7 @@ a.qf-btn-create-task.btn-primary:active {
             btn.innerHTML = originalText;
         }, 2000);
     }
-    // 任务状态切换（正常/停用）：仅所有者可见，点击后翻转动效并变灰
+    // 任务读写状态切换（11/10/01/00）：仅所有者可见，点击弹出四态选择器
     (function() {
         var currentViewMode = {{ (request.args.get('view') or 'card')|tojson }};
         var hasExplicitViewParam = {{ (request.args.get('view') is not none)|tojson }};
@@ -750,30 +813,152 @@ a.qf-btn-create-task.btn-primary:active {
             } catch (e) {}
         }
 
-        var normalText = {{ translate('dashboard.task_status_normal')|tojson }};
-        var disabledText = {{ translate('dashboard.task_status_disabled')|tojson }};
+        var RW = [
+            { code: '11', label: '1-1 可读可写', desc: '读取 + 写入' },
+            { code: '10', label: '1-0 只读', desc: '可读，不接收提交' },
+            { code: '01', label: '0-1 只写', desc: '接收提交，不可读' },
+            { code: '00', label: '0-0 禁用', desc: '不可读，不可写' },
+        ];
+
+        var menu = null;
+        var activeIndex = 0;
+        var activePill = null;
+        var activeWrapper = null;
+
+        function codeToLabel(code) {
+            for (var i = 0; i < RW.length; i++) if (RW[i].code === code) return RW[i].label;
+            return '1-1 可读可写';
+        }
+
+        function closeMenu() {
+            if (menu) menu.remove();
+            menu = null;
+            activePill = null;
+            activeWrapper = null;
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('keydown', onKey, true);
+            document.removeEventListener('wheel', onWheel, { capture: true });
+        }
+
+        function onOutside(e) {
+            if (!menu) return;
+            if (menu.contains(e.target)) return;
+            if (activePill && activePill.contains(e.target)) return;
+            closeMenu();
+        }
+
+        function setActive(idx) {
+            activeIndex = (idx + RW.length) % RW.length;
+            if (!menu) return;
+            menu.querySelectorAll('.rw-item').forEach(function (el, i) {
+                el.classList.toggle('active', i === activeIndex);
+            });
+        }
+
+        function onWheel(e) {
+            if (!menu) return;
+            if (!(menu.contains(e.target) || (activePill && activePill.contains(e.target)))) return;
+            e.preventDefault();
+            var dir = (e.deltaY > 0) ? 1 : -1;
+            setActive(activeIndex + dir);
+        }
+
+        function onKey(e) {
+            if (!menu) return;
+            if (e.key === 'ArrowDown') { e.preventDefault(); setActive(activeIndex + 1); return; }
+            if (e.key === 'ArrowUp') { e.preventDefault(); setActive(activeIndex - 1); return; }
+            if (e.key === 'Enter') { e.preventDefault(); confirmSelection(); return; }
+            if (e.key === 'Escape') { e.preventDefault(); closeMenu(); return; }
+        }
+
+        function confirmSelection() {
+            if (!activePill || !activeWrapper) return;
+            var opt = RW[activeIndex];
+            if (!opt) return;
+            closeMenu();
+            setRwCode(activePill, activeWrapper, opt.code);
+        }
+
+        function setRwCode(pill, wrapper, code) {
+            var url = pill.getAttribute('data-toggle-url');
+            if (!url) return;
+            var start = Date.now();
+            pill.classList.add('rw-loading');
+            wrapper.classList.add('rw-updating');
+            var oldText = pill.textContent;
+            pill.textContent = '切换中…';
+            fetch(url, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ rw_code: code }),
+            }).then(function (r) { return r.json(); }).then(function (data) {
+                if (!data || !data.success) throw new Error((data && data.message) || '切换失败');
+                var elapsed = Date.now() - start;
+                var wait = Math.max(0, 450 - elapsed);
+                return new Promise(function (resolve) { setTimeout(function () { resolve(data); }, wait); });
+            }).then(function (data) {
+                var newCode = (data.rw_code || code || '11');
+                pill.dataset.rwCode = newCode;
+                pill.textContent = codeToLabel(newCode);
+                var isActive = !!data.is_active && newCode !== '00';
+                wrapper.classList.toggle('flipped', !isActive || newCode === '00');
+                wrapper.setAttribute('data-is-active', isActive ? 'true' : 'false');
+            }).catch(function (e) {
+                pill.textContent = oldText;
+                alert(e && e.message ? e.message : '切换失败');
+            }).finally(function () {
+                pill.classList.remove('rw-loading');
+                wrapper.classList.remove('rw-updating');
+            });
+        }
+
+        function openMenu(pill) {
+            closeMenu();
+            activePill = pill;
+            activeWrapper = pill.closest('.task-card-wrapper');
+            if (!activeWrapper) return;
+            var rect = pill.getBoundingClientRect();
+            menu = document.createElement('div');
+            menu.className = 'rw-menu';
+            menu.style.left = (window.scrollX + rect.left) + 'px';
+            menu.style.top = (window.scrollY + rect.bottom + 6) + 'px';
+            menu.innerHTML = RW.map(function (x) {
+                return '<div class="rw-item" data-code="' + x.code + '">' +
+                    '<div><span class="rw-code">' + x.code + '</span> <span class="ms-2">' + x.label + '</span></div>' +
+                    '<div class="rw-desc">' + x.desc + '</div>' +
+                    '</div>';
+            }).join('');
+            document.body.appendChild(menu);
+
+            var cur = (pill.dataset.rwCode || '11').toString();
+            var idx = 0;
+            for (var i = 0; i < RW.length; i++) if (RW[i].code === cur) idx = i;
+            setActive(idx);
+
+            menu.querySelectorAll('.rw-item').forEach(function (el, i) {
+                el.addEventListener('mouseenter', function () { setActive(i); });
+                el.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setActive(i);
+                    confirmSelection();
+                });
+            });
+
+            document.addEventListener('mousedown', onOutside, true);
+            document.addEventListener('keydown', onKey, true);
+            document.addEventListener('wheel', onWheel, { capture: true, passive: false });
+        }
+
         function bindPills() {
-            document.querySelectorAll('.task-status-pill').forEach(function(pill) {
+            document.querySelectorAll('.rw-pill').forEach(function(pill) {
                 if (pill.dataset.bound) return;
                 pill.dataset.bound = '1';
                 pill.addEventListener('click', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    var url = this.getAttribute('data-toggle-url');
-                    var wrapper = this.closest('.task-card-wrapper');
-                    if (!url || !wrapper) return;
-                    pill.style.pointerEvents = 'none';
-                    fetch(url, {
-                        method: 'POST',
-                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        credentials: 'same-origin'
-                    }).then(function(r) { return r.json(); }).then(function(data) {
-                        if (data.success) {
-                            wrapper.classList.toggle('flipped', !data.is_active);
-                            wrapper.setAttribute('data-is-active', data.is_active ? 'true' : 'false');
-                            pill.textContent = data.is_active ? normalText : disabledText;
-                        }
-                    }).catch(function() { pill.style.pointerEvents = ''; }).finally(function() { pill.style.pointerEvents = ''; });
+                    openMenu(pill);
                 });
             });
         }

@@ -102,6 +102,10 @@ class Task(Base):
     dashboard_generation_status = Column(String(20), nullable=True)  # pending/completed/failed
     dashboard_generation_error = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)  # 任务状态：True=正常接收/读取数据，False=停用（接口拒绝）
+    # 任务读写状态（API 读/写开关）：默认均开启
+    # rw_code = (read?1:0)(write?1:0) -> 11/10/01/00
+    api_read_enabled = Column(Boolean, default=True)
+    api_write_enabled = Column(Boolean, default=True)
     # 单任务 API 用量（校园版：仅统计，不做限额拦截）
     api_task_get_count = Column(Integer, default=0)  # 轻量 GET（最新 3 条）成功次数
     api_task_all_count = Column(Integer, default=0)  # /all 成功次数
