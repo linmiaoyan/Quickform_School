@@ -107,15 +107,16 @@
 .task-card-wrapper.flipped { transform: rotateY(180deg); }
 .task-card-wrapper.flipped .card { transform: rotateY(-180deg); filter: grayscale(1); opacity: 0.92; background-color: #e5e7eb !important; }
 .task-card-wrapper.flipped .card .card-header { background-color: #9ca3af !important; }
-.task-status-pill {
+.task-status-pill:not(.qf-task-rw-trigger) {
   position: absolute; top: 0.5rem; right: 0.75rem;
   font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 4px;
   background: rgba(255,255,255,0.25); color: #fff; cursor: pointer;
   opacity: 0; transition: opacity 0.2s ease;
   z-index: 2;
 }
-.qf-task-rw-trigger {
-  /* 将 rw pill 变成“圆形毛玻璃 badge”质感（沿用 header meta pill 风格） */
+.qf-task-rw-trigger,
+.card .card-header .qf-dash-header-meta .qf-task-rw-trigger {
+  /* 圆形毛玻璃 badge；浅色底统一深色字，避免继承 card-header 白字 */
   position: relative !important;
   top: auto !important;
   right: auto !important;
@@ -129,13 +130,26 @@
   font-weight: 600;
   padding: 0.38em 0.7em;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  background: rgba(255, 255, 255, 0.25);
-  color: #fff;
-}
-/* 0-1 只写：浅底时白字不清晰，改为深色字 */
-.task-status-pill--rw-01 {
+  border: 1px solid rgba(255, 255, 255, 0.55);
   color: #111827 !important;
+  text-shadow: none;
+}
+.card .card-header .qf-dash-header-meta .task-status-pill--rw-11 {
+  background: rgba(13, 148, 136, 0.42) !important;
+  border-color: rgba(255, 255, 255, 0.45);
+}
+.card .card-header .qf-dash-header-meta .task-status-pill--rw-10 {
+  background: rgba(147, 197, 253, 0.55) !important;
+  border-color: rgba(255, 255, 255, 0.55);
+}
+.card .card-header .qf-dash-header-meta .task-status-pill--rw-01 {
+  background: rgba(110, 231, 183, 0.5) !important;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.card .card-header .qf-dash-header-meta .task-status-pill--rw-00 {
+  background: rgba(229, 231, 235, 0.72) !important;
+  color: #374151 !important;
+  border-color: rgba(255, 255, 255, 0.4);
 }
 .task-card-wrapper.rw-updating {
   opacity: 0.78;
@@ -150,6 +164,7 @@
   z-index: 1080;
   min-width: 220px;
   background: #fff;
+  color: #111827;
   border: 1px solid rgba(0,0,0,0.12);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.12);
@@ -164,6 +179,7 @@
   justify-content: space-between;
   gap: 10px;
   align-items: center;
+  color: #111827;
 }
 .rw-menu .rw-item:hover {
   background: rgba(37, 99, 235, 0.06);
@@ -175,11 +191,15 @@
 .rw-menu .rw-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-weight: 700;
-  color: #1f2937;
+  color: #111827;
+}
+.rw-menu .rw-label {
+  font-weight: 600;
+  color: #111827;
 }
 .rw-menu .rw-desc {
   font-size: 12px;
-  color: #6b7280;
+  color: #4b5563;
   white-space: nowrap;
 }
 .task-card-wrapper:hover .task-status-pill { opacity: 1; }
@@ -921,6 +941,8 @@ a.qf-btn-create-task.btn-primary:active {
                 var newCode = (data.rw_code || code || '11');
                 pill.dataset.rwCode = newCode;
                 pill.textContent = codeToLabel(newCode);
+                pill.classList.remove('task-status-pill--rw-11', 'task-status-pill--rw-10', 'task-status-pill--rw-01', 'task-status-pill--rw-00');
+                pill.classList.add('task-status-pill--rw-' + newCode);
                 var isActive = !!data.is_active && newCode !== '00';
                 wrapper.classList.toggle('flipped', !isActive || newCode === '00');
                 wrapper.setAttribute('data-is-active', isActive ? 'true' : 'false');
@@ -956,7 +978,7 @@ a.qf-btn-create-task.btn-primary:active {
             }
             menu.innerHTML = RW.map(function (x) {
                 return '<div class="rw-item" data-code="' + x.code + '">' +
-                    '<div><span class="rw-code">' + x.code + '</span> <span class="ms-2">' + x.label + '</span></div>' +
+                    '<div><span class="rw-code">' + x.code + '</span> <span class="rw-label ms-2">' + x.label + '</span></div>' +
                     '<div class="rw-desc">' + x.desc + '</div>' +
                     '</div>';
             }).join('');
