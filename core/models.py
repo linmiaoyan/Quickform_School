@@ -273,7 +273,17 @@ DEFAULT_ONECLICK_PROMPT_OPTIONS = [
     (
         'opt_upload',
         '数据上传',
-        '收数方式：用户填写后通过 POST 向「API地址」提交 JSON（建议 Content-Type: application/json），与 QuickForm 数据接口约定一致。',
+        '收数方式：用户填写后通过 POST 向「API地址」提交。纯文本字段可用 application/json；若含文件上传控件，必须使用 multipart/form-data：字段名 json（字符串化的其它字段）+ file（可多个），禁止把文件/Base64 塞进 JSON。',
+    ),
+    (
+        'opt_multimodal',
+        '多模态附件',
+        '含文件上传时：单文件不超过服务器限制（页面 meta qf-api-limits 中 maxFileMb，默认约 20MB）；整次请求亦受 maxBodyMb 限制（默认约 10MB）。失败时解析响应 JSON 的 message 字段展示，不要直接显示 response.text() 原始内容。',
+    ),
+    (
+        'opt_api_errors',
+        '提交错误处理',
+        '提交后先判断 response.ok；失败时用 JSON.parse 读取 message（兼容 error 机器码如 request_entity_too_large、payload_too_large、invalid_body）。仅在 ok 为 true 时显示「提交成功」，避免成功/失败提示同时出现。',
     ),
     (
         'opt_fetch',

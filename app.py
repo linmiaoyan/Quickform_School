@@ -109,7 +109,11 @@ if not _secret_key or _secret_key == 'your_secret_key_here':
 app.secret_key = _secret_key
 # 站点版本号（浏览器标题/页脚展示；可用环境变量覆盖，例如 1.0.0 或 2026.05.02）
 app.config['APP_VERSION'] = (os.getenv('APP_VERSION') or '1.0.0').strip() or '1.0.0'
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB（教师认证上传等）；任务内 HTML 单文件限制 4MB 在业务层校验
+# 整包请求上限（与 MAX_REQUEST_BODY_MB 一致）；API 多模态单文件见 API_MAX_FILE_SIZE_MB
+from core.api_submit import api_max_request_body_bytes
+
+app.config['MAX_CONTENT_LENGTH'] = api_max_request_body_bytes()
+app.config['JSON_AS_ASCII'] = False  # API 错误 message 直接输出中文，避免 \uXXXX 展示困扰
 # 站点对外 scheme 默认跟随请求/反代头；如需固定请用 PUBLIC_BASE_URL 显式配置
 app.config['PREFERRED_URL_SCHEME'] = os.getenv('PREFERRED_URL_SCHEME', 'http').strip().lower() or 'http'
 # 对外站点根 URL（无末尾斜杠），用于一键生成嵌入 API 地址等；不配置时从请求头推断，见 blueprint._public_site_base_url
@@ -368,8 +372,21 @@ def handle_uncaught_exception(error):
 @app.errorhandler(413)
 def request_entity_too_large(error):
     from flask import flash, request
+    from core.api_submit import api_max_request_body_bytes, submit_api_json_response
+
     app.logger.warning("413错误 - 请求实体过大")
-    flash('文件大小超过服务器限制（最大10MB），请压缩后重试。', 'danger')
+    path = (request.path or '')
+    if path.startswith('/api/') or '/api/' in path:
+        mb = max(1, api_max_request_body_bytes() // (1024 * 1024))
+        return submit_api_json_response(
+            'request_entity_too_large',
+            f'请求总大小超过服务器限制（约 {mb}MB）。请勿把大文件写入 JSON；请用表单 multipart 的 file 字段上传附件，或压缩后分批提交。',
+            413,
+        )
+    flash(
+        f'文件大小超过服务器限制（约 {api_max_request_body_bytes() // (1024 * 1024)}MB），请压缩后重试。',
+        'danger',
+    )
     return redirect(url_for('quickform.dashboard'))
 
 

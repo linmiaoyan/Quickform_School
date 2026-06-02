@@ -61,6 +61,13 @@ from .models import (
 )
 from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
 from .public_errors import MSG_GENERIC, MSG_SERVICE_BUSY, MSG_JSON_BODY, MSG_SAVE_FAILED, MSG_PAGE_LOAD, MSG_API_INTERNAL
+from .api_submit import (
+    api_max_file_size_mb,
+    api_max_json_field_bytes,
+    api_max_request_body_bytes,
+    inject_student_page_scripts,
+    submit_api_json_response,
+)
 from .i18n import translate
 from .login_throttle import login_blocked, record_login_failure, clear_login_throttle
 from .project_usage import get_top_projects, evaluate_project_alerts
@@ -738,7 +745,9 @@ def _process_submit_form_file_uploads(request, task_id, multimodal_allowed):
         uploaded_files.append(f'/static/uploads/{task_id}/{random_name}')
 
     if file_size_rejected:
-        warnings.append('部分文件超过大小限制，未保存')
+        warnings.append(
+            f'部分文件超过单文件 {api_max_file_size_mb()}MB 限制，未保存；请压缩后重试或使用 multipart 的 file 字段单独上传。'
+        )
     if file_type_rejected:
         warnings.append('部分文件类型不支持，未保存')
     return uploaded_files, warnings
@@ -1163,7 +1172,13 @@ def get_upload_file_url(saved_name, task_file_path=None):
             norm = (task_file_path or '').replace('\\', '/')
             if 'static' in norm and 'uploads' in norm:
                 return url_for('static', filename='uploads/' + saved_name)
-        # 2) 文件实际存在于 static/uploads（避免 DB 路径与运行环境不一致时漏判）
+        # 2) 学生端 HTML 走 /uploads/ 路由以便注入提交增强脚本（多模态/错误解析）
+        if saved_name.lower().endswith(('.html', '.htm')):
+            if _file_in_static_uploads(saved_name) or os.path.exists(
+                os.path.join(UPLOAD_FOLDER, saved_name)
+            ):
+                return url_for('quickform.uploaded_file', filename=saved_name)
+        # 3) 其它静态资源仍可直接走 static
         if _file_in_static_uploads(saved_name):
             return url_for('static', filename='uploads/' + saved_name)
     except RuntimeError:
@@ -5129,6 +5144,17 @@ def submit_form(task_id):
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             return response, 403
+
+        if request.method == 'POST':
+            max_body = api_max_request_body_bytes()
+            cl = request.content_length
+            if cl is not None and cl > max_body:
+                mb = max(1, max_body // (1024 * 1024))
+                return submit_api_json_response(
+                    'request_entity_too_large',
+                    f'请求总大小超过限制（约 {mb}MB）。请勿把大文件写入 JSON；请使用 multipart/form-data，字段 json + file 上传附件。',
+                    413,
+                )
         
         # GET方法：返回任务数据统计（只返回最新的3条）
         if request.method == 'GET':
@@ -5290,6 +5316,13 @@ def submit_form(task_id):
         try:
             data_text = json.dumps(form_data, ensure_ascii=False)
             payload_bytes = len((data_text or '').encode('utf-8', errors='ignore'))
+            max_json = api_max_json_field_bytes()
+            if payload_bytes > max_json:
+                return submit_api_json_response(
+                    'payload_too_large',
+                    f'提交失败：除附件外的 JSON 数据约不能超过 {max_json // 1024}KB。请勿在 JSON 中嵌入 Base64 图片或大文件；请用 multipart 的 file 字段上传。',
+                    413,
+                )
             payload_hash = _payload_hash_for_dedupe(data_text)
             if _submit_duplicate_payload_check(task_id, client_fp, now_ts, payload_hash):
                 logger.warning(
@@ -5331,14 +5364,11 @@ def submit_form(task_id):
                 or '1406' in err_text
             )
             if is_data_too_long:
-                response = jsonify({
-                    'error': 'payload_too_large',
-                    'message': '提交失败：当前任务的数据字段最大约 60KB，请勿在 JSON 中嵌入 Base64 图片；请使用多模态附件（multipart 文件上传）。'
-                })
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-                response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-                return response, 413
+                return submit_api_json_response(
+                    'payload_too_large',
+                    f'提交失败：除附件外的 JSON 数据约不能超过 {api_max_json_field_bytes() // 1024}KB。请勿在 JSON 中嵌入 Base64 图片；请使用 multipart 的 file 字段上传。',
+                    413,
+                )
             response = jsonify({'error': 'save_failed', 'message': MSG_SAVE_FAILED})
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
@@ -8294,54 +8324,39 @@ def dashboard_status(task_id):
 
 @quickform_bp.route('/uploads/<path:filename>')
 def uploaded_file(filename):
-    """上传文件访问 - 原有 uploads 目录中的文件由此路由提供；已在 static/uploads 的新文件重定向到静态 URL"""
+    """上传文件访问；学生端 HTML 注入限额 meta 与提交增强脚本（多模态/错误解析）。"""
     try:
         legacy_path = os.path.join(UPLOAD_FOLDER, filename)
         static_path = os.path.join(_static_uploads_dir(), filename)
-        if not os.path.exists(legacy_path) and os.path.exists(static_path):
-            return redirect(url_for('static', filename='uploads/' + filename))
-        # HTML：校园版不拦截访问；可选注入表单增强脚本
+        # HTML：校园版不拦截访问；注入脚本（static/uploads 与 legacy 目录均支持）
         if filename.lower().endswith(('.html', '.htm')):
-            # 读取HTML文件内容并注入增强脚本
-            try:
-                filepath = os.path.join(UPLOAD_FOLDER, filename)
-                if os.path.exists(filepath):
+            filepath = legacy_path if os.path.exists(legacy_path) else static_path
+            if os.path.exists(filepath):
+                try:
                     with open(filepath, 'r', encoding='utf-8') as f:
                         html_content = f.read()
-                    
-                    # 构建增强脚本的URL
-                    # 使用请求的基础URL构建静态文件路径
                     base_url = request.url_root.rstrip('/')
-                    script_url = f'{base_url}/static/js/form-enhancements.js'
-                    
-                    # 注入增强脚本
-                    enhancement_script = f'<script src="{script_url}"></script>'
-                    
-                    # 在</head>之前注入，如果没有</head>则在</body>之前注入
-                    if '</head>' in html_content:
-                        html_content = html_content.replace('</head>', f'{enhancement_script}\n</head>', 1)
-                    elif '</body>' in html_content:
-                        html_content = html_content.replace('</body>', f'{enhancement_script}\n</body>', 1)
-                    else:
-                        # 如果没有找到，在文件末尾添加
-                        html_content += f'\n{enhancement_script}\n'
-                    
+                    html_content = inject_student_page_scripts(html_content, base_url)
                     response = make_response(html_content)
                     response.headers['Content-Type'] = 'text/html; charset=utf-8'
                     return response
-            except Exception as e:
-                logger.warning(f"注入增强脚本失败，返回原始文件: {str(e)}")
-            
-            return send_from_directory(UPLOAD_FOLDER, filename)
-        else:
-            # TXT 文件开放访问，便于公网直接查看
-            if filename.lower().endswith('.txt'):
+                except Exception as e:
+                    logger.warning("注入学生端脚本失败，返回原始文件: %s", e)
+            if os.path.exists(legacy_path):
                 return send_from_directory(UPLOAD_FOLDER, filename)
-            # 其他非 HTML 文件仍需登录保护
-            if not current_user.is_authenticated:
-                flash('请先登录', 'warning')
-                return redirect(url_for('quickform.login'))
+            if os.path.exists(static_path):
+                return send_from_directory(_static_uploads_dir(), filename)
+            raise FileNotFoundError(filename)
+        if not os.path.exists(legacy_path) and os.path.exists(static_path):
+            return redirect(url_for('static', filename='uploads/' + filename))
+        # TXT 文件开放访问，便于公网直接查看
+        if filename.lower().endswith('.txt'):
             return send_from_directory(UPLOAD_FOLDER, filename)
+        # 其他非 HTML 文件仍需登录保护
+        if not current_user.is_authenticated:
+            flash('请先登录', 'warning')
+            return redirect(url_for('quickform.login'))
+        return send_from_directory(UPLOAD_FOLDER, filename)
     except FileNotFoundError:
         flash('文件不存在', 'danger')
         return redirect(request.referrer or url_for('quickform.dashboard'))
