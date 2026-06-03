@@ -62,10 +62,12 @@ from .models import (
 from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
 from .public_errors import MSG_GENERIC, MSG_SERVICE_BUSY, MSG_JSON_BODY, MSG_SAVE_FAILED, MSG_PAGE_LOAD, MSG_API_INTERNAL
 from .api_submit import (
+    api_limits_for_client,
     api_max_file_size_mb,
     api_max_json_field_bytes,
     api_max_request_body_bytes,
     inject_student_page_scripts,
+    inject_submission_client_ip,
     normalize_form_data_attachments,
     normalize_static_upload_url,
     submit_api_json_response,
@@ -328,8 +330,10 @@ def _admin_apply_user_email_change(db, target_user, acting_user, new_email_raw):
 
 
 def _email_requirement_block_for_next_task(db, user, task_count):
-    """校园版：创建第二个及后续任务时不校验邮箱绑定/验证（校内教师账号）。"""
-    del db, user, task_count  # 保留签名供各创建/导入入口统一调用
+    """校园版：不校验邮箱；QFLink 用户始终允许新建任务。"""
+    del db, task_count
+    if user and _is_qflink_user(user):
+        return None
     return None
 
 
@@ -2416,10 +2420,15 @@ def _qflink_login_user_from_payload(
             user.qflink_uid = qflink_uid
             user.qflink_only = True
             user.qflink_disabled = False
+            user.email_verified = True
+            user.task_limit = -1
             db.add(user)
             db.commit()
         else:
             user.qflink_only = True
+            user.email_verified = True
+            if getattr(user, 'task_limit', None) not in (None, -1):
+                user.task_limit = -1
             if school:
                 user.school = school
             if phone:
@@ -2957,6 +2966,9 @@ ONECLICK_PROMPT_OPTIONS = DEFAULT_ONECLICK_PROMPT_OPTIONS
 @login_required
 def oneclick_create_task():
     """一键生成新任务：登录用户可用，根据描述生成 HTML 并自动上传到新任务（需在个人中心配置 AI）。"""
+    if getattr(current_user, 'qflink_disabled', False):
+        flash('该 QFLink 账号已被管理员禁用，无法创建任务。', 'danger')
+        return redirect(url_for('quickform.dashboard'))
     if request.method == 'GET':
         db = SessionLocal()
         try:
@@ -2975,14 +2987,15 @@ def oneclick_create_task():
         return redirect(url_for('quickform.oneclick_create_task'))
     db = SessionLocal()
     try:
-        task_count = db.query(Task).filter_by(user_id=current_user.id).count()
-        block = _email_requirement_block_for_next_task(db, current_user, task_count)
-        if block == 'bind_email':
-            flash('创建第二个及后续任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
-            return redirect(url_for('quickform.profile', next=url_for('quickform.oneclick_create_task')))
-        if block == 'verify_email':
-            flash('创建第二个及后续任务前请先验证邮箱。', 'warning')
-            return redirect(url_for('quickform.verify_email', next=url_for('quickform.oneclick_create_task')))
+        if not current_user.is_admin() and not _is_qflink_user(current_user):
+            task_count = db.query(Task).filter_by(user_id=current_user.id).count()
+            block = _email_requirement_block_for_next_task(db, current_user, task_count)
+            if block == 'bind_email':
+                flash('创建第二个及后续任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
+                return redirect(url_for('quickform.profile', next=url_for('quickform.oneclick_create_task')))
+            if block == 'verify_email':
+                flash('创建第二个及后续任务前请先验证邮箱。', 'warning')
+                return redirect(url_for('quickform.verify_email', next=url_for('quickform.oneclick_create_task')))
         # 创建新任务以得到 task_id 与 API 地址
         task = Task(title=title, description='', user_id=current_user.id, sharing_type='private')
         db.add(task)
@@ -3027,10 +3040,13 @@ def oneclick_create_task():
 @login_required
 def create_task():
     """创建任务"""
+    if getattr(current_user, 'qflink_disabled', False):
+        flash('该 QFLink 账号已被管理员禁用，无法创建任务。', 'danger')
+        return redirect(url_for('quickform.dashboard'))
     db = SessionLocal()
     try:
-        task_count = db.query(Task).filter_by(user_id=current_user.id).count()
-        if not current_user.is_admin():
+        if not current_user.is_admin() and not _is_qflink_user(current_user):
+            task_count = db.query(Task).filter_by(user_id=current_user.id).count()
             block = _email_requirement_block_for_next_task(db, current_user, task_count)
             if block == 'bind_email':
                 flash('创建第二个及后续任务前请先在个人资料中绑定邮箱（修改为您的个人邮箱）。', 'warning')
@@ -5321,6 +5337,7 @@ def submit_form(task_id):
             form_data = _merge_attachment_into_form_data(form_data, uploaded_files, task.task_id)
         else:
             form_data = normalize_form_data_attachments(form_data, task.task_id)
+        form_data = inject_submission_client_ip(form_data, client_ip)
         
         if over_limit:
             logger.warning(
@@ -8761,6 +8778,7 @@ def admin_panel():
             pending_cert_sidebar=0,
             pending_other_sidebar=pending_other_sidebar,
             attachment_search_q=attachment_search_q,
+            api_upload_limits=api_limits_for_client(),
         )
     finally:
         db.close()

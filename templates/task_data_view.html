@@ -74,6 +74,9 @@
                                         {% endif %}
                                     </div>
                                     {% endif %}
+                                    {% if parsed and parsed._ip %}
+                                    <div class="small text-muted mb-1"><strong>IP：</strong><code>{{ parsed._ip }}</code></div>
+                                    {% endif %}
                                     <pre class="mb-0 small" style="max-height: 120px; overflow: auto; white-space: pre-wrap; word-break: break-all;">{{ sub.data }}</pre>
                                 </td>
                                 <td>

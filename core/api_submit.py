@@ -83,6 +83,17 @@ def normalize_form_data_attachments(form_data, task_id=None):
     return out
 
 
+def inject_submission_client_ip(form_data, client_ip: str):
+    """写入提交者 IP（字段 _ip），供回收数据审计。"""
+    if not isinstance(form_data, dict):
+        return form_data
+    out = dict(form_data)
+    ip = (client_ip or '').strip()
+    if ip:
+        out['_ip'] = ip[:100]
+    return out
+
+
 def attach_submit_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
