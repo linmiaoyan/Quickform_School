@@ -1,11 +1,15 @@
 """数据收集 API（POST /api/<task_id>）的限额与统一错误响应（校园版）。"""
 import json
 import os
+import re
+from urllib.parse import urlparse
 
 from flask import jsonify
 
 # 单条 submission.data 建议上限（与数据库 TEXT 及业务提示一致）
 API_MAX_JSON_FIELD_KB = max(16, int(os.getenv('API_MAX_JSON_FIELD_KB', '60') or '60'))
+
+_STATIC_UPLOAD_PATH_RE = re.compile(r'/static/uploads/([0-9a-zA-Z_-]+)/([^/?#\s]+)')
 
 
 def api_max_file_size_mb() -> int:
@@ -43,6 +47,40 @@ def api_limits_for_client() -> dict:
             if e.strip()
         ],
     }
+
+
+def normalize_static_upload_url(url, task_id=None):
+    """将附件 URL 规范为 /static/uploads/<task_id>/<filename>，消除重复前缀拼接。"""
+    if url is None:
+        return url
+    if isinstance(url, (list, tuple)):
+        return [normalize_static_upload_url(u, task_id) for u in url]
+    if not isinstance(url, str):
+        return url
+    u = url.strip().replace('\\', '/')
+    if not u:
+        return u
+    if u.startswith('http://') or u.startswith('https://'):
+        u = urlparse(u).path or u
+    matches = list(_STATIC_UPLOAD_PATH_RE.finditer(u))
+    if matches:
+        last = matches[-1]
+        tid, fname = last.group(1), last.group(2)
+        return f'/static/uploads/{tid}/{fname}'
+    if task_id and u and '/' not in u.lstrip('/'):
+        return f'/static/uploads/{task_id}/{u.lstrip("/")}'
+    return u
+
+
+def normalize_form_data_attachments(form_data, task_id=None):
+    """规范化提交 JSON 中的 attachment 字段（保存前调用）。"""
+    if not isinstance(form_data, dict):
+        return form_data
+    if 'attachment' not in form_data:
+        return form_data
+    out = dict(form_data)
+    out['attachment'] = normalize_static_upload_url(out.get('attachment'), task_id)
+    return out
 
 
 def attach_submit_cors_headers(response):

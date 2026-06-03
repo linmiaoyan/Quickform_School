@@ -121,8 +121,12 @@
             }
         });
         hideSubmitError();
+        var fields = collectFormFields(form, true);
+        // 附件路径由服务端写入，避免客户端重复拼接 /static/uploads/...
+        delete fields.attachment;
+        delete fields.attachments;
         var fd = new FormData();
-        fd.append('json', JSON.stringify(collectFormFields(form, true)));
+        fd.append('json', JSON.stringify(fields));
         picked.forEach(function (f) {
             fd.append('file', f, f.name);
         });

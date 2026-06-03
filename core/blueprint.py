@@ -66,6 +66,8 @@ from .api_submit import (
     api_max_json_field_bytes,
     api_max_request_body_bytes,
     inject_student_page_scripts,
+    normalize_form_data_attachments,
+    normalize_static_upload_url,
     submit_api_json_response,
 )
 from .i18n import translate
@@ -753,18 +755,21 @@ def _process_submit_form_file_uploads(request, task_id, multimodal_allowed):
     return uploaded_files, warnings
 
 
-def _merge_attachment_into_form_data(form_data, uploaded_files):
-    """将上传路径写入提交 JSON（与教师版一致）。"""
+def _merge_attachment_into_form_data(form_data, uploaded_files, task_id=None):
+    """将上传路径写入提交 JSON；服务端路径优先，并规范化 attachment。"""
     if not uploaded_files:
-        return form_data
-    att = uploaded_files[0] if len(uploaded_files) == 1 else uploaded_files
+        return normalize_form_data_attachments(form_data, task_id)
+    normalized = [normalize_static_upload_url(p, task_id) for p in uploaded_files]
+    att = normalized[0] if len(normalized) == 1 else normalized
     if isinstance(form_data, dict):
+        form_data = dict(form_data)
         form_data['attachment'] = att
         return form_data
     if isinstance(form_data, str):
         try:
             parsed = json.loads(form_data)
             if isinstance(parsed, dict):
+                parsed = dict(parsed)
                 parsed['attachment'] = att
                 return parsed
         except Exception:
@@ -886,9 +891,18 @@ def parse_submission_json_filter(raw_data):
     if not raw_data:
         return None
     try:
-        return json.loads(raw_data)
+        parsed = json.loads(raw_data)
     except (json.JSONDecodeError, TypeError):
         return None
+    if isinstance(parsed, dict) and 'attachment' in parsed:
+        parsed = dict(parsed)
+        parsed['attachment'] = normalize_static_upload_url(parsed.get('attachment'))
+    return parsed
+
+
+@quickform_bp.app_template_filter('normalize_attachment_url')
+def normalize_attachment_url_filter(url):
+    return normalize_static_upload_url(url)
 
 
 @quickform_bp.teardown_request
@@ -5304,7 +5318,9 @@ def submit_form(task_id):
             request, task.task_id, multimodal_allowed
         )
         if uploaded_files:
-            form_data = _merge_attachment_into_form_data(form_data, uploaded_files)
+            form_data = _merge_attachment_into_form_data(form_data, uploaded_files, task.task_id)
+        else:
+            form_data = normalize_form_data_attachments(form_data, task.task_id)
         
         if over_limit:
             logger.warning(
@@ -5377,9 +5393,14 @@ def submit_form(task_id):
         
         response_data = {'message': 'Submitted successfully.', 'status': 'success'}
         if uploaded_files:
+            normalized_files = [
+                normalize_static_upload_url(p, task.task_id) for p in uploaded_files
+            ]
             response_data['attachment'] = (
-                uploaded_files[0] if len(uploaded_files) == 1 else uploaded_files
+                normalized_files[0] if len(normalized_files) == 1 else normalized_files
             )
+        elif isinstance(form_data, dict) and form_data.get('attachment') is not None:
+            response_data['attachment'] = form_data.get('attachment')
         if upload_warnings:
             response_data['warning'] = '; '.join(upload_warnings)
         response = jsonify(response_data)

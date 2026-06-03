@@ -64,10 +64,12 @@
                                     <div class="small mb-1">
                                         <strong>附件：</strong>
                                         {% if parsed.attachment is string %}
-                                        <a href="{{ parsed.attachment }}" target="_blank" rel="noopener">{{ parsed.attachment.split('/')[-1] }}</a>
+                                        {% set att_url = parsed.attachment | normalize_attachment_url %}
+                                        <a href="{{ att_url }}" target="_blank" rel="noopener">{{ att_url.split('/')[-1] }}</a>
                                         {% else %}
                                         {% for att in parsed.attachment %}
-                                        <a href="{{ att }}" target="_blank" rel="noopener" class="me-2">{{ att.split('/')[-1] }}</a>
+                                        {% set att_url = att | normalize_attachment_url %}
+                                        <a href="{{ att_url }}" target="_blank" rel="noopener" class="me-2">{{ att_url.split('/')[-1] }}</a>
                                         {% endfor %}
                                         {% endif %}
                                     </div>
