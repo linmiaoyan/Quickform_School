@@ -114,8 +114,7 @@
   opacity: 0; transition: opacity 0.2s ease;
   z-index: 2;
 }
-.qf-task-rw-trigger,
-.card .card-header .qf-dash-header-meta .qf-task-rw-trigger {
+.qf-task-rw-trigger {
   /* 圆形毛玻璃 badge；浅色底统一深色字，避免继承 card-header 白字 */
   position: relative !important;
   top: auto !important;
@@ -124,15 +123,18 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25em;
+  font-size: 0.75rem;
+  line-height: 1.25;
   backdrop-filter: blur(11px);
   -webkit-backdrop-filter: blur(11px);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
-  font-weight: 600;
-  padding: 0.38em 0.7em;
+  font-weight: 500;
+  padding: 0.24rem 0.5rem;
   border-radius: 9999px;
   border: 1px solid rgba(255, 255, 255, 0.55);
   color: #111827 !important;
   text-shadow: none;
+  cursor: pointer;
 }
 .qf-task-rw-trigger.task-status-pill--rw-11 {
   background: rgba(13, 148, 136, 0.42) !important;
@@ -209,16 +211,19 @@
 }
 .task-card-wrapper:hover .task-status-pill { opacity: 1; }
 .task-card-wrapper .card-header { position: relative; }
-/* 卡片头部标签：彩色半透明 + 毛玻璃，保留私有/公开/团队等色系区分 */
-.card .card-header .qf-dash-header-meta .qf-dash-pill {
+/* 卡片头部 meta：所有权/共享 badge 与读写 pill 统一玻璃胶囊尺寸 */
+.card .card-header .qf-dash-header-meta .qf-dash-pill,
+.card .card-header .qf-dash-header-meta .qf-task-rw-trigger {
   display: inline-flex;
   align-items: center;
   gap: 0.25em;
+  font-size: 0.75rem;
+  line-height: 1.25;
   backdrop-filter: blur(11px);
   -webkit-backdrop-filter: blur(11px);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
   font-weight: 500;
-  padding: 0.38em 0.7em;
+  padding: 0.24rem 0.5rem;
   border-radius: 9999px;
   border: 1px solid rgba(255, 255, 255, 0.38);
 }
@@ -480,18 +485,18 @@ a.qf-btn-create-task.btn-primary:active {
                             {{ task_rw_pill(task) }}
                             {% endif %}
                             {% if task.organization_id %}
-                            <span class="badge qf-dash-pill qf-dash-pill--org" style="font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--org">
                                 <i class="bi bi-building"></i> {{ task.organization.name }}
                             </span>
                             {% else %}
                             {% if section_title != '我的任务' %}
-                            <span class="badge qf-dash-pill qf-dash-pill--person" style="font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--person">
                                 <i class="bi bi-person"></i> {{ task.author.username }}
                             </span>
                             {% endif %}
                             {% endif %}
                             {% if task.sharing_type == 'organization' %}
-                            <span class="badge qf-dash-pill qf-dash-pill--share-org" style="font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--share-org">
                                 <i class="bi bi-people-fill"></i> {{ translate('task_detail.organization_shared') }}
                             </span>
                             {% if task_access.get(task.id) == 'org_readonly' %}
@@ -500,7 +505,7 @@ a.qf-btn-create-task.btn-primary:active {
                             <span class="badge qf-dash-pill qf-dash-pill--edit" style="font-size: 0.7rem;">编辑</span>
                             {% endif %}
                             {% elif task.sharing_type == 'shared' %}
-                            <span class="badge qf-dash-pill qf-dash-pill--share" style="font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--share">
                                 <i class="bi bi-share-fill"></i> {{ translate('task_detail.shared') }}
                             </span>
                             {% if task_access.get(task.id) == 'shared_readonly' %}
@@ -510,20 +515,20 @@ a.qf-btn-create-task.btn-primary:active {
                             {% endif %}
                             {% elif task.sharing_type == 'public' %}
                             {% if task.public_approved == 0 %}
-                            <span class="badge qf-dash-pill qf-dash-pill--public" style="font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--public">
                                 <i class="bi bi-hourglass-split"></i> 公开并等待审核中
                             </span>
                             {% elif task.public_approved == 1 %}
-                            <span class="badge qf-dash-pill qf-dash-pill--public" style="font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--public">
                                 <i class="bi bi-globe"></i> 公开
                             </span>
                             {% else %}
-                            <span class="badge qf-dash-pill" style="font-size: 0.75rem; background: rgba(239, 68, 68, 0.6) !important; color: #fff !important;">
+                            <span class="badge qf-dash-pill" style="background: rgba(239, 68, 68, 0.6) !important; color: #fff !important;">
                                 <i class="bi bi-x-circle"></i> 公开申请未通过
                             </span>
                             {% endif %}
                             {% else %}
-                            <span class="badge qf-dash-pill qf-dash-pill--private" style="font-size: 0.75rem;">
+                            <span class="badge qf-dash-pill qf-dash-pill--private">
                                 <i class="bi bi-lock-fill"></i> {{ translate('task_detail.private') }}
                             </span>
                             {% endif %}
