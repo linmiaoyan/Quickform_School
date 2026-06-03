@@ -2836,6 +2836,10 @@ def dashboard():
                     _pending_ids.add(t.id)
                     pending_oneclick_tasks.append(t)
         pending_oneclick_tasks.sort(key=lambda x: x.id, reverse=True)
+        requested_view = request.args.get('view')
+        view_mode = 'card' if requested_view == 'hybrid' else (
+            requested_view if requested_view in ('card', 'list') else 'card'
+        )
         return render_template(
             'dashboard.html',
             tasks=tasks,
@@ -2847,6 +2851,7 @@ def dashboard():
             task_count=task_count,
             pending_oneclick_tasks=pending_oneclick_tasks,
             api_base_url=_public_site_base_url(),
+            view_mode=view_mode,
         )
     finally:
         db.close()

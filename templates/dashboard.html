@@ -346,8 +346,6 @@ a.qf-btn-create-task.btn-primary:active {
 {%- endmacro %}
 <div class="row">
     <div class="col-md-12">
-        {% set requested_view = request.args.get('view') %}
-        {% set view_mode = 'card' if requested_view == 'hybrid' else (requested_view if requested_view in ['card', 'list'] else 'card') %}
         <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
             <div class="d-flex align-items-center gap-2">
                 <h2 class="mb-0" style="color: #111827; font-weight: 700;">{{ translate('dashboard.my_tasks') if translate('dashboard.my_tasks') != 'dashboard.my_tasks' else '我的数据任务' }}</h2>
