@@ -58,6 +58,14 @@ class User(UserMixin, Base):
             return False
         return True
 
+    def can_import_task(self, SessionLocal, Task):
+        """是否可从在线版/文件导入任务（QFLink 用户允许，除非被禁用）。"""
+        if self.is_admin():
+            return True
+        if getattr(self, 'qflink_disabled', False):
+            return False
+        return True
+
 
 class Task(Base):
     __tablename__ = 'task'

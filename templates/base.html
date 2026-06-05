@@ -601,7 +601,7 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.dashboard') }}"><i class="bi bi-database"></i> {{ translate('nav.dashboard') if translate('nav.dashboard') != 'nav.dashboard' else '我的数据任务' }}</a>
                     </li>
-                    {% if user_can_create_task %}
+                    {% if user_can_import_task %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('quickform.import_task') }}"><i class="bi bi-box-arrow-in-down"></i> {{ translate('nav.import_task') }}</a>
                     </li>
