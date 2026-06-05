@@ -47,9 +47,11 @@
                 .qf-migration-soon-wrap:hover .qf-migration-soon-tip,
                 .qf-migration-soon-wrap:focus-within .qf-migration-soon-tip { display: block; }
                 </style>
-                <button type="button" class="btn btn-outline-secondary me-2" style="font-weight: 500;" data-bs-toggle="modal" data-bs-target="#importTaskTemplateModal">
-                    <i class="bi bi-arrow-left-right"></i>{{ translate('task_detail.task_migration') }}
-                </button>
+                {% if user_can_import_task %}
+                <a href="{{ url_for('quickform.import_task') }}" class="btn btn-outline-secondary me-2" style="font-weight: 500;">
+                    <i class="bi bi-box-arrow-in-down"></i>{{ translate('nav.import_task') if translate('nav.import_task') != 'nav.import_task' else '导入任务' }}
+                </a>
+                {% endif %}
                 <a href="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" id="qf-onboard-open-smart-analyze" class="btn btn-info me-2" style="font-weight: 500;">
                     <i class="bi bi-bar-chart"></i>{{ translate('task_detail.analyze') }}
                 </a>
