@@ -678,6 +678,21 @@ def _is_qflink_user(user):
     return bool(user and getattr(user, 'qflink_uid', None))
 
 
+def _redirect_if_cannot_create_task(redirect_url: str):
+    """QFLink 等不可建任务时 flash 并返回 redirect；可建则返回 None。"""
+    if not current_user.is_authenticated:
+        return redirect(url_for('quickform.login'))
+    if current_user.can_create_task(SessionLocal, Task):
+        return None
+    if _is_qflink_user(current_user):
+        flash('QFLink 用户无法在本站新建或导入任务。', 'warning')
+    elif getattr(current_user, 'qflink_disabled', False):
+        flash('该 QFLink 账号已被管理员禁用，无法创建任务。', 'danger')
+    else:
+        flash('您无法创建任务。', 'warning')
+    return redirect(redirect_url)
+
+
 def _user_multimodal_enabled(user):
     """系统用户统一开启；QFLink 用户需管理员授权。"""
     if not user:
@@ -1895,6 +1910,8 @@ def _qflink_login_render(**kwargs):
 
     if 'qflink_enabled' not in kwargs:
         kwargs['qflink_enabled'] = load_qflink_config().enabled
+    if 'username_login_enabled' not in kwargs:
+        kwargs['username_login_enabled'] = load_system_config().username_login_enabled
     return render_template('login.html', **kwargs)
 
 
@@ -1904,23 +1921,31 @@ def login():
     from core.qflink_config import load_qflink_config
 
     qflink_enabled = load_qflink_config().enabled
+    syscfg = load_system_config()
+    username_login_enabled = syscfg.username_login_enabled
     if request.method == 'POST':
         # QFLink 标签：quickform.cn 账号密码（对接在线端 POST /cli/qflink/verify mode=password）
         if request.form.get('qflink_login'):
             if not qflink_enabled:
                 flash('本站已关闭 QFLink 登录。', 'warning')
-                return _qflink_login_render(qflink_enabled=qflink_enabled)
+                return _qflink_login_render(
+                    qflink_enabled=qflink_enabled, username_login_enabled=username_login_enabled
+                )
 
             qf_username = (request.form.get('qflink_username') or request.form.get('qf_username') or '').strip()
             qf_password = (request.form.get('qflink_password') or request.form.get('qf_password') or '').strip()
             if not qf_username or not qf_password:
                 flash('请输入 quickform.cn 用户名和密码。', 'danger')
-                return _qflink_login_render(qflink_enabled=qflink_enabled)
+                return _qflink_login_render(
+                    qflink_enabled=qflink_enabled, username_login_enabled=username_login_enabled
+                )
 
             ok, msg, user_payload = _qflink_verify_password(qf_username, qf_password)
             if not ok:
                 flash(msg or 'QFLink 账号或密码错误', 'warning' if '教师认证' in (msg or '') else 'danger')
-                return _qflink_login_render(qflink_enabled=qflink_enabled)
+                return _qflink_login_render(
+                    qflink_enabled=qflink_enabled, username_login_enabled=username_login_enabled
+                )
 
             redirect_resp = _qflink_login_user_from_payload(
                 user_payload,
@@ -1929,7 +1954,15 @@ def login():
             )
             if redirect_resp is not None:
                 return redirect_resp
-            return _qflink_login_render(qflink_enabled=qflink_enabled)
+            return _qflink_login_render(
+                qflink_enabled=qflink_enabled, username_login_enabled=username_login_enabled
+            )
+
+        if not username_login_enabled:
+            flash('本站已关闭用户名登录，请使用 QFLink 登录。', 'warning')
+            return _qflink_login_render(
+                qflink_enabled=qflink_enabled, username_login_enabled=username_login_enabled
+            )
 
         username = request.form.get('username')
         password = request.form.get('password')
@@ -1943,7 +1976,9 @@ def login():
                 f'登录尝试过于频繁，请约 {minutes} 分钟后再试；若忘记密码请使用「忘记密码」。',
                 'danger',
             )
-            return _qflink_login_render(qflink_enabled=qflink_enabled)
+            return _qflink_login_render(
+                qflink_enabled=qflink_enabled, username_login_enabled=username_login_enabled
+            )
         
         db = SessionLocal()
         try:
@@ -1958,20 +1993,29 @@ def login():
             try:
                 if user and is_user_pending(user.username):
                     flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
-                    return render_template('login.html', qflink_enabled=qflink_enabled)
+                    return render_template(
+                        'login.html',
+                        qflink_enabled=qflink_enabled,
+                        username_login_enabled=username_login_enabled,
+                    )
             except Exception:
                 pass
             
             if user and getattr(user, "qflink_only", False):
                 flash('该账号为 QFLink 嘉宾用户，请切换到「QFLink 登录」使用在线账号或授权码。', 'warning')
-                return _qflink_login_render(qflink_enabled=qflink_enabled)
+                return _qflink_login_render(
+                    qflink_enabled=qflink_enabled, username_login_enabled=username_login_enabled
+                )
 
             if user and bcrypt.check_password_hash(user.password, password):
                 # 注册审核：被标记为 pending 的账号不可登录
                 try:
                     if is_user_pending(user.username):
                         flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
-                        return _qflink_login_render(qflink_enabled=qflink_enabled)
+                        return _qflink_login_render(
+                            qflink_enabled=qflink_enabled,
+                            username_login_enabled=username_login_enabled,
+                        )
                 except Exception:
                     pass
 
@@ -1999,10 +2043,9 @@ def login():
         finally:
             db.close()
 
-    return _qflink_login_render(qflink_enabled=qflink_enabled)
-
-
-def _qflink_extract_user_payload(resp_json: dict) -> dict:
+    return _qflink_login_render(
+        qflink_enabled=qflink_enabled, username_login_enabled=username_login_enabled
+    )
     """尽量兼容不同返回结构：{success,data} / {ok,user} / {data:{user}}。"""
     if not isinstance(resp_json, dict):
         return {}
@@ -2973,9 +3016,9 @@ ONECLICK_PROMPT_OPTIONS = DEFAULT_ONECLICK_PROMPT_OPTIONS
 @login_required
 def oneclick_create_task():
     """一键生成新任务：登录用户可用，根据描述生成 HTML 并自动上传到新任务（需在个人中心配置 AI）。"""
-    if getattr(current_user, 'qflink_disabled', False):
-        flash('该 QFLink 账号已被管理员禁用，无法创建任务。', 'danger')
-        return redirect(url_for('quickform.dashboard'))
+    blocked = _redirect_if_cannot_create_task(url_for('quickform.dashboard'))
+    if blocked is not None:
+        return blocked
     if request.method == 'GET':
         db = SessionLocal()
         try:
@@ -3047,9 +3090,9 @@ def oneclick_create_task():
 @login_required
 def create_task():
     """创建任务"""
-    if getattr(current_user, 'qflink_disabled', False):
-        flash('该 QFLink 账号已被管理员禁用，无法创建任务。', 'danger')
-        return redirect(url_for('quickform.dashboard'))
+    blocked = _redirect_if_cannot_create_task(url_for('quickform.dashboard'))
+    if blocked is not None:
+        return blocked
     db = SessionLocal()
     try:
         if not current_user.is_admin() and not _is_qflink_user(current_user):
@@ -6396,11 +6439,16 @@ def _import_task_precheck(db, redirect_url: str):
     if current_user.is_admin():
         return None
     if not current_user.can_create_task(SessionLocal, Task):
-        task_limit = current_user.task_limit if current_user.task_limit != -1 else '无限制'
-        flash(
-            '您已达到任务数量上限（%s个）。如需导入为新任务，请先删除部分任务或申请提升上限。' % task_limit,
-            'warning',
-        )
+        if _is_qflink_user(current_user):
+            flash('QFLink 用户无法在本站新建或导入任务。', 'warning')
+        elif getattr(current_user, 'qflink_disabled', False):
+            flash('该 QFLink 账号已被管理员禁用，无法创建任务。', 'danger')
+        else:
+            task_limit = current_user.task_limit if current_user.task_limit != -1 else '无限制'
+            flash(
+                '您已达到任务数量上限（%s个）。如需导入为新任务，请先删除部分任务或申请提升上限。' % task_limit,
+                'warning',
+            )
         return redirect(redirect_url)
     block = _email_requirement_block_for_next_task(db, current_user, task_count)
     if block == 'bind_email':
@@ -6715,6 +6763,9 @@ def _import_task_from_quickform_export_zip(raw: bytes, db):
 @login_required
 def import_task():
     """教师版 2.5 顶栏「导入任务」页面：在线列表 / 指定 URL / ZIP 文件。"""
+    blocked = _redirect_if_cannot_create_task(url_for('quickform.dashboard'))
+    if blocked is not None:
+        return blocked
     if not TASK_MIGRATION_ACTIVE:
         flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
         return redirect(url_for('quickform.dashboard'))
@@ -7508,6 +7559,9 @@ def _task_migration_import_impl():
 def import_task_template():
     """任务迁移导入路由：会议前仅提示；会议后将 TASK_MIGRATION_ACTIVE=True。"""
     next_url = request.form.get('next') or request.referrer or url_for('quickform.dashboard')
+    blocked = _redirect_if_cannot_create_task(next_url)
+    if blocked is not None:
+        return blocked
     if not TASK_MIGRATION_ACTIVE:
         flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
         return redirect(next_url)
@@ -8817,6 +8871,9 @@ def admin_system_config_save():
         attachment_recovery_enabled = (request.form.get('attachment_recovery_enabled') or '').strip().lower() in (
             '1', 'true', 'yes', 'on',
         )
+        username_login_enabled = (request.form.get('username_login_enabled') or '').strip().lower() in (
+            '1', 'true', 'yes', 'on',
+        )
         from core.icp import is_valid_icp_record, normalize_icp_record
         icp_record = normalize_icp_record(request.form.get('icp_record') or '')
         if not is_valid_icp_record(icp_record):
@@ -8831,6 +8888,7 @@ def admin_system_config_save():
             teams_enabled=teams_enabled,
             icp_record=icp_record,
             attachment_recovery_enabled=attachment_recovery_enabled,
+            username_login_enabled=username_login_enabled,
         )
         save_system_config(cfg)
         flash('系统配置已保存。', 'success')
@@ -8867,39 +8925,68 @@ def admin_pending_user_approve():
 @quickform_bp.route('/admin/users/bulk_import', methods=['POST'])
 @admin_required
 def admin_users_bulk_import():
-    """批量导入用户（CSV 上传）。"""
+    """批量导入用户（CSV 上传或网页粘贴 + 可选大模型解析）。"""
     cfg = load_system_config()
+    use_llm = (request.form.get('import_mode') or '').strip().lower() == 'llm'
+    csv_text = (request.form.get('csv_text') or '').strip()
     file = request.files.get('csv_file')
-    if not file:
-        flash('请上传 CSV 文件', 'danger')
-        return redirect(url_for('quickform.admin_panel', tab='system-config'))
-    try:
-        raw = file.read()
-        # Try UTF-8 then GBK for Windows CSV
+
+    text = csv_text
+    if not text and file and file.filename:
         try:
-            text = raw.decode('utf-8-sig')
-        except Exception:
-            text = raw.decode('gbk', errors='replace')
-        rows = list(csv.DictReader(text.splitlines()))
+            raw = file.read()
+            try:
+                text = raw.decode('utf-8-sig')
+            except Exception:
+                text = raw.decode('gbk', errors='replace')
+        except Exception as e:
+            logger.exception('读取 CSV 失败: %s', e)
+            flash('CSV 读取失败，请检查文件。', 'danger')
+            return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+    if not (text or '').strip():
+        flash('请上传 CSV 文件或在下方粘贴名单内容', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+    try:
+        if use_llm:
+            from core.bulk_import_llm import parse_users_csv_with_llm
+            rows = parse_users_csv_with_llm(text, default_school=(cfg.default_school or '').strip())
+        else:
+            rows = list(csv.DictReader(text.splitlines()))
     except Exception as e:
-        logger.exception('解析 CSV 失败: %s', e)
-        flash('CSV 解析失败，请检查格式/编码（推荐 UTF-8）。', 'danger')
+        logger.exception('解析导入名单失败: %s', e)
+        flash(f'名单解析失败：{e}', 'danger')
         return redirect(url_for('quickform.admin_panel', tab='system-config'))
 
     if not rows:
-        flash('CSV 文件为空或无数据行', 'warning')
+        flash('未解析到有效数据行', 'warning')
         return redirect(url_for('quickform.admin_panel', tab='system-config'))
 
+    created, skipped, failed, errors = _bulk_import_user_rows(db_session_factory=SessionLocal, rows=rows, cfg=cfg)
+    msg = f'批量导入完成：新增 {created}，跳过 {skipped}，失败 {failed}。'
+    if errors:
+        msg += f'（部分提示：{"；".join(errors[:5])}）'
+    flash(msg, 'success' if failed == 0 else 'warning')
+    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+
+def _bulk_import_user_rows(db_session_factory, rows, cfg):
+    """将解析后的用户行写入数据库（内置用户）。"""
     created = 0
     skipped = 0
     failed = 0
     errors = []
 
-    db = SessionLocal()
+    db = db_session_factory()
     try:
         from sqlalchemy import func
-        for i, r in enumerate(rows, start=2):  # header line is 1
+        for i, r in enumerate(rows, start=2):
             try:
+                if not isinstance(r, dict):
+                    skipped += 1
+                    errors.append(f'第{i}行：格式无效')
+                    continue
                 username = (r.get('username') or r.get('用户名') or '').strip()
                 password = (r.get('password') or r.get('密码') or '').strip() or 'quickform'
                 school = (r.get('school') or r.get('学校') or '').strip()
@@ -8925,7 +9012,6 @@ def admin_users_bulk_import():
                 hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
                 email_value = email.strip() if email else f"{username}@noreply.local"
                 if db.query(User.id).filter(User.email == email_value).first():
-                    # Avoid occupying existing account's email
                     email_value = f"{username}_{secrets.token_hex(3)}@noreply.local"
 
                 user = User(
@@ -8941,25 +9027,21 @@ def admin_users_bulk_import():
                 created += 1
                 if cfg.registration_requires_approval:
                     try:
-                        set_user_pending(username, True, meta={"created_at": datetime.now().isoformat(), "source": "bulk_import"})
+                        set_user_pending(
+                            username,
+                            True,
+                            meta={"created_at": datetime.now().isoformat(), "source": "bulk_import"},
+                        )
                     except Exception:
                         pass
             except Exception as e:
                 db.rollback()
                 failed += 1
                 errors.append(f'第{i}行：导入失败：{str(e)}')
-            else:
-                # keep batching; commit at end
-                pass
         db.commit()
     finally:
         db.close()
-
-    msg = f'批量导入完成：新增 {created}，跳过 {skipped}，失败 {failed}。'
-    if errors:
-        msg += f'（部分提示：{ "；".join(errors[:5]) }）'
-    flash(msg, 'success' if failed == 0 else 'warning')
-    return redirect(url_for('quickform.admin_panel', tab='system-config'))
+    return created, skipped, failed, errors
 
 
 @quickform_bp.route('/admin/users/bulk_import/sample.csv', methods=['GET'])

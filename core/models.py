@@ -49,7 +49,13 @@ class User(UserMixin, Base):
         return self.role == 'admin'
     
     def can_create_task(self, SessionLocal, Task):
-        """校园版：不限制每人可创建任务数量，亦不强制邮箱验证。"""
+        """校园版：内置用户不限任务数；QFLink 用户不可新建任务（管理员除外）。"""
+        if self.is_admin():
+            return True
+        if getattr(self, 'qflink_disabled', False):
+            return False
+        if getattr(self, 'qflink_uid', None):
+            return False
         return True
 
 

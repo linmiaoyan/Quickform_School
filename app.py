@@ -177,6 +177,26 @@ def inject_site_branding():
         'app_version': (app.config.get('APP_VERSION') or '1.0.0'),
     }
 
+@app.context_processor
+def inject_user_capabilities():
+    """登录用户能力（如是否可新建任务）。"""
+    from flask_login import current_user
+    can_create = True
+    try:
+        if current_user.is_authenticated:
+            if current_user.is_admin():
+                can_create = True
+            elif getattr(current_user, 'qflink_disabled', False):
+                can_create = False
+            elif getattr(current_user, 'qflink_uid', None):
+                can_create = False
+            else:
+                can_create = True
+    except Exception:
+        can_create = True
+    return {'user_can_create_task': can_create}
+
+
 # 初始化扩展
 login_manager = LoginManager()
 login_manager.init_app(app)
