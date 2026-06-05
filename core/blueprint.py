@@ -6566,6 +6566,93 @@ def _migration_read_manifest_from_zip(zf):
     raise ValueError('压缩包内缺少迁移清单 JSON（%s 等）' % TASK_MIGRATION_MANIFEST)
 
 
+def _migration_read_external_submissions_json(zf):
+    """读取 ZIP 根目录独立的 submissions.json（quickform.cn 导出包常见格式）。"""
+    candidates = []
+    for info in zf.infolist():
+        n = (info.filename or '').replace('\\', '/').lstrip('./')
+        if n == 'submissions.json':
+            candidates.append(info.filename)
+    candidates.extend(['submissions.json', './submissions.json'])
+    seen = set()
+    for name in candidates:
+        key = (name or '').replace('\\', '/').lstrip('./')
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            raw = zf.read(name)
+            data = json.loads(raw.decode('utf-8'))
+        except (KeyError, Exception):
+            continue
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            inner = data.get('submissions') or data.get('data')
+            if isinstance(inner, list):
+                return inner
+    return []
+
+
+def _migration_enrich_task_data_from_zip(zf, task_data):
+    """补全 manifest：合并独立 submissions.json，供后续导入使用。"""
+    if not isinstance(task_data, dict):
+        return task_data
+    subs = task_data.get('submissions')
+    if isinstance(subs, list) and subs:
+        return task_data
+    ext_subs = _migration_read_external_submissions_json(zf)
+    if not ext_subs:
+        return task_data
+    enriched = dict(task_data)
+    enriched['submissions'] = ext_subs
+    return enriched
+
+
+def _migration_resolve_html_file_entries(zf, task_data):
+    """解析 ZIP 内 HTML 文件列表；manifest 缺失或路径不匹配时回退扫描 html/ 目录。"""
+    entries = []
+    manifest_entries = task_data.get('html_files') or []
+    if isinstance(manifest_entries, list):
+        for item in manifest_entries:
+            if isinstance(item, dict):
+                entries.append(dict(item))
+
+    valid = []
+    for entry in entries:
+        arc = (entry.get('archive_name') or entry.get('path') or '').replace('\\', '/')
+        if not arc or arc.startswith('/') or '..' in arc.split('/'):
+            continue
+        try:
+            zf.read(arc)
+            valid.append(entry)
+            continue
+        except KeyError:
+            pass
+        alt = 'html/%s' % os.path.basename(arc)
+        if alt != arc:
+            try:
+                zf.read(alt)
+                patched = dict(entry)
+                patched['archive_name'] = alt
+                valid.append(patched)
+            except KeyError:
+                pass
+    if valid:
+        return valid
+
+    found = []
+    for info in zf.infolist():
+        n = (info.filename or '').replace('\\', '/')
+        if n.endswith('/') or (getattr(info, 'is_dir', lambda: False)()):
+            continue
+        parts = [p for p in n.split('/') if p]
+        if len(parts) == 2 and parts[0] == 'html' and parts[1].lower().endswith(('.html', '.htm')):
+            found.append({'original_name': parts[1], 'archive_name': n})
+    found.sort(key=lambda x: x['archive_name'])
+    return found
+
+
 def _migration_collect_upload_entries(task_data):
     uploads = task_data.get('api_uploads')
     if uploads is None:
@@ -6693,10 +6780,12 @@ def _import_task_from_quickform_export_zip(raw: bytes, db):
         zf.close()
         raise ValueError('迁移清单 JSON 解析失败')
 
+    task_data = _migration_enrich_task_data_from_zip(zf, task_data)
+
     original_api_id = (task_data.get('api_id') or '').strip()
     title = (task_data.get('title') or '未命名任务').strip()
     description = (task_data.get('description') or '').strip()
-    html_files = task_data.get('html_files') or []
+    html_files = _migration_resolve_html_file_entries(zf, task_data)
     if not title:
         raise ValueError('迁移包缺少任务标题')
     if not original_api_id:
@@ -6778,6 +6867,51 @@ def _import_task_from_quickform_export_zip(raw: bytes, db):
         except Exception as ex:
             logger.warning('ZIP 导入后自动分析 HTML 未启动: %s', ex)
     return new_task, new_api_id, original_api_id
+
+
+def _import_task_from_json_template(raw: bytes, db, *, allow_regenerate_api_id=True):
+    """从 JSON 模板导入任务（仅元数据，不含 HTML/提交数据）。"""
+    max_json = int(os.getenv('TASK_TEMPLATE_MAX_BYTES', str(1024 * 1024)))
+    if len(raw) > max_json:
+        raise ValueError('模板文件过大，请控制在 1MB 以内')
+    try:
+        data = json.loads(raw.decode('utf-8'))
+    except Exception:
+        raise ValueError('模板文件解析失败，请检查 JSON 格式')
+
+    title = (data.get('title') or '').strip()
+    api_id = (data.get('api_id') or data.get('task_id') or '').strip()
+    description = (data.get('description') or '').strip()
+    if not title or not api_id:
+        raise ValueError('模板缺少必要字段：任务名称或 APIID')
+    if len(title) > 200 or len(api_id) > 50:
+        raise ValueError('任务名称或 APIID 超出长度限制')
+    if description and len(description) > 20000:
+        raise ValueError('任务描述过长，请精简后重试')
+
+    if allow_regenerate_api_id:
+        new_api_id = _pick_task_id_keep_if_free(db, api_id)
+    elif db.query(Task.id).filter(Task.task_id == api_id).first():
+        raise ValueError('服务器已存在相同 APIID 的任务，已禁止重复导入')
+    else:
+        new_api_id = api_id
+
+    new_task = Task(
+        title=title,
+        description=description or None,
+        user_id=current_user.id,
+        task_id=new_api_id,
+        sharing_type='private',
+        organization_id=None,
+        file_name=None,
+        file_path=None,
+        html_files=None,
+        share_url=(data.get('share_url') or '').strip() or None,
+        tutorial_link=(data.get('tutorial_link') or '').strip() or None,
+    )
+    db.add(new_task)
+    db.commit()
+    return new_task, new_api_id, api_id
 
 
 @quickform_bp.route('/import_task', methods=['GET', 'POST'])
@@ -6930,7 +7064,7 @@ def import_task_by_url():
 @quickform_bp.route('/import_task_from_file', methods=['POST'])
 @login_required
 def import_task_from_file():
-    """教师版：从 quickform.cn 导出的 ZIP 文件导入任务。"""
+    """教师版：从 quickform.cn 导出的 ZIP/JSON 文件导入任务。"""
     if not TASK_MIGRATION_ACTIVE:
         flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
         return redirect(url_for('quickform.import_task'))
@@ -6948,11 +7082,20 @@ def import_task_from_file():
         if pre is not None:
             return pre
         raw = file.read()
-        new_task, new_api_id, old_api_id = _import_task_from_quickform_export_zip(raw, db)
-        info = ''
-        if old_api_id and old_api_id != new_api_id:
-            info = '（原 API %s 已存在，已分配为 %s）' % (old_api_id, new_api_id)
-        flash('任务"%s"导入成功，API ID: %s%s' % (new_task.title, new_api_id, info), 'success')
+        fname = (file.filename or '').strip().lower()
+        if fname.endswith('.json'):
+            new_task, new_api_id, old_api_id = _import_task_from_json_template(raw, db)
+            flash(
+                '任务"%s"导入成功（仅元数据，不含 HTML 与提交数据），API ID: %s'
+                % (new_task.title, new_api_id),
+                'success',
+            )
+        else:
+            new_task, new_api_id, old_api_id = _import_task_from_quickform_export_zip(raw, db)
+            info = ''
+            if old_api_id and old_api_id != new_api_id:
+                info = '（原 API %s 已存在，已分配为 %s）' % (old_api_id, new_api_id)
+            flash('任务"%s"导入成功，API ID: %s%s' % (new_task.title, new_api_id, info), 'success')
         return redirect(url_for('quickform.task_detail', task_id=new_task.id))
     except ValueError as e:
         db.rollback()
@@ -7384,6 +7527,8 @@ def _task_migration_import_impl():
                 flash('迁移清单 JSON 解析失败', 'danger')
                 return redirect(next_url)
 
+            data = _migration_enrich_task_data_from_zip(zf, data)
+
             ver = int(data.get('template_version') or 0)
             if ver > 0 and ver < 2:
                 zf.close()
@@ -7428,10 +7573,11 @@ def _task_migration_import_impl():
 
             static_uploads = _static_uploads_dir()
             stored_list = []
-            for entry in data.get('html_files') or []:
+            html_entries = _migration_resolve_html_file_entries(zf, data)
+            for entry in html_entries:
                 if not isinstance(entry, dict):
                     continue
-                arc = entry.get('archive_name')
+                arc = entry.get('archive_name') or entry.get('path')
                 oname = (entry.get('original_name') or 'page.html').strip() or 'page.html'
                 if not isinstance(arc, str) or not arc:
                     continue
@@ -7466,7 +7612,7 @@ def _task_migration_import_impl():
                     return redirect(next_url)
                 stored_list.append({'original_name': oname, 'saved_name': unique_filename})
 
-            if data.get('html_files') and not stored_list:
+            if html_entries and not stored_list:
                 zf.close()
                 flash('迁移包声明了 HTML 文件但均未成功解压或保存，请检查包是否完整', 'danger')
                 return redirect(next_url)
