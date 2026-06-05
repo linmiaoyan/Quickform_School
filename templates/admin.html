@@ -166,7 +166,7 @@
                                         </th>
                                         <th style="width: 220px;">用户名</th>
                                         <th>备注</th>
-                                        <th style="width: 220px;">操作</th>
+                                        <th style="width: 420px;">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -185,11 +185,25 @@
                                             {% endif %}
                                         </td>
                                         <td>
-                                            <form method="POST" action="{{ url_for('quickform.admin_pending_users_batch') }}" class="d-inline" onsubmit="return confirm('确定通过该用户审核吗？');">
-                                                <input type="hidden" name="action" value="approve">
-                                                <input type="hidden" name="usernames" value="{{ uname }}">
-                                                <button type="submit" class="btn btn-sm btn-success">通过</button>
-                                            </form>
+                                            <div class="d-flex flex-wrap gap-1 align-items-center">
+                                                <form method="POST" action="{{ url_for('quickform.admin_pending_users_batch') }}" class="d-inline" onsubmit="return confirm('确定通过该用户审核吗？');">
+                                                    <input type="hidden" name="action" value="approve">
+                                                    <input type="hidden" name="usernames" value="{{ uname }}">
+                                                    <button type="submit" class="btn btn-sm btn-success">通过</button>
+                                                </form>
+                                                <form method="POST" action="{{ url_for('quickform.admin_pending_user_approve') }}" class="d-inline" onsubmit="return confirm('确定以「要求单位完善」拒绝该用户吗？');">
+                                                    <input type="hidden" name="username" value="{{ uname }}">
+                                                    <input type="hidden" name="action" value="reject">
+                                                    <input type="hidden" name="reject_reason" value="complete_org_info">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">要求单位完善</button>
+                                                </form>
+                                                <form method="POST" action="{{ url_for('quickform.admin_pending_user_approve') }}" class="d-inline" onsubmit="return confirm('确定以「请提供更多个人相关信息」拒绝该用户吗？');">
+                                                    <input type="hidden" name="username" value="{{ uname }}">
+                                                    <input type="hidden" name="action" value="reject">
+                                                    <input type="hidden" name="reject_reason" value="more_info">
+                                                    <button type="submit" class="btn btn-sm btn-outline-secondary">信息不足</button>
+                                                </form>
+                                            </div>
                                         </td>
                                     </tr>
                                     {% endfor %}

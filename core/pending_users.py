@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from datetime import datetime
 from typing import Any
 
 
@@ -48,6 +49,13 @@ def _save_pending_users(data: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+def _entry_status(entry: Any) -> str:
+    if isinstance(entry, dict):
+        st = (entry.get('status') or 'pending').strip().lower()
+        return st if st in ('pending', 'rejected') else 'pending'
+    return 'pending'
+
+
 def set_user_pending(username: str, pending: bool, meta: dict[str, Any] | None = None) -> None:
     u = (username or "").strip()
     if not u:
@@ -55,10 +63,38 @@ def set_user_pending(username: str, pending: bool, meta: dict[str, Any] | None =
     with _LOCK:
         data = load_pending_users()
         if pending:
-            data[u] = meta or {}
+            row = dict(meta or {})
+            row.setdefault('status', 'pending')
+            data[u] = row
         else:
             data.pop(u, None)
         _save_pending_users(data)
+
+
+def set_user_registration_rejected(username: str, *, reason: str = '', note: str = '', meta: dict[str, Any] | None = None) -> None:
+    """标记注册审核拒绝（保留记录，登录时拦截）。"""
+    u = (username or "").strip()
+    if not u:
+        return
+    with _LOCK:
+        data = load_pending_users()
+        row = dict(data.get(u) or meta or {})
+        if meta and isinstance(meta, dict):
+            row.update(meta)
+        row['status'] = 'rejected'
+        row['reject_reason'] = (reason or note or '注册审核未通过').strip()
+        row['rejected_at'] = datetime.now().isoformat(timespec='seconds')
+        data[u] = row
+        _save_pending_users(data)
+
+
+def load_pending_registration_users() -> dict[str, Any]:
+    """仅返回待审核（pending）用户，供管理后台列表展示。"""
+    out: dict[str, Any] = {}
+    for uname, meta in (load_pending_users() or {}).items():
+        if _entry_status(meta) == 'pending':
+            out[uname] = meta
+    return out
 
 
 def is_user_pending(username: str) -> bool:
@@ -67,5 +103,21 @@ def is_user_pending(username: str) -> bool:
         return False
     with _LOCK:
         data = load_pending_users()
-        return u in data
+        entry = data.get(u)
+        if entry is None:
+            return False
+        return _entry_status(entry) == 'pending'
+
+
+def get_registration_reject_message(username: str) -> str | None:
+    u = (username or "").strip()
+    if not u:
+        return None
+    with _LOCK:
+        entry = load_pending_users().get(u)
+        if entry is None or _entry_status(entry) != 'rejected':
+            return None
+        if isinstance(entry, dict):
+            return (entry.get('reject_reason') or entry.get('reject_note') or '注册审核未通过').strip()
+        return '注册审核未通过'
 

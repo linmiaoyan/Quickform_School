@@ -161,13 +161,18 @@ def notify_user_registration_approved(username: str):
     )
 
 
-def notify_user_registration_rejected(username: str):
-    send_qf_notice_by_username_safe(
-        username,
-        '注册审核未通过',
-        f'您好，{username}。您的注册申请未通过管理员审核；如有疑问请联系站点管理员。',
-        event_type='user_rejected',
-    )
+def notify_user_registration_rejected(username: str, reason: str | None = None, *, user_id: int | None = None):
+    reason_text = (reason or '注册审核未通过').strip()
+    body = f'您好，{username}。您的注册申请未通过管理员审核，原因：{reason_text}。如有疑问请联系站点管理员。'
+    if user_id:
+        send_qf_notice_safe(user_id, '注册审核未通过', body, event_type='user_rejected')
+    else:
+        send_qf_notice_by_username_safe(
+            username,
+            '注册审核未通过',
+            body,
+            event_type='user_rejected',
+        )
 
 
 def notify_task_public_approved(user_id: int, task_title: str):

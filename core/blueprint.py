@@ -50,7 +50,14 @@ except Exception:  # pragma: no cover
 
 # Campus admin-config (file-based)
 from .system_config import load_system_config, save_system_config, SystemConfig
-from .pending_users import is_user_pending, load_pending_users, set_user_pending
+from .pending_users import (
+    is_user_pending,
+    load_pending_users,
+    load_pending_registration_users,
+    set_user_pending,
+    set_user_registration_rejected,
+    get_registration_reject_message,
+)
 
 
 # 导入分离的模块
@@ -90,6 +97,36 @@ from services.report_service import (
     analysis_progress, analysis_results, completed_reports, progress_lock, timeout, markdown_to_html,
     _to_user_friendly_ai_error,
 )
+
+# 注册审核拒绝：预设理由（管理员可点选）
+REGISTRATION_REJECT_PRESETS = {
+    'complete_org_info': '要求单位完善',
+    'more_info': '请提供更多个人相关信息',
+}
+
+
+def _resolve_registration_reject_note(form) -> str:
+    note = (form.get('note') or '').strip()
+    if note:
+        return note
+    code = (form.get('reject_reason') or '').strip()
+    return REGISTRATION_REJECT_PRESETS.get(code, '注册审核未通过')
+
+
+def _reject_pending_registration_user(db, username: str, reason: str):
+    """拒绝注册审核：发送通知、删除未通过账号、写入拒绝记录供登录拦截说明。"""
+    uname = (username or '').strip()
+    if not uname:
+        raise ValueError('缺少用户名')
+    user = db.query(User).filter(User.username == uname).first()
+    meta = load_pending_users().get(uname)
+    if user:
+        from core.qf_notice import notify_user_registration_rejected
+        notify_user_registration_rejected(uname, reason, user_id=user.id)
+        db.delete(user)
+        db.commit()
+    set_user_registration_rejected(uname, reason=reason, meta=meta if isinstance(meta, dict) else None)
+
 
 # 校园版：去除教师认证功能（兼容旧链接：相关路由将返回 404）
 CERTIFICATION_ACTIVE = False
@@ -845,7 +882,14 @@ def parse_urlencoded(raw_data):
 
 # 数据库初始化已迁移到 core/db.py（校园版：PostgreSQL-only，新库起步）
 from core.db import engine, SessionLocal  # noqa: E402
-from core.pending_users import is_user_pending, load_pending_users, set_user_pending  # noqa: E402
+from core.pending_users import (  # noqa: E402
+    is_user_pending,
+    load_pending_users,
+    load_pending_registration_users,
+    set_user_pending,
+    set_user_registration_rejected,
+    get_registration_reject_message,
+)
 
 
 def _ensure_schema_ready() -> None:
@@ -2014,13 +2058,22 @@ def login():
 
             # 注册审核：被标记为 pending 的账号不可登录
             try:
-                if user and is_user_pending(user.username):
-                    flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
-                    return render_template(
-                        'login.html',
-                        qflink_enabled=qflink_enabled,
-                        username_login_enabled=username_login_enabled,
-                    )
+                if user:
+                    reject_msg = get_registration_reject_message(user.username)
+                    if reject_msg:
+                        flash(f'注册审核未通过：{reject_msg}', 'warning')
+                        return render_template(
+                            'login.html',
+                            qflink_enabled=qflink_enabled,
+                            username_login_enabled=username_login_enabled,
+                        )
+                    if is_user_pending(user.username):
+                        flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
+                        return render_template(
+                            'login.html',
+                            qflink_enabled=qflink_enabled,
+                            username_login_enabled=username_login_enabled,
+                        )
             except Exception:
                 pass
             
@@ -2031,8 +2084,15 @@ def login():
                 )
 
             if user and bcrypt.check_password_hash(user.password, password):
-                # 注册审核：被标记为 pending 的账号不可登录
+                # 注册审核：被标记为 pending / rejected 的账号不可登录
                 try:
+                    reject_msg = get_registration_reject_message(user.username)
+                    if reject_msg:
+                        flash(f'注册审核未通过：{reject_msg}', 'warning')
+                        return _qflink_login_render(
+                            qflink_enabled=qflink_enabled,
+                            username_login_enabled=username_login_enabled,
+                        )
                     if is_user_pending(user.username):
                         flash('该账号正在等待管理员审核，通过后才能登录。', 'warning')
                         return _qflink_login_render(
@@ -8854,7 +8914,7 @@ def admin_panel():
         qflink_users = []
         attachment_search_q = ''
         try:
-            pending_users = load_pending_users()
+            pending_users = load_pending_registration_users()
             if not isinstance(pending_users, dict):
                 pending_users = {}
         except Exception:
@@ -9161,12 +9221,13 @@ def admin_system_config_save():
 @quickform_bp.route('/admin/pending_users/approve', methods=['POST'])
 @admin_required
 def admin_pending_user_approve():
-    """审批注册用户：通过/拒绝（拒绝仅移除 pending 标记，不删库数据）。"""
+    """审批注册用户：通过/拒绝（拒绝会删除账号并记录理由，禁止登录）。"""
     username = (request.form.get('username') or '').strip()
     action = (request.form.get('action') or '').strip().lower()
     if not username:
         flash('缺少用户名', 'danger')
         return redirect(url_for('quickform.admin_panel', tab='users'))
+    db = SessionLocal()
     try:
         if action == 'approve':
             set_user_pending(username, False)
@@ -9174,15 +9235,17 @@ def admin_pending_user_approve():
             notify_user_registration_approved(username)
             flash(f'已通过用户「{username}」审核。', 'success')
         elif action == 'reject':
-            set_user_pending(username, False)
-            from core.qf_notice import notify_user_registration_rejected
-            notify_user_registration_rejected(username)
-            flash(f'已拒绝用户「{username}」审核（已移除待审核标记）。', 'warning')
+            reason = _resolve_registration_reject_note(request.form)
+            _reject_pending_registration_user(db, username, reason)
+            flash(f'已拒绝用户「{username}」注册审核。', 'warning')
         else:
             flash('未知操作', 'danger')
     except Exception as e:
+        db.rollback()
         logger.exception('审批待审核用户失败: %s', e)
         flash('操作失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
     return redirect(url_for('quickform.admin_panel', tab='users'))
 
 
@@ -9812,27 +9875,43 @@ def admin_reset_password():
 @quickform_bp.route('/admin/pending_users/batch', methods=['POST'])
 @admin_required
 def admin_pending_users_batch():
-    """批量审批注册待审核用户（目前仅支持批量通过）。"""
+    """批量审批注册待审核用户（通过 / 按预设理由拒绝）。"""
     action = (request.form.get('action') or '').strip().lower()
     usernames = request.form.getlist('usernames') or request.form.getlist('usernames[]')
     usernames = [u.strip() for u in usernames if (u or '').strip()]
     if not usernames:
         flash('请先勾选要操作的用户。', 'warning')
         return redirect(url_for('quickform.admin_panel', tab='users'))
-    if action != 'approve':
-        flash('未知批量操作。', 'danger')
-        return redirect(url_for('quickform.admin_panel', tab='users'))
-    from core.qf_notice import notify_user_registration_approved
+    if action == 'approve':
+        from core.qf_notice import notify_user_registration_approved
 
-    ok = 0
-    for u in usernames:
+        ok = 0
+        for u in usernames:
+            try:
+                set_user_pending(u, False)
+                notify_user_registration_approved(u)
+                ok += 1
+            except Exception:
+                pass
+        flash(f'已批量通过 {ok} 个用户审核。', 'success')
+        return redirect(url_for('quickform.admin_panel', tab='users'))
+    if action == 'reject':
+        reason = _resolve_registration_reject_note(request.form)
+        db = SessionLocal()
+        ok = 0
         try:
-            set_user_pending(u, False)
-            notify_user_registration_approved(u)
-            ok += 1
-        except Exception:
-            pass
-    flash(f'已批量通过 {ok} 个用户审核。', 'success')
+            for u in usernames:
+                try:
+                    _reject_pending_registration_user(db, u, reason)
+                    ok += 1
+                except Exception:
+                    db.rollback()
+                    logger.exception('批量拒绝待审核用户失败 username=%s', u)
+            flash(f'已批量拒绝 {ok} 个用户注册审核。', 'warning')
+        finally:
+            db.close()
+        return redirect(url_for('quickform.admin_panel', tab='users'))
+    flash('未知批量操作。', 'danger')
     return redirect(url_for('quickform.admin_panel', tab='users'))
 
 
