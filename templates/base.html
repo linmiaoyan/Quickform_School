@@ -614,6 +614,24 @@
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav">
+                    {% if current_user.is_authenticated %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle position-relative" href="#" id="qfNoticeToggle" role="button" data-bs-toggle="dropdown" aria-expanded="false" title="QF小公告">
+                            <i class="bi bi-megaphone"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="qf-notice-badge" style="font-size: 0.65rem;{% if not qf_notice_unread %} display: none;{% endif %}">{{ qf_notice_unread if qf_notice_unread and qf_notice_unread > 99 else (qf_notice_unread or '') }}</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end p-0 qf-notice-panel" style="width: min(360px, 92vw); max-height: 420px;">
+                            <li class="px-3 py-2 border-bottom d-flex justify-content-between align-items-center bg-light">
+                                <strong class="small">QF小公告</strong>
+                                <button type="button" class="btn btn-link btn-sm p-0" id="qf-notice-mark-all">全部已读</button>
+                            </li>
+                            <li class="px-3 py-2 text-muted small" id="qf-notice-empty" style="display: none;">暂无公告</li>
+                            <li style="max-height: 320px; overflow-y: auto;">
+                                <ul class="list-unstyled mb-0" id="qf-notice-list"></ul>
+                            </li>
+                        </ul>
+                    </li>
+                    {% endif %}
                     <!-- 语言切换 -->
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="langDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -1082,6 +1100,24 @@
             xhr.send(formData);
         }
     </script>
+    {% if current_user.is_authenticated %}
+    <style>
+    .qf-notice-item { padding: 0.65rem 0.85rem; border-bottom: 1px solid #f3f4f6; cursor: pointer; }
+    .qf-notice-item:hover { background: #f9fafb; }
+    .qf-notice-item--unread { background: #ecfdf5; }
+    .qf-notice-item-title { font-weight: 600; font-size: 0.875rem; color: #111827; margin-top: 0.25rem; }
+    .qf-notice-item-body { font-size: 0.8125rem; color: #4b5563; white-space: pre-wrap; margin-top: 0.2rem; }
+    .qf-notice-item-meta { font-size: 0.75rem; }
+    </style>
+    <script>
+    window.QF_NOTICE_CONFIG = {
+        listUrl: {{ url_for('quickform.qf_notices_list')|tojson }},
+        readUrlTemplate: {{ url_for('quickform.qf_notices_mark_read', notice_id=0)|tojson }}.replace('/0/read', '/__ID__/read'),
+        readAllUrl: {{ url_for('quickform.qf_notices_mark_all_read')|tojson }}
+    };
+    </script>
+    <script src="{{ url_for('static', filename='js/qf-notices.js') }}" defer></script>
+    {% endif %}
     {% block scripts %}
     {% endblock %}
 </body>

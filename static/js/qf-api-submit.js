@@ -7,7 +7,7 @@
     'use strict';
 
     var limits = {
-        maxFileMb: 20,
+        maxFileMb: 1,
         maxBodyMb: 10,
         maxJsonKb: 60,
         allowedExtensions: [],

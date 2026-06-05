@@ -262,6 +262,22 @@ class TaskLike(Base):
     user = relationship('User', foreign_keys=[user_id])
 
 
+class QFNotice(Base):
+    """QF 小公告：管理员公告 + 系统操作通知（审核通过等）。"""
+    __tablename__ = 'qf_notice'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    body = Column(Text, nullable=False)
+    # announcement=管理员手动发布；system=业务操作自动通知
+    kind = Column(String(20), default='system', nullable=False)
+    event_type = Column(String(64), nullable=True)
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+    user = relationship('User', foreign_keys=[user_id])
+
+
 class OneclickPromptOption(Base):
     """一键生成任务：勾选后追加给模型的说明文案（管理员后台可改）；正文中的「API地址」会在生成时替换为真实接口根 URL"""
 
@@ -284,7 +300,9 @@ DEFAULT_ONECLICK_PROMPT_OPTIONS = [
     (
         'opt_multimodal',
         '多模态附件',
-        '含文件上传时：单文件不超过服务器限制（页面 meta qf-api-limits 中 maxFileMb，默认约 20MB）；整次请求亦受 maxBodyMb 限制（默认约 10MB）。失败时解析响应 JSON 的 message 字段展示，不要直接显示 response.text() 原始内容。',
+        '含文件上传时：数据和文件提交到「API地址」，文件不能大于500K（上传前请压缩图片）。不要将文件编码为 Base64 形式；'
+        '须使用 multipart/form-data 的 file 字段。服务器单文件硬上限见 meta qf-api-limits 的 maxFileMb。'
+        '失败时解析响应 JSON 的 message 字段展示，不要直接显示 response.text() 原始内容。',
     ),
     (
         'opt_api_errors',

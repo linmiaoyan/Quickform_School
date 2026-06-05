@@ -37,6 +37,9 @@
         <a href="{{ url_for('quickform.admin_panel', tab='system-config') }}" class="sidebar-item {{ 'active' if current_tab == 'system-config' else '' }}" data-tab="system-config">
             <i class="bi bi-gear" style="margin-right: 0.75rem;"></i> 系统配置
         </a>
+        <a href="{{ url_for('quickform.admin_panel', tab='qf-notice') }}" class="sidebar-item {{ 'active' if current_tab == 'qf-notice' else '' }}" data-tab="qf-notice">
+            <i class="bi bi-megaphone" style="margin-right: 0.75rem;"></i> QF小公告
+        </a>
 
         <a href="{{ url_for('quickform.admin_panel', tab='qflink') }}" class="sidebar-item {{ 'active' if current_tab == 'qflink' else '' }}" data-tab="qflink">
             <i class="bi bi-link-45deg" style="margin-right: 0.75rem;"></i> QFLink 登录
@@ -656,6 +659,12 @@
                                     <div class="form-text text-muted">关闭后：登录页仅保留 QFLink 登录入口（若 QFLink 也已关闭则无法登录）。</div>
                                 </div>
                                 <div class="col-12 col-lg-6">
+                                    <label class="form-label">多模态单文件上传上限（MB）</label>
+                                    <input type="number" class="form-control" name="api_max_file_size_mb" min="1" max="50" step="1"
+                                           value="{{ syscfg.api_max_file_size_mb if syscfg and syscfg.api_max_file_size_mb else 1 }}">
+                                    <div class="form-text text-muted">默认 1MB；保存后立即生效（无需重启）。学生端 HTML 的 <code>qf-api-limits</code> 与 API 校验均读取此值。若 Nginx 限制更小，请同步 <code>client_max_body_size</code>。</div>
+                                </div>
+                                <div class="col-12 col-lg-6">
                                     <label class="form-label">是否开启「附件回收」后台</label>
                                     <select class="form-select" name="attachment_recovery_enabled">
                                         <option value="1" {% if syscfg and syscfg.attachment_recovery_enabled %}selected{% endif %}>是</option>
@@ -711,6 +720,39 @@
                                 </div>
                             </div>
                             <button type="submit" class="btn btn-success">开始导入</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'qf-notice' else '' }}" id="qf-notice" role="tabpanel">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">发布 QF 小公告</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small">除手动公告外，系统会在<strong>注册审核通过/拒绝</strong>、<strong>项目公开审核</strong>、<strong>团队入驻审核</strong>、<strong>QFLink 禁用/多模态开关</strong>、<strong>密码重置</strong>等操作后自动向对应用户推送小公告。</p>
+                        <form method="POST" action="{{ url_for('quickform.admin_qf_notices_send') }}">
+                            <div class="mb-3">
+                                <label class="form-label">标题</label>
+                                <input type="text" class="form-control" name="title" maxlength="200" required placeholder="例如：系统维护通知">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">正文</label>
+                                <textarea class="form-control" name="body" rows="5" required placeholder="公告内容…"></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">发送范围</label>
+                                <select class="form-select" name="target" id="qfNoticeTarget">
+                                    <option value="all">全体用户</option>
+                                    <option value="user">指定用户名</option>
+                                </select>
+                            </div>
+                            <div class="mb-3" id="qfNoticeUsernameWrap" style="display: none;">
+                                <label class="form-label">用户名</label>
+                                <input type="text" class="form-control" name="username" placeholder="内置用户用户名">
+                            </div>
+                            <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> 发送公告</button>
                         </form>
                     </div>
                 </div>
@@ -964,13 +1006,13 @@
                     </div>
                     <div class="card-body">
                         <div class="alert alert-light border mb-3 py-3">
-                            <h6 class="fw-semibold mb-2"><i class="bi bi-sliders"></i> 当前附件限额（环境变量，只读）</h6>
+                            <h6 class="fw-semibold mb-2"><i class="bi bi-sliders"></i> 当前附件限额</h6>
                             <div class="row g-2 small">
-                                <div class="col-md-4"><strong>单文件上限</strong>：{{ api_upload_limits.maxFileMb if api_upload_limits else 20 }} MB<br><code>API_MAX_FILE_SIZE_MB</code></div>
-                                <div class="col-md-4"><strong>单次请求总大小</strong>：{{ api_upload_limits.maxBodyMb if api_upload_limits else 10 }} MB<br><code>MAX_REQUEST_BODY_MB</code></div>
+                                <div class="col-md-4"><strong>单文件上限</strong>：{{ api_upload_limits.maxFileMb if api_upload_limits else 1 }} MB<br><a href="{{ url_for('quickform.admin_panel', tab='system-config') }}">在系统配置中调整</a></div>
+                                <div class="col-md-4"><strong>单次请求总大小</strong>：{{ api_upload_limits.maxBodyMb if api_upload_limits else 10 }} MB<br><code>MAX_REQUEST_BODY_MB</code>（环境变量）</div>
                                 <div class="col-md-4"><strong>JSON 字段建议上限</strong>：{{ api_upload_limits.maxJsonKb if api_upload_limits else 60 }} KB<br><code>API_MAX_JSON_FIELD_KB</code></div>
                             </div>
-                            <p class="text-muted small mb-0 mt-2">大文件请走 multipart 的 <code>file</code> 字段；勿将文件 Base64 写入 JSON。修改限额后需重启服务，并同步 Nginx <code>client_max_body_size</code>。</p>
+                            <p class="text-muted small mb-0 mt-2">建议学生端单文件压缩至 500KB 以内；须走 multipart 的 <code>file</code> 字段，勿将文件 Base64 写入 JSON。</p>
                         </div>
                         <p class="text-muted small">清理 <code>static/uploads/&lt;API ID&gt;/</code> 与迁移包 <code>api_files</code> 目录中的文件。标记为「未引用」表示当前提交 JSON 中未出现该路径，删除后不影响已展示的数据字段（但链接会失效）。</p>
                         <div class="row g-2 align-items-end mb-3">
@@ -2196,6 +2238,15 @@
         if (searchInput) searchInput.value = {{ attachment_search_q|tojson }};
         doSearch();
         {% endif %}
+    })();
+
+    (function () {
+        var sel = document.getElementById('qfNoticeTarget');
+        var wrap = document.getElementById('qfNoticeUsernameWrap');
+        if (!sel || !wrap) return;
+        function sync() { wrap.style.display = sel.value === 'user' ? 'block' : 'none'; }
+        sel.addEventListener('change', sync);
+        sync();
     })();
 
     // 待审核用户：全选

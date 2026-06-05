@@ -13,7 +13,14 @@ _STATIC_UPLOAD_PATH_RE = re.compile(r'/static/uploads/([0-9a-zA-Z_-]+)/([^/?#\s]
 
 
 def api_max_file_size_mb() -> int:
-    return max(1, int(os.getenv('API_MAX_FILE_SIZE_MB', '20') or '20'))
+    try:
+        from core.system_config import load_system_config
+        cfg = load_system_config()
+        mb = int(getattr(cfg, 'api_max_file_size_mb', 1) or 1)
+        return max(1, min(50, mb))
+    except Exception:
+        pass
+    return max(1, int(os.getenv('API_MAX_FILE_SIZE_MB', '1') or '1'))
 
 
 def api_max_request_body_bytes() -> int:
