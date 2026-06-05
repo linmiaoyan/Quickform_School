@@ -3,6 +3,33 @@
 {% block page_title %}{{ translate('nav.import_task') }}{% endblock %}
 
 {% block content %}
+<style>
+.qf-file-dropzone {
+    position: relative;
+    border: 2px dashed #cbd5e1;
+    border-radius: 10px;
+    background: #f8fafc;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.qf-file-dropzone.is-dragover {
+    border-color: #0f766e;
+    background: #ecfdf5;
+}
+.qf-file-dropzone-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+.qf-file-dropzone-inner {
+    pointer-events: none;
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    color: #374151;
+}
+</style>
 <div class="row justify-content-center">
     <div class="col-md-10">
         <div class="card mb-4 border-0 shadow-sm" style="border-radius: 10px; overflow: hidden;">
@@ -11,23 +38,16 @@
             </div>
             <div class="card-body" style="padding: 2rem;">
                 <div class="mb-4">
-                    <h6 class="fw-semibold mb-2">从文件导入（推荐）</h6>
-                    <p class="mb-3" style="color: #6b7280;">支持上传 quickform.cn 导出的迁移包，或仅含任务元数据的 JSON 模板。可导入<strong>无提交数据</strong>的任务，也可导入含 <code>html/</code> 网页与 <code>submissions.json</code> 历史数据的完整包。</p>
-                    <div class="alert alert-light border small mb-3">
-                        <div class="fw-semibold mb-1">ZIP 包典型结构</div>
-                        <ul class="mb-0 ps-3">
-                            <li><code>quickform-task-migration.json</code> — 任务清单（标题、API ID、HTML 列表等）</li>
-                            <li><code>html/</code> — 任务网页（可选）</li>
-                            <li><code>submissions.json</code> — 历史提交数据（可选，可与清单内 submissions 二选一）</li>
-                        </ul>
-                    </div>
-                    <form method="POST" action="{{ url_for('quickform.import_task_from_file') }}" enctype="multipart/form-data" class="row g-2 align-items-end">
-                        <div class="col-md-8">
-                            <input type="file" class="form-control" name="task_file" accept=".zip,.json,.tar,.tar.gz,.tgz,application/json" required style="border-radius: 8px; border: 1px solid #e5e7eb; padding: 0.75rem 1rem;">
+                    <form method="POST" action="{{ url_for('quickform.import_task_from_file') }}" enctype="multipart/form-data" id="importTaskFileForm">
+                        <div class="qf-file-dropzone mb-3" id="importFileDropzone">
+                            <input type="file" class="qf-file-dropzone-input" id="importTaskFile" name="task_file" accept=".zip,.json,.tar,.tar.gz,.tgz,application/json" required>
+                            <div class="qf-file-dropzone-inner">
+                                <i class="bi bi-cloud-arrow-up fs-2 text-secondary"></i>
+                                <div class="mt-2">拖拽文件到此处，或点击选择</div>
+                                <div class="text-muted small mt-1" id="importFileName">尚未选择文件</div>
+                            </div>
                         </div>
-                        <div class="col-md-4">
-                            <button type="submit" class="btn w-100" style="background-color: #0f766e; color: white; font-weight: 500; border-radius: 8px; padding: 0.75rem 1.5rem;">上传并导入</button>
-                        </div>
+                        <button type="submit" class="btn" style="background-color: #0f766e; color: white; font-weight: 500; border-radius: 8px; padding: 0.75rem 1.5rem;">上传并导入</button>
                     </form>
                 </div>
 
@@ -87,10 +107,17 @@
 <div id="fileImportModal" class="modal" tabindex="-1" aria-labelledby="fileImportModalLabel" aria-hidden="true" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1050; background-color: rgba(0,0,0,0.5);">
     <div style="width: 90%; max-width: 500px; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 10px; padding: 20px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
         <h5 id="fileImportModalLabel" style="margin-bottom: 15px; font-weight: 600; color: #111827;">从文件导入任务</h5>
-        <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 15px;">请上传 ZIP 迁移包或 JSON 任务模板（见页面上方说明）。</p>
+        <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 15px;">请上传任务文件。</p>
         <form method="POST" action="{{ url_for('quickform.import_task_from_file') }}" enctype="multipart/form-data">
             <div class="mb-3">
-                <input type="file" class="form-control" name="task_file" accept=".zip,.json,.tar,.tar.gz,.tgz,application/json" required style="border-radius: 8px; border: 1px solid #e5e7eb; padding: 0.75rem 1rem;">
+                <div class="qf-file-dropzone" id="importFileDropzoneModal">
+                    <input type="file" class="qf-file-dropzone-input" id="importTaskFileModal" name="task_file" accept=".zip,.json,.tar,.tar.gz,.tgz,application/json" required>
+                    <div class="qf-file-dropzone-inner">
+                        <i class="bi bi-cloud-arrow-up fs-4 text-secondary"></i>
+                        <div class="mt-2 small">拖拽文件到此处，或点击选择</div>
+                        <div class="text-muted small mt-1" id="importFileNameModal">尚未选择文件</div>
+                    </div>
+                </div>
             </div>
             <div style="text-align: right;">
                 <button type="button" class="btn" style="background-color: #6b7280; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;" onclick="closeFileImportModal()">取消</button>
@@ -165,6 +192,51 @@ function showFileImportModal() {
 }
 function closeFileImportModal() {
     document.getElementById('fileImportModal').style.display = 'none';
+}
+
+function setupFileDropZone(zoneId, inputId, labelId) {
+    var zone = document.getElementById(zoneId);
+    var input = document.getElementById(inputId);
+    var label = document.getElementById(labelId);
+    if (!zone || !input) return;
+
+    function showFileName(file) {
+        if (label) {
+            label.textContent = file ? file.name : '尚未选择文件';
+        }
+    }
+
+    input.addEventListener('change', function() {
+        showFileName(input.files && input.files[0] ? input.files[0] : null);
+    });
+
+    ['dragenter', 'dragover'].forEach(function(type) {
+        zone.addEventListener(type, function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.add('is-dragover');
+        });
+    });
+    ['dragleave', 'drop'].forEach(function(type) {
+        zone.addEventListener(type, function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.remove('is-dragover');
+        });
+    });
+    zone.addEventListener('drop', function(e) {
+        var files = e.dataTransfer && e.dataTransfer.files;
+        if (!files || !files.length) return;
+        var file = files[0];
+        if (typeof DataTransfer !== 'undefined') {
+            var dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+        } else {
+            input.files = files;
+        }
+        showFileName(file);
+    });
 }
 
 function readImportTasksFromPage() {
@@ -282,6 +354,8 @@ async function fetchTasks() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    setupFileDropZone('importFileDropzone', 'importTaskFile', 'importFileName');
+    setupFileDropZone('importFileDropzoneModal', 'importTaskFileModal', 'importFileNameModal');
     const qfImportTasksList = readImportTasksFromPage();
     document.body.addEventListener('click', function(e) {
         const btn = e.target && e.target.closest ? e.target.closest('.qf-import-one-btn') : null;
