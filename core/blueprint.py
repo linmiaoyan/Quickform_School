@@ -685,11 +685,24 @@ def _redirect_if_cannot_create_task(redirect_url: str):
     if current_user.can_create_task(SessionLocal, Task):
         return None
     if _is_qflink_user(current_user):
-        flash('QFLink 用户无法在本站新建或导入任务。', 'warning')
+        flash('QFLink 用户无法在本站新建任务。', 'warning')
     elif getattr(current_user, 'qflink_disabled', False):
         flash('该 QFLink 账号已被管理员禁用，无法创建任务。', 'danger')
     else:
         flash('您无法创建任务。', 'warning')
+    return redirect(redirect_url)
+
+
+def _redirect_if_cannot_import_task(redirect_url: str):
+    """不可导入任务时 flash 并返回 redirect；可导入则返回 None。"""
+    if not current_user.is_authenticated:
+        return redirect(url_for('quickform.login'))
+    if current_user.can_import_task(SessionLocal, Task):
+        return None
+    if getattr(current_user, 'qflink_disabled', False):
+        flash('该 QFLink 账号已被管理员禁用，无法导入任务。', 'danger')
+    else:
+        flash('您无法导入任务。', 'warning')
     return redirect(redirect_url)
 
 
@@ -6448,11 +6461,9 @@ def _import_task_precheck(db, redirect_url: str):
     task_count = db.query(Task).filter_by(user_id=current_user.id).count()
     if current_user.is_admin():
         return None
-    if not current_user.can_create_task(SessionLocal, Task):
-        if _is_qflink_user(current_user):
-            flash('QFLink 用户无法在本站新建或导入任务。', 'warning')
-        elif getattr(current_user, 'qflink_disabled', False):
-            flash('该 QFLink 账号已被管理员禁用，无法创建任务。', 'danger')
+    if not current_user.can_import_task(SessionLocal, Task):
+        if getattr(current_user, 'qflink_disabled', False):
+            flash('该 QFLink 账号已被管理员禁用，无法导入任务。', 'danger')
         else:
             task_limit = current_user.task_limit if current_user.task_limit != -1 else '无限制'
             flash(
@@ -6773,7 +6784,7 @@ def _import_task_from_quickform_export_zip(raw: bytes, db):
 @login_required
 def import_task():
     """教师版 2.5 顶栏「导入任务」页面：在线列表 / 指定 URL / ZIP 文件。"""
-    blocked = _redirect_if_cannot_create_task(url_for('quickform.dashboard'))
+    blocked = _redirect_if_cannot_import_task(url_for('quickform.dashboard'))
     if blocked is not None:
         return blocked
     if not TASK_MIGRATION_ACTIVE:
@@ -7569,7 +7580,7 @@ def _task_migration_import_impl():
 def import_task_template():
     """任务迁移导入路由：会议前仅提示；会议后将 TASK_MIGRATION_ACTIVE=True。"""
     next_url = request.form.get('next') or request.referrer or url_for('quickform.dashboard')
-    blocked = _redirect_if_cannot_create_task(next_url)
+    blocked = _redirect_if_cannot_import_task(next_url)
     if blocked is not None:
         return blocked
     if not TASK_MIGRATION_ACTIVE:

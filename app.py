@@ -184,17 +184,22 @@ def inject_user_capabilities():
     from core.multimodal_hints import MULTIMODAL_REFERENCE_PROMPT
 
     can_create = True
+    can_import = True
     qf_notice_unread = 0
     try:
         if current_user.is_authenticated:
             if current_user.is_admin():
                 can_create = True
+                can_import = True
             elif getattr(current_user, 'qflink_disabled', False):
                 can_create = False
+                can_import = False
             elif getattr(current_user, 'qflink_uid', None):
                 can_create = False
+                can_import = True
             else:
                 can_create = True
+                can_import = True
             try:
                 from core.db import SessionLocal
                 from core.qf_notice import count_unread_notices
@@ -207,8 +212,10 @@ def inject_user_capabilities():
                 qf_notice_unread = 0
     except Exception:
         can_create = True
+        can_import = True
     return {
         'user_can_create_task': can_create,
+        'user_can_import_task': can_import,
         'qf_notice_unread': qf_notice_unread,
         'multimodal_reference_prompt': MULTIMODAL_REFERENCE_PROMPT,
     }
