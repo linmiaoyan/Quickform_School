@@ -648,6 +648,14 @@
                                     <div class="form-text text-muted">留空则不显示。格式示例：<code>浙ICP备2025205635号</code>（省简称 + ICP备 + 数字 + 号）。</div>
                                 </div>
                                 <div class="col-12 col-lg-6">
+                                    <label class="form-label">是否开启「用户名登录」</label>
+                                    <select class="form-select" name="username_login_enabled">
+                                        <option value="1" {% if syscfg and syscfg.username_login_enabled %}selected{% endif %}>是</option>
+                                        <option value="0" {% if syscfg and (not syscfg.username_login_enabled) %}selected{% endif %}>否</option>
+                                    </select>
+                                    <div class="form-text text-muted">关闭后：登录页仅保留 QFLink 登录入口（若 QFLink 也已关闭则无法登录）。</div>
+                                </div>
+                                <div class="col-12 col-lg-6">
                                     <label class="form-label">是否开启「附件回收」后台</label>
                                     <select class="form-select" name="attachment_recovery_enabled">
                                         <option value="1" {% if syscfg and syscfg.attachment_recovery_enabled %}selected{% endif %}>是</option>
@@ -678,10 +686,28 @@
                     <div class="card-body">
                         <form method="POST" action="{{ url_for('quickform.admin_users_bulk_import') }}" enctype="multipart/form-data">
                             <div class="mb-3">
-                                <label class="form-label">上传 CSV 文件</label>
-                                <input type="file" class="form-control" name="csv_file" accept=".csv" required>
+                                <label class="form-label">导入方式</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="import_mode" id="importModeStrict" value="strict" checked>
+                                    <label class="form-check-label" for="importModeStrict">标准 CSV（严格表头解析）</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="import_mode" id="importModeLlm" value="llm">
+                                    <label class="form-check-label" for="importModeLlm">智能解析（大模型，适合 Excel 复制、列名不统一）</label>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">粘贴名单（可编辑）</label>
+                                <textarea class="form-control font-monospace" name="csv_text" rows="8" placeholder="username,password,school&#10;teacher01,quickform,温州科技高级中学&#10;teacher02,Pass123,温州科技高级中学"></textarea>
                                 <div class="form-text text-muted">
-                                    表头支持：username,password,school,phone,email（也兼容中文列名：用户名/密码/学校/手机号/邮箱）。编码推荐 UTF-8（Windows 导出的 GBK 也可）。
+                                    必填列：<strong>用户名、密码、学校</strong>（也支持中文列名）。用户类型默认为「内置用户」。可只粘贴此处、不上传文件；智能解析模式需配置 <code>CHAT_SERVER_API_TOKEN</code>。
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">或上传 CSV 文件（可选）</label>
+                                <input type="file" class="form-control" name="csv_file" accept=".csv,text/csv">
+                                <div class="form-text text-muted">
+                                    表头支持：username,password,school,phone,email（也兼容中文列名）。编码推荐 UTF-8（Windows 导出的 GBK 也可）。若同时填写粘贴区与上传文件，优先使用粘贴内容。
                                 </div>
                             </div>
                             <button type="submit" class="btn btn-success">开始导入</button>
