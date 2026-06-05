@@ -16,6 +16,7 @@ class SystemConfig:
     icp_record: str = ""
     attachment_recovery_enabled: bool = True
     username_login_enabled: bool = True
+    api_max_file_size_mb: int = 1
 
 
 def _config_path() -> str:
@@ -120,6 +121,14 @@ def load_system_config() -> SystemConfig:
             return default
         return (str(v) or "").strip() or default
 
+    def _i(key: str, default: int, lo: int = 1, hi: int = 50) -> int:
+        v = data.get(key)
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return default
+        return max(lo, min(hi, n))
+
     def _b(key: str, default: bool) -> bool:
         v = data.get(key)
         if isinstance(v, bool):
@@ -148,6 +157,7 @@ def load_system_config() -> SystemConfig:
             "attachment_recovery_enabled", SystemConfig.attachment_recovery_enabled
         ),
         username_login_enabled=_b("username_login_enabled", SystemConfig.username_login_enabled),
+        api_max_file_size_mb=_i("api_max_file_size_mb", SystemConfig.api_max_file_size_mb),
     )
 
 
@@ -164,6 +174,10 @@ def save_system_config(cfg: SystemConfig) -> None:
     d["icp_record"] = (d.get("icp_record") or "").strip()
     d["attachment_recovery_enabled"] = bool(d.get("attachment_recovery_enabled"))
     d["username_login_enabled"] = bool(d.get("username_login_enabled", True))
+    try:
+        d["api_max_file_size_mb"] = max(1, min(50, int(d.get("api_max_file_size_mb", 1) or 1)))
+    except (TypeError, ValueError):
+        d["api_max_file_size_mb"] = 1
 
     os.makedirs(os.path.dirname(p), exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(prefix="system_config_", suffix=".json", dir=os.path.dirname(p))

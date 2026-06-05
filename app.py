@@ -179,9 +179,12 @@ def inject_site_branding():
 
 @app.context_processor
 def inject_user_capabilities():
-    """登录用户能力（如是否可新建任务）。"""
+    """登录用户能力（如是否可新建任务）与 QF 小公告未读数。"""
     from flask_login import current_user
+    from core.multimodal_hints import MULTIMODAL_REFERENCE_PROMPT
+
     can_create = True
+    qf_notice_unread = 0
     try:
         if current_user.is_authenticated:
             if current_user.is_admin():
@@ -192,9 +195,23 @@ def inject_user_capabilities():
                 can_create = False
             else:
                 can_create = True
+            try:
+                from core.db import SessionLocal
+                from core.qf_notice import count_unread_notices
+                db = SessionLocal()
+                try:
+                    qf_notice_unread = count_unread_notices(db, current_user.id)
+                finally:
+                    db.close()
+            except Exception:
+                qf_notice_unread = 0
     except Exception:
         can_create = True
-    return {'user_can_create_task': can_create}
+    return {
+        'user_can_create_task': can_create,
+        'qf_notice_unread': qf_notice_unread,
+        'multimodal_reference_prompt': MULTIMODAL_REFERENCE_PROMPT,
+    }
 
 
 # 初始化扩展

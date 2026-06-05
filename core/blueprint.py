@@ -57,7 +57,7 @@ from .pending_users import is_user_pending, load_pending_users, set_user_pending
 from .models import (
     Base, User, Task, Submission, AIConfig, QFConfig, Post, PostReply,
     Organization, OrganizationMember, TaskShare, TaskLike, ApiAccessLog,
-    OneclickPromptOption, DEFAULT_ONECLICK_PROMPT_OPTIONS, _generate_task_id,
+    OneclickPromptOption, DEFAULT_ONECLICK_PROMPT_OPTIONS, _generate_task_id, QFNotice,
 )
 from .secret_store import decrypt_ai_config_inplace, encrypt_ai_config_inplace
 from .public_errors import MSG_GENERIC, MSG_SERVICE_BUSY, MSG_JSON_BODY, MSG_SAVE_FAILED, MSG_PAGE_LOAD, MSG_API_INTERNAL
@@ -663,7 +663,7 @@ MAX_HTML_FILE_SIZE = 4 * 1024 * 1024  # 任务内单个 HTML 文件最大 4MB
 API_FILE_UPLOAD_ENABLED = (os.getenv('API_FILE_UPLOAD_ENABLED', 'true') or 'true').strip().lower() in (
     '1', 'true', 'yes', 'on',
 )
-DEFAULT_MAX_FILE_SIZE_MB = max(1, int(os.getenv('API_MAX_FILE_SIZE_MB', '20') or '20'))
+DEFAULT_MAX_FILE_SIZE_MB = max(1, int(os.getenv('API_MAX_FILE_SIZE_MB', '1') or '1'))
 DEFAULT_ALLOWED_FILE_EXTENSIONS = (
     os.getenv(
         'API_ALLOWED_FILE_EXTENSIONS',
@@ -1184,7 +1184,17 @@ def _load_oneclick_prompt_tuples(db):
         rows = []
     if not rows:
         return list(DEFAULT_ONECLICK_PROMPT_OPTIONS)
-    tuples = [(r.opt_key, r.label, (r.body or '').strip()) for r in rows]
+    default_by_key = {k: (lbl, body) for k, lbl, body in DEFAULT_ONECLICK_PROMPT_OPTIONS}
+    tuples = []
+    for r in rows:
+        key = r.opt_key
+        label = r.label
+        body = (r.body or '').strip()
+        if key == 'opt_multimodal':
+            _dl, default_body = default_by_key.get('opt_multimodal', (label, body))
+            if '500K' not in body and 'Base64' not in body:
+                body = default_body
+        tuples.append((key, label, body))
     # 兜底：若数据库缺少新引入的默认选项（尚未迁移/未补齐），先在运行时补上
     existing_keys = {k for k, _l, _b in tuples}
     for k, l, b in DEFAULT_ONECLICK_PROMPT_OPTIONS:
@@ -8524,6 +8534,94 @@ def report_status(task_id):
         return jsonify({'status': 'error', 'message': MSG_API_INTERNAL}), 500
 
 
+@quickform_bp.route('/qf_notices', methods=['GET'])
+@login_required
+def qf_notices_list():
+    """当前用户的 QF 小公告列表（JSON）。"""
+    from core.qf_notice import count_unread_notices, list_user_notices
+
+    db = SessionLocal()
+    try:
+        notices = list_user_notices(db, current_user.id, limit=30)
+        unread = count_unread_notices(db, current_user.id)
+        return jsonify({'success': True, 'notices': notices, 'unread_count': unread})
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/qf_notices/<int:notice_id>/read', methods=['POST'])
+@login_required
+def qf_notices_mark_read(notice_id):
+    """标记单条小公告已读。"""
+    from core.qf_notice import count_unread_notices, mark_notice_read
+
+    db = SessionLocal()
+    try:
+        ok = mark_notice_read(db, notice_id, current_user.id)
+        if not ok:
+            return jsonify({'success': False, 'message': '公告不存在'}), 404
+        db.commit()
+        unread = count_unread_notices(db, current_user.id)
+        return jsonify({'success': True, 'unread_count': unread})
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/qf_notices/read_all', methods=['POST'])
+@login_required
+def qf_notices_mark_all_read():
+    """全部标记已读。"""
+    from core.qf_notice import mark_all_notices_read
+
+    db = SessionLocal()
+    try:
+        mark_all_notices_read(db, current_user.id)
+        db.commit()
+        return jsonify({'success': True, 'unread_count': 0})
+    finally:
+        db.close()
+
+
+@quickform_bp.route('/admin/qf_notices/send', methods=['POST'])
+@admin_required
+def admin_qf_notices_send():
+    """管理员发布 QF 小公告（全员或指定用户）。"""
+    from core.qf_notice import send_qf_broadcast, send_qf_notice_by_username
+
+    title = (request.form.get('title') or '').strip()
+    body = (request.form.get('body') or '').strip()
+    target = (request.form.get('target') or 'all').strip().lower()
+    username = (request.form.get('username') or '').strip()
+    if not title or not body:
+        flash('请填写公告标题与正文。', 'danger')
+        return redirect(url_for('quickform.admin_panel', tab='qf-notice'))
+    db = SessionLocal()
+    try:
+        if target == 'user':
+            if not username:
+                flash('指定用户模式下请填写用户名。', 'danger')
+                return redirect(url_for('quickform.admin_panel', tab='qf-notice'))
+            notice = send_qf_notice_by_username(
+                db, username, title, body, kind='announcement', event_type='admin_manual'
+            )
+            if not notice:
+                flash(f'用户「{username}」不存在，公告未发送。', 'warning')
+                return redirect(url_for('quickform.admin_panel', tab='qf-notice'))
+            db.commit()
+            flash(f'已向用户「{username}」发送 QF 小公告。', 'success')
+        else:
+            count = send_qf_broadcast(db, title, body, exclude_admin=False)
+            db.commit()
+            flash(f'已向 {count} 位用户发送 QF 小公告。', 'success')
+    except Exception as e:
+        db.rollback()
+        logger.exception('发送 QF 小公告失败: %s', e)
+        flash('发送失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.admin_panel', tab='qf-notice'))
+
+
 @quickform_bp.route('/admin')
 @admin_required
 def admin_panel():
@@ -8874,6 +8972,10 @@ def admin_system_config_save():
         username_login_enabled = (request.form.get('username_login_enabled') or '').strip().lower() in (
             '1', 'true', 'yes', 'on',
         )
+        try:
+            api_max_file_size_mb = max(1, min(50, int(request.form.get('api_max_file_size_mb') or '1')))
+        except (TypeError, ValueError):
+            api_max_file_size_mb = 1
         from core.icp import is_valid_icp_record, normalize_icp_record
         icp_record = normalize_icp_record(request.form.get('icp_record') or '')
         if not is_valid_icp_record(icp_record):
@@ -8889,6 +8991,7 @@ def admin_system_config_save():
             icp_record=icp_record,
             attachment_recovery_enabled=attachment_recovery_enabled,
             username_login_enabled=username_login_enabled,
+            api_max_file_size_mb=api_max_file_size_mb,
         )
         save_system_config(cfg)
         flash('系统配置已保存。', 'success')
@@ -8910,9 +9013,13 @@ def admin_pending_user_approve():
     try:
         if action == 'approve':
             set_user_pending(username, False)
+            from core.qf_notice import notify_user_registration_approved
+            notify_user_registration_approved(username)
             flash(f'已通过用户「{username}」审核。', 'success')
         elif action == 'reject':
             set_user_pending(username, False)
+            from core.qf_notice import notify_user_registration_rejected
+            notify_user_registration_rejected(username)
             flash(f'已拒绝用户「{username}」审核（已移除待审核标记）。', 'warning')
         else:
             flash('未知操作', 'danger')
@@ -9073,6 +9180,8 @@ def admin_public_approve(task_id):
             return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
         task.public_approved = 1
         db.commit()
+        from core.qf_notice import notify_task_public_approved
+        notify_task_public_approved(task.user_id, task.title)
         flash(f'已通过项目「{task.title}」的公开申请，将展示在项目交流页。', 'success')
     finally:
         db.close()
@@ -9091,6 +9200,8 @@ def admin_public_reject(task_id):
             return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
         task.public_approved = -1
         db.commit()
+        from core.qf_notice import notify_task_public_rejected
+        notify_task_public_rejected(task.user_id, task.title)
         flash(f'已拒绝项目「{task.title}」的公开申请。', 'success')
     finally:
         db.close()
@@ -9109,6 +9220,8 @@ def admin_org_teams_approve(org_id):
             return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
         org.teams_public_approved = 1
         db.commit()
+        from core.qf_notice import notify_org_teams_approved
+        notify_org_teams_approved(org.creator_id, org.name)
         flash(f'已通过组织「{org.name}」的入驻团队展示申请。', 'success')
     finally:
         db.close()
@@ -9127,6 +9240,8 @@ def admin_org_teams_reject(org_id):
             return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
         org.teams_public_approved = -1
         db.commit()
+        from core.qf_notice import notify_org_teams_rejected
+        notify_org_teams_rejected(org.creator_id, org.name)
         flash(f'已拒绝组织「{org.name}」的入驻团队展示申请。创建者可改为「内部交流」后重新申请。', 'success')
     finally:
         db.close()
@@ -9143,8 +9258,11 @@ def admin_public_batch_approve():
         return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
     db = SessionLocal()
     try:
+        from core.qf_notice import notify_task_public_approved
+
         count = 0
         skipped = 0
+        notified = []
         for tid in task_ids:
             try:
                 task_id = int(tid)
@@ -9156,8 +9274,11 @@ def admin_public_batch_approve():
                     skipped += 1
                     continue
                 task.public_approved = 1
+                notified.append((task.user_id, task.title))
                 count += 1
         db.commit()
+        for uid, title in notified:
+            notify_task_public_approved(uid, title)
         msg = f'已批量通过 {count} 个项目公开申请。'
         if skipped:
             msg += f'（跳过 {skipped} 个未上传 HTML 的任务）'
@@ -9177,7 +9298,10 @@ def admin_public_batch_reject():
         return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
     db = SessionLocal()
     try:
+        from core.qf_notice import notify_task_public_rejected
+
         count = 0
+        notified = []
         for tid in task_ids:
             try:
                 task_id = int(tid)
@@ -9186,8 +9310,11 @@ def admin_public_batch_reject():
             task = db.get(Task, task_id)
             if task and task.sharing_type == 'public' and task.public_approved == 0:
                 task.public_approved = -1
+                notified.append((task.user_id, task.title))
                 count += 1
         db.commit()
+        for uid, title in notified:
+            notify_task_public_rejected(uid, title)
         flash(f'已批量拒绝 {count} 个项目公开申请。', 'success')
     finally:
         db.close()
@@ -9385,6 +9512,11 @@ def admin_user_qflink_toggle(user_id):
 
         user.qflink_disabled = not bool(getattr(user, 'qflink_disabled', False))
         db.commit()
+        from core.qf_notice import notify_qflink_disabled, notify_qflink_enabled
+        if user.qflink_disabled:
+            notify_qflink_disabled(user.id, user.username)
+        else:
+            notify_qflink_enabled(user.id, user.username)
         flash(f"已{'禁用' if user.qflink_disabled else '启用'} QFLink 用户：{user.username}", 'success')
     finally:
         db.close()
@@ -9406,6 +9538,8 @@ def admin_user_qflink_multimodal_toggle(user_id):
             return redirect(url_for('quickform.admin_panel', tab='qflink'))
         user.qflink_multimodal_enabled = not bool(getattr(user, 'qflink_multimodal_enabled', False))
         db.commit()
+        from core.qf_notice import notify_qflink_multimodal
+        notify_qflink_multimodal(user.id, user.username, user.qflink_multimodal_enabled)
         flash(
             f"已{'开启' if user.qflink_multimodal_enabled else '关闭'}多模态附件：{user.username}",
             'success',
@@ -9429,8 +9563,15 @@ def admin_qflink_batch():
         flash('未知批量操作。', 'danger')
         return redirect(url_for('quickform.admin_panel', tab='qflink'))
 
+    from core.qf_notice import (
+        notify_qflink_disabled,
+        notify_qflink_enabled,
+        notify_qflink_multimodal,
+    )
+
     db = SessionLocal()
     updated = 0
+    notify_queue = []
     try:
         for raw_id in raw_ids:
             try:
@@ -9442,14 +9583,25 @@ def admin_qflink_batch():
                 continue
             if action == 'disable':
                 user.qflink_disabled = True
+                notify_queue.append(('disabled', user.id, user.username, False))
             elif action == 'enable':
                 user.qflink_disabled = False
+                notify_queue.append(('enabled', user.id, user.username, False))
             elif action == 'multimodal_on':
                 user.qflink_multimodal_enabled = True
+                notify_queue.append(('multimodal', user.id, user.username, True))
             elif action == 'multimodal_off':
                 user.qflink_multimodal_enabled = False
+                notify_queue.append(('multimodal', user.id, user.username, False))
             updated += 1
         db.commit()
+        for kind, uid, uname, flag in notify_queue:
+            if kind == 'disabled':
+                notify_qflink_disabled(uid, uname)
+            elif kind == 'enabled':
+                notify_qflink_enabled(uid, uname)
+            elif kind == 'multimodal':
+                notify_qflink_multimodal(uid, uname, flag)
     finally:
         db.close()
 
@@ -9484,7 +9636,9 @@ def admin_reset_password():
         hashed_password = bcrypt.generate_password_hash('123456').decode('utf-8')
         user.password = hashed_password
         db.commit()
-        
+        from core.qf_notice import notify_password_reset
+        notify_password_reset(user.id, user.username)
+
         return jsonify({
             'success': True,
             'message': f'用户 {user.username} 的密码已重置为 123456',
@@ -9511,10 +9665,13 @@ def admin_pending_users_batch():
     if action != 'approve':
         flash('未知批量操作。', 'danger')
         return redirect(url_for('quickform.admin_panel', tab='users'))
+    from core.qf_notice import notify_user_registration_approved
+
     ok = 0
     for u in usernames:
         try:
             set_user_pending(u, False)
+            notify_user_registration_approved(u)
             ok += 1
         except Exception:
             pass

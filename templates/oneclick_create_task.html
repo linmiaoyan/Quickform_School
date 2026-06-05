@@ -28,7 +28,10 @@
                         <div class="form-text">{{ translate('oneclick.requirements_help') }}</div>
                     </div>
                     <div class="mb-4">
-                        <label class="form-label">{{ translate('oneclick.options_label') }}</label>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <label class="form-label mb-0">{{ translate('oneclick.options_label') }}</label>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#qfMultimodalRefModal">查看参考提示词</button>
+                        </div>
                         <div class="border rounded p-3 p-md-4 bg-light">
                             <div class="row row-cols-1 row-cols-sm-2 g-2 g-md-3">
                             {% for key, label, text in prompt_options %}
@@ -58,7 +61,36 @@
         </div>
     </div>
 </div>
+<div class="modal fade" id="qfMultimodalRefModal" tabindex="-1" aria-labelledby="qfMultimodalRefModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="qfMultimodalRefModalLabel">多模态参考提示词</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">可将以下内容复制到 AI 对话中，并把「API地址」替换为本任务的真实提交地址。</p>
+                <textarea class="form-control font-monospace" rows="10" readonly id="qfMultimodalRefText">{{ multimodal_reference_prompt }}</textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="qfMultimodalRefCopy">复制</button>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
 <script>
+(function () {
+    var copyBtn = document.getElementById('qfMultimodalRefCopy');
+    var ta = document.getElementById('qfMultimodalRefText');
+    if (copyBtn && ta) {
+        copyBtn.addEventListener('click', function () {
+            ta.select();
+            try { document.execCommand('copy'); copyBtn.textContent = '已复制'; } catch (e) {}
+            setTimeout(function () { copyBtn.textContent = '复制'; }, 1500);
+        });
+    }
+})();
 (function() {
     var options = {{ prompt_options | tojson }};
     var previewWrap = document.getElementById('preview-wrap');
