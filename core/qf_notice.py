@@ -7,6 +7,18 @@ from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 
+_notice_session_factory = None
+
+
+def _notice_session():
+    """独立 ORM 会话：避免 close 时误关调用方 thread-local 的 scoped SessionLocal。"""
+    global _notice_session_factory
+    if _notice_session_factory is None:
+        from sqlalchemy.orm import sessionmaker
+        from core.db import engine
+        _notice_session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return _notice_session_factory()
+
 
 def send_qf_notice(db, user_id: int, title: str, body: str, *, kind: str = 'system', event_type: Optional[str] = None):
     """向指定用户写入一条小公告（不 commit）。"""
@@ -31,9 +43,7 @@ def send_qf_notice(db, user_id: int, title: str, body: str, *, kind: str = 'syst
 
 def send_qf_notice_safe(user_id: int, title: str, body: str, *, kind: str = 'system', event_type: Optional[str] = None):
     """独立会话发送，失败仅记日志，不影响主业务事务。"""
-    from core.db import SessionLocal
-
-    db = SessionLocal()
+    db = _notice_session()
     try:
         if not send_qf_notice(db, user_id, title, body, kind=kind, event_type=event_type):
             return
@@ -59,9 +69,7 @@ def send_qf_notice_by_username(db, username: str, title: str, body: str, *, kind
 
 
 def send_qf_notice_by_username_safe(username: str, title: str, body: str, *, kind: str = 'system', event_type: Optional[str] = None):
-    from core.db import SessionLocal
-
-    db = SessionLocal()
+    db = _notice_session()
     try:
         notice = send_qf_notice_by_username(db, username, title, body, kind=kind, event_type=event_type)
         if notice:

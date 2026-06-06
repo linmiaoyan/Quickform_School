@@ -9415,83 +9415,123 @@ def admin_users_bulk_import_sample():
 @admin_required
 def admin_public_approve(task_id):
     """管理员通过项目公开申请"""
+    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit'
     db = SessionLocal()
     try:
         task = db.get(Task, task_id)
         if not task or task.sharing_type != 'public' or task.public_approved != 0:
             flash('任务不存在或无需审核', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
+            return redirect(redirect_url)
+        task_title = task.title or '项目'
         if not _task_has_any_html(task):
-            flash(f'项目「{task.title}」未上传 HTML 文件，无法通过公开审核。请通知创建者先上传网页后再申请公开。', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
+            flash(f'项目「{task_title}」未上传 HTML 文件，无法通过公开审核。请通知创建者先上传网页后再申请公开。', 'warning')
+            return redirect(redirect_url)
+        owner_id = task.user_id
         task.public_approved = 1
         db.commit()
-        from core.qf_notice import notify_task_public_approved
-        notify_task_public_approved(task.user_id, task.title)
-        flash(f'已通过项目「{task.title}」的公开申请，将展示在项目交流页。', 'success')
+        try:
+            from core.qf_notice import notify_task_public_approved
+            notify_task_public_approved(owner_id, task_title)
+        except Exception:
+            logger.exception('公开项目审核通过后发送通知失败 task_id=%s', task_id)
+        flash(f'已通过项目「{task_title}」的公开申请，将展示在项目交流页。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('公开项目审核通过失败 task_id=%s', task_id)
+        flash('操作失败，请稍后重试。', 'danger')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
+    return redirect(redirect_url)
 
 
 @quickform_bp.route('/admin/public_reject/<int:task_id>', methods=['POST'])
 @admin_required
 def admin_public_reject(task_id):
     """管理员拒绝项目公开申请"""
+    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit'
     db = SessionLocal()
     try:
         task = db.get(Task, task_id)
         if not task or task.sharing_type != 'public' or task.public_approved != 0:
             flash('任务不存在或无需审核', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
+            return redirect(redirect_url)
+        task_title = task.title or '项目'
+        owner_id = task.user_id
         task.public_approved = -1
         db.commit()
-        from core.qf_notice import notify_task_public_rejected
-        notify_task_public_rejected(task.user_id, task.title)
-        flash(f'已拒绝项目「{task.title}」的公开申请。', 'success')
+        try:
+            from core.qf_notice import notify_task_public_rejected
+            notify_task_public_rejected(owner_id, task_title)
+        except Exception:
+            logger.exception('公开项目审核拒绝后发送通知失败 task_id=%s', task_id)
+        flash(f'已拒绝项目「{task_title}」的公开申请。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('公开项目审核拒绝失败 task_id=%s', task_id)
+        flash('操作失败，请稍后重试。', 'danger')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
+    return redirect(redirect_url)
 
 
 @quickform_bp.route('/admin/org_teams_approve/<int:org_id>', methods=['POST'])
 @admin_required
 def admin_org_teams_approve(org_id):
     """管理员通过组织「入驻团队 / 首页公开」申请"""
+    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit'
     db = SessionLocal()
     try:
         org = db.get(Organization, org_id)
         if not org or not org.teams_public_requested or org.teams_public_approved != 0:
             flash('组织不存在或无需审核', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
+            return redirect(redirect_url)
+        org_name = org.name or '团队'
+        creator_id = org.creator_id
         org.teams_public_approved = 1
         db.commit()
-        from core.qf_notice import notify_org_teams_approved
-        notify_org_teams_approved(org.creator_id, org.name)
-        flash(f'已通过组织「{org.name}」的入驻团队展示申请。', 'success')
+        try:
+            from core.qf_notice import notify_org_teams_approved
+            notify_org_teams_approved(creator_id, org_name)
+        except Exception:
+            logger.exception('团队入驻审核通过后发送通知失败 org_id=%s', org_id)
+        flash(f'已通过组织「{org_name}」的入驻团队展示申请。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('团队入驻审核通过失败 org_id=%s', org_id)
+        flash('操作失败，请稍后重试。', 'danger')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
+    return redirect(redirect_url)
 
 
 @quickform_bp.route('/admin/org_teams_reject/<int:org_id>', methods=['POST'])
 @admin_required
 def admin_org_teams_reject(org_id):
     """管理员拒绝组织「入驻团队」申请"""
+    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit'
     db = SessionLocal()
     try:
         org = db.get(Organization, org_id)
         if not org or not org.teams_public_requested or org.teams_public_approved != 0:
             flash('组织不存在或无需审核', 'warning')
-            return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
+            return redirect(redirect_url)
+        org_name = org.name or '团队'
+        creator_id = org.creator_id
         org.teams_public_approved = -1
         db.commit()
-        from core.qf_notice import notify_org_teams_rejected
-        notify_org_teams_rejected(org.creator_id, org.name)
-        flash(f'已拒绝组织「{org.name}」的入驻团队展示申请。创建者可改为「内部交流」后重新申请。', 'success')
+        try:
+            from core.qf_notice import notify_org_teams_rejected
+            notify_org_teams_rejected(creator_id, org_name)
+        except Exception:
+            logger.exception('团队入驻审核拒绝后发送通知失败 org_id=%s', org_id)
+        flash(f'已拒绝组织「{org_name}」的入驻团队展示申请。创建者可改为「内部交流」后重新申请。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('团队入驻审核拒绝失败 org_id=%s', org_id)
+        flash('操作失败，请稍后重试。', 'danger')
     finally:
         db.close()
-    return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-org-audit')
+    return redirect(redirect_url)
 
 
 @quickform_bp.route('/admin/public_batch_approve', methods=['POST'])
