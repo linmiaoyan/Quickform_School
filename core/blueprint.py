@@ -8843,6 +8843,15 @@ def admin_qf_notices_send():
 @admin_required
 def admin_panel():
     """管理员面板：按当前 tab 仅加载该页数据，避免一次性查全表"""
+    try:
+        return _admin_panel_impl()
+    except Exception:
+        logger.exception('admin_panel 加载失败')
+        flash('管理后台加载失败，请稍后重试或查看服务器 error.log。', 'danger')
+        return redirect(url_for('quickform.dashboard'))
+
+
+def _admin_panel_impl():
     from urllib.parse import urlencode
     from core.qflink_config import load_qflink_config
 
@@ -8877,11 +8886,19 @@ def admin_panel():
         total_tasks = db.query(Task).count()
         total_submissions = None
         pending_cert_sidebar = 0  # campus: removed teacher certification feature
-        pending_public_sidebar = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 0).count()
-        pending_org_sidebar = db.query(Organization).filter(
-            Organization.teams_public_requested == True,
-            Organization.teams_public_approved == 0,
-        ).count()
+        try:
+            pending_public_sidebar = db.query(Task).filter(Task.sharing_type == 'public', Task.public_approved == 0).count()
+        except Exception:
+            logger.exception('admin_panel: public pending count failed')
+            pending_public_sidebar = 0
+        try:
+            pending_org_sidebar = db.query(Organization).filter(
+                Organization.teams_public_requested == True,
+                Organization.teams_public_approved == 0,
+            ).count()
+        except Exception:
+            logger.exception('admin_panel: org pending count failed')
+            pending_org_sidebar = 0
         # 「其他审核」侧栏数字：仅公开项目 + 团队入驻待审，不含 HTML 页面审核（HTML 在子 tab 内单独展示）
         pending_other_sidebar = pending_public_sidebar + pending_org_sidebar
 
@@ -8940,6 +8957,7 @@ def admin_panel():
             user_page = min(user_page, user_total_pages)
             users = (
                 user_query
+                .options(joinedload(User.tasks))
                 .order_by(User.created_at.desc())
                 .offset((user_page - 1) * user_per_page)
                 .limit(user_per_page)
@@ -8971,12 +8989,16 @@ def admin_panel():
 
         elif current_tab == 'other-review':
             # 公开项目审核 + 团队入驻；HTML 不再做后台审核门禁（见模板说明）
-            public_pending_tasks = (
-                db.query(Task)
-                .filter(Task.sharing_type == 'public', Task.public_approved == 0)
-                .order_by(Task.created_at.desc())
-                .all()
-            )
+            try:
+                public_pending_tasks = (
+                    db.query(Task)
+                    .filter(Task.sharing_type == 'public', Task.public_approved == 0)
+                    .order_by(Task.created_at.desc())
+                    .all()
+                )
+            except Exception:
+                logger.exception('admin_panel: public pending tasks query failed')
+                public_pending_tasks = []
             author_ids = {t.user_id for t in public_pending_tasks}
             authors_map2 = {u.id: u for u in db.query(User).filter(User.id.in_(author_ids)).all()} if author_ids else {}
             public_pending_with_author = [{'task': t, 'author': authors_map2.get(t.user_id)} for t in public_pending_tasks]
@@ -8989,15 +9011,19 @@ def admin_panel():
                         _seen_pub_html_urls.add(u)
                         public_pending_html_urls.append(u)
 
-            org_pending = (
-                db.query(Organization)
-                .filter(
-                    Organization.teams_public_requested == True,
-                    Organization.teams_public_approved == 0,
+            try:
+                org_pending = (
+                    db.query(Organization)
+                    .filter(
+                        Organization.teams_public_requested == True,
+                        Organization.teams_public_approved == 0,
+                    )
+                    .order_by(Organization.created_at.desc())
+                    .all()
                 )
-                .order_by(Organization.created_at.desc())
-                .all()
-            )
+            except Exception:
+                logger.exception('admin_panel: org pending query failed')
+                org_pending = []
             creator_ids = {o.creator_id for o in org_pending}
             creators_map = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
             org_pending_with_creator = [{'org': o, 'creator': creators_map.get(o.creator_id)} for o in org_pending]

@@ -161,7 +161,7 @@ def notify_user_registration_approved(username: str):
     )
 
 
-def notify_user_registration_rejected(username: str, reason: str | None = None, *, user_id: int | None = None):
+def notify_user_registration_rejected(username: str, reason=None, *, user_id=None):
     reason_text = (reason or '注册审核未通过').strip()
     body = f'您好，{username}。您的注册申请未通过管理员审核，原因：{reason_text}。如有疑问请联系站点管理员。'
     if user_id:

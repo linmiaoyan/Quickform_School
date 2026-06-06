@@ -51,7 +51,13 @@ def _save_pending_users(data: dict[str, Any]) -> None:
 
 def _entry_status(entry: Any) -> str:
     if isinstance(entry, dict):
-        st = (entry.get('status') or 'pending').strip().lower()
+        raw = entry.get('status')
+        if raw is None or raw == '':
+            return 'pending'
+        try:
+            st = str(raw).strip().lower()
+        except Exception:
+            return 'pending'
         return st if st in ('pending', 'rejected') else 'pending'
     return 'pending'
 
@@ -92,8 +98,11 @@ def load_pending_registration_users() -> dict[str, Any]:
     """仅返回待审核（pending）用户，供管理后台列表展示。"""
     out: dict[str, Any] = {}
     for uname, meta in (load_pending_users() or {}).items():
-        if _entry_status(meta) == 'pending':
-            out[uname] = meta
+        try:
+            if _entry_status(meta) == 'pending':
+                out[uname] = meta
+        except Exception:
+            continue
     return out
 
 
