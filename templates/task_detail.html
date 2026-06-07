@@ -431,7 +431,7 @@
                                 </div>
                                 {% elif api_file_upload_enabled and is_qflink_user and not multimodal_enabled and can_edit_task %}
                                 <div class="alert alert-warning py-2 px-3 mb-3 small">
-                                    多模态附件未授权，API 暂不支持文件上传。请联系管理员开启。
+                                    多模态附件未授权，API 暂不支持文件上传。请在<a href="{{ url_for('quickform.profile') }}#profile">个人中心</a>提交申请。
                                 </div>
                                 {% endif %}
                                 <div class="text-center">
@@ -475,7 +475,7 @@
                                             </div>
                                             {% elif current_user.is_authenticated and is_qflink_user and not multimodal_enabled %}
                                             <div class="alert alert-warning py-2 small mb-3">
-                                                多模态附件未授权。请联系管理员在「QFLink 用户」中为您开启。
+                                                多模态附件未授权。请在<a href="{{ url_for('quickform.profile') }}#profile">个人中心</a>申请，等待管理员审核。
                                             </div>
                                             {% endif %}
                                             <div class="text-center">

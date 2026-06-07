@@ -261,6 +261,36 @@ def notify_qflink_multimodal(user_id: int, username: str, enabled: bool):
         )
 
 
+def notify_multimodal_apply_submitted(user_id: int, username: str):
+    uname = (username or '').strip() or '用户'
+    send_qf_notice_safe(
+        user_id,
+        '多模态申请已提交',
+        f'您好，{uname}。您的多模态附件权限申请已提交，请等待管理员审核。',
+        event_type='multimodal_apply',
+    )
+
+
+def notify_multimodal_apply_approved(user_id: int, username: str):
+    uname = (username or '').strip() or '用户'
+    send_qf_notice_safe(
+        user_id,
+        '多模态申请已通过',
+        f'您好，{uname}。您的多模态附件权限申请已通过，现可在任务 API 中上传图片、音频、文档等附件。',
+        event_type='multimodal_approved',
+    )
+
+
+def notify_multimodal_apply_rejected(user_id: int, username: str):
+    uname = (username or '').strip() or '用户'
+    send_qf_notice_safe(
+        user_id,
+        '多模态申请未通过',
+        f'您好，{uname}。您的多模态附件权限申请未通过审核；可在个人中心重新提交申请。',
+        event_type='multimodal_rejected',
+    )
+
+
 def notify_password_reset(user_id: int, username: str):
     uname = (username or '').strip() or '用户'
     send_qf_notice_safe(

@@ -745,7 +745,7 @@
                         <h5 class="mb-0">发布 QF 小公告</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small">除手动公告外，系统会在<strong>注册审核通过/拒绝</strong>、<strong>项目公开审核</strong>、<strong>团队入驻审核</strong>、<strong>QFLink 禁用/多模态开关</strong>、<strong>密码重置</strong>等操作后自动向对应用户推送小公告。</p>
+                        <p class="text-muted small">除手动公告外，系统会在<strong>注册审核通过/拒绝</strong>、<strong>项目公开审核</strong>、<strong>团队入驻审核</strong>、<strong>多模态附件申请审核</strong>、<strong>QFLink 禁用/多模态开关</strong>、<strong>密码重置</strong>等操作后自动向对应用户推送小公告。</p>
                         <form method="POST" action="{{ url_for('quickform.admin_qf_notices_send') }}">
                             <div class="mb-3">
                                 <label class="form-label">标题</label>
@@ -846,6 +846,87 @@
                         </div>
                         {% else %}
                         <p class="text-muted mb-0">{{ translate('admin.no_pending_public') }}。</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div id="section-multimodal-audit" class="mb-5">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">多模态附件审核</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">QFLink 用户可在个人中心提交多模态附件权限申请；审核通过后可在任务 API 中上传图片、音频、文档等文件。系统内置用户默认已开启，无需申请。</p>
+                        <h6 class="mb-2">待审核申请</h6>
+                        {% if multimodal_pending_users and multimodal_pending_users|length > 0 %}
+                        <div class="table-responsive mb-4">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>用户ID</th>
+                                        <th>用户名</th>
+                                        <th>学校</th>
+                                        <th>注册时间</th>
+                                        <th>{{ translate('admin.actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for u in multimodal_pending_users %}
+                                    <tr>
+                                        <td>{{ u.id }}</td>
+                                        <td>{{ u.username }}</td>
+                                        <td>{{ u.school or '—' }}</td>
+                                        <td>{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '—' }}</td>
+                                        <td>
+                                            <form method="POST" action="{{ url_for('quickform.admin_multimodal_approve', user_id=u.id) }}" class="d-inline">
+                                                <button type="submit" class="btn btn-sm btn-success">{{ translate('admin.pass') }}</button>
+                                            </form>
+                                            <form method="POST" action="{{ url_for('quickform.admin_multimodal_reject', user_id=u.id) }}" class="d-inline" onsubmit="return confirm('确定拒绝该用户的多模态申请？');">
+                                                <button type="submit" class="btn btn-sm btn-danger">{{ translate('admin.reject') }}</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted mb-4">暂无待审核的多模态申请。</p>
+                        {% endif %}
+
+                        <h6 class="mb-2">已开启多模态（可撤销）</h6>
+                        {% if multimodal_enabled_users and multimodal_enabled_users|length > 0 %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>用户ID</th>
+                                        <th>用户名</th>
+                                        <th>学校</th>
+                                        <th>注册时间</th>
+                                        <th>{{ translate('admin.actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for u in multimodal_enabled_users %}
+                                    <tr>
+                                        <td>{{ u.id }}</td>
+                                        <td>{{ u.username }}</td>
+                                        <td>{{ u.school or '—' }}</td>
+                                        <td>{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '—' }}</td>
+                                        <td>
+                                            <form method="POST" action="{{ url_for('quickform.admin_multimodal_revoke', user_id=u.id) }}" class="d-inline" onsubmit="return confirm('确定撤销该用户的多模态附件权限？');">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">撤销</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted mb-0">暂无已开启多模态的 QFLink 用户。</p>
                         {% endif %}
                     </div>
                 </div>
@@ -1080,7 +1161,7 @@
                             </div>
                         </form>
 
-                        <p class="text-muted small mb-2">系统用户（非 QFLink）默认开启多模态附件；QFLink 用户需在下方单独「开启多模态」。</p>
+                        <p class="text-muted small mb-2">系统用户（非 QFLink）默认开启多模态附件；QFLink 用户需在个人中心申请，或在下方手动开启/关闭。</p>
                         <h6 class="fw-semibold mb-2">QFLink 用户（最近 200 条）</h6>
                         {% if qflink_users %}
                         <form method="post" action="{{ url_for('quickform.admin_qflink_batch') }}" id="qflinkBatchForm">

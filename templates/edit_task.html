@@ -215,7 +215,7 @@
                     </div>
                     {% elif api_file_upload_enabled and is_qflink_user and not multimodal_enabled %}
                     <div class="alert alert-warning mb-4 py-2 small">
-                        <strong>多模态附件未授权。</strong> 请联系管理员在「QFLink 用户」中为您开启后，方可接收 API 文件上传。
+                        <strong>多模态附件未授权。</strong> 请在<a href="{{ url_for('quickform.profile') }}#profile">个人中心</a>提交申请，管理员审核通过后方可接收 API 文件上传。
                     </div>
                     {% endif %}
                     <div class="mb-4">

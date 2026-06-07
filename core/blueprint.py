@@ -752,6 +752,40 @@ def _user_multimodal_enabled(user):
     return bool(getattr(user, 'qflink_multimodal_enabled', False))
 
 
+def _user_multimodal_apply_pending(user):
+    """QFLink 用户多模态申请是否待管理员审核。"""
+    if not user or not _is_qflink_user(user):
+        return False
+    if getattr(user, 'qflink_multimodal_enabled', False):
+        return False
+    return (
+        bool(getattr(user, 'qflink_multimodal_requested', False))
+        and int(getattr(user, 'qflink_multimodal_approval', 0) or 0) == 0
+    )
+
+
+def _user_multimodal_apply_rejected(user):
+    """QFLink 用户多模态申请是否已被拒绝或撤销。"""
+    if not user or not _is_qflink_user(user):
+        return False
+    if getattr(user, 'qflink_multimodal_enabled', False):
+        return False
+    return int(getattr(user, 'qflink_multimodal_approval', 0) or 0) == -1
+
+
+def _user_can_apply_multimodal(user):
+    """QFLink 用户是否可提交（或重新提交）多模态申请。"""
+    if not user or not _is_qflink_user(user):
+        return False
+    if getattr(user, 'qflink_disabled', False):
+        return False
+    if getattr(user, 'qflink_multimodal_enabled', False):
+        return False
+    if _user_multimodal_apply_pending(user):
+        return False
+    return True
+
+
 def _task_multimodal_enabled(task, db):
     if not task:
         return False
@@ -906,6 +940,8 @@ def _ensure_schema_ready() -> None:
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_only BOOLEAN DEFAULT FALSE;'))
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_disabled BOOLEAN DEFAULT FALSE;'))
                 conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_multimodal_enabled BOOLEAN DEFAULT FALSE;'))
+                conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_multimodal_requested BOOLEAN DEFAULT FALSE;'))
+                conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_multimodal_approval INTEGER DEFAULT 0;'))
                 conn.execute(
                     text(
                         'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS qflink_multimodal_enabled BOOLEAN DEFAULT FALSE;'
@@ -7976,11 +8012,57 @@ def profile():
             email_is_placeholder=email_is_placeholder,
             email_display=email_display,
             multimodal_enabled=multimodal_enabled,
+            multimodal_apply_pending=_user_multimodal_apply_pending(current_user),
+            multimodal_apply_rejected=_user_multimodal_apply_rejected(current_user),
+            can_apply_multimodal=_user_can_apply_multimodal(current_user),
             is_qflink_user=is_qflink_user,
             api_file_upload_enabled=API_FILE_UPLOAD_ENABLED,
         )
     finally:
         db.close()
+
+
+@quickform_bp.route('/profile/multimodal_apply', methods=['POST'])
+@login_required
+def profile_multimodal_apply():
+    """QFLink 用户提交多模态附件权限申请。"""
+    if not API_FILE_UPLOAD_ENABLED:
+        flash('站点暂未开放多模态附件功能。', 'warning')
+        return redirect(url_for('quickform.profile') + '#profile')
+    db = SessionLocal()
+    try:
+        user = db.get(User, current_user.id)
+        if not user or not _is_qflink_user(user):
+            flash('仅 QFLink 用户需要申请多模态附件权限。', 'warning')
+            return redirect(url_for('quickform.profile') + '#profile')
+        if getattr(user, 'qflink_disabled', False):
+            flash('您的 QFLink 账号已被禁用，无法申请。', 'danger')
+            return redirect(url_for('quickform.profile') + '#profile')
+        if getattr(user, 'qflink_multimodal_enabled', False):
+            flash('您的多模态附件权限已开启，无需重复申请。', 'info')
+            return redirect(url_for('quickform.profile') + '#profile')
+        if _user_multimodal_apply_pending(user):
+            flash('您的多模态申请正在审核中，请耐心等待。', 'info')
+            return redirect(url_for('quickform.profile') + '#profile')
+        user.qflink_multimodal_requested = True
+        user.qflink_multimodal_approval = 0
+        user.qflink_multimodal_enabled = False
+        db.commit()
+        username = user.username or ''
+        user_id = user.id
+        try:
+            from core.qf_notice import notify_multimodal_apply_submitted
+            notify_multimodal_apply_submitted(user_id, username)
+        except Exception:
+            logger.exception('多模态申请提交后发送通知失败 user_id=%s', user_id)
+        flash('多模态附件申请已提交，请等待管理员审核。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('多模态申请提交失败 user_id=%s', current_user.id)
+        flash('申请提交失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    return redirect(url_for('quickform.profile') + '#profile')
 
 @quickform_bp.route('/certification/request', methods=['GET', 'POST'])
 @login_required
@@ -8892,6 +8974,16 @@ def _admin_panel_impl():
             logger.exception('admin_panel: public pending count failed')
             pending_public_sidebar = 0
         try:
+            pending_multimodal_sidebar = db.query(User).filter(
+                User.qflink_uid.isnot(None),
+                User.qflink_multimodal_requested == True,  # noqa: E712
+                User.qflink_multimodal_approval == 0,
+                User.qflink_multimodal_enabled == False,  # noqa: E712
+            ).count()
+        except Exception:
+            logger.exception('admin_panel: multimodal pending count failed')
+            pending_multimodal_sidebar = 0
+        try:
             pending_org_sidebar = db.query(Organization).filter(
                 Organization.teams_public_requested == True,
                 Organization.teams_public_approved == 0,
@@ -8899,8 +8991,8 @@ def _admin_panel_impl():
         except Exception:
             logger.exception('admin_panel: org pending count failed')
             pending_org_sidebar = 0
-        # 「其他审核」侧栏数字：仅公开项目 + 团队入驻待审，不含 HTML 页面审核（HTML 在子 tab 内单独展示）
-        pending_other_sidebar = pending_public_sidebar + pending_org_sidebar
+        # 「其他审核」侧栏数字：公开项目 + 团队入驻 + 多模态待审
+        pending_other_sidebar = pending_public_sidebar + pending_org_sidebar + pending_multimodal_sidebar
 
         # 默认值：未选中的 tab 不查数据
         users = []
@@ -8921,6 +9013,8 @@ def _admin_panel_impl():
 
         public_pending_with_author = []
         public_pending_html_urls = []
+        multimodal_pending_users = []
+        multimodal_enabled_users = []
         org_pending_with_creator = []
         open_source_tasks_with_author = []
         tutorials_json_content = '[]'
@@ -9027,6 +9121,36 @@ def _admin_panel_impl():
             creator_ids = {o.creator_id for o in org_pending}
             creators_map = {u.id: u for u in db.query(User).filter(User.id.in_(creator_ids)).all()} if creator_ids else {}
             org_pending_with_creator = [{'org': o, 'creator': creators_map.get(o.creator_id)} for o in org_pending]
+
+            try:
+                multimodal_pending_users = (
+                    db.query(User)
+                    .filter(
+                        User.qflink_uid.isnot(None),
+                        User.qflink_multimodal_requested == True,  # noqa: E712
+                        User.qflink_multimodal_approval == 0,
+                        User.qflink_multimodal_enabled == False,  # noqa: E712
+                    )
+                    .order_by(User.created_at.desc())
+                    .all()
+                )
+            except Exception:
+                logger.exception('admin_panel: multimodal pending query failed')
+                multimodal_pending_users = []
+            try:
+                multimodal_enabled_users = (
+                    db.query(User)
+                    .filter(
+                        User.qflink_uid.isnot(None),
+                        User.qflink_multimodal_enabled == True,  # noqa: E712
+                    )
+                    .order_by(User.created_at.desc())
+                    .limit(200)
+                    .all()
+                )
+            except Exception:
+                logger.exception('admin_panel: multimodal enabled query failed')
+                multimodal_enabled_users = []
 
         # campus edition: removed teacher certification review tab
 
@@ -9163,6 +9287,8 @@ def _admin_panel_impl():
             current_tab=current_tab,
             public_pending_with_author=public_pending_with_author,
             public_pending_html_urls=public_pending_html_urls,
+            multimodal_pending_users=multimodal_pending_users,
+            multimodal_enabled_users=multimodal_enabled_users,
             org_pending_with_creator=org_pending_with_creator,
             open_source_tasks_with_author=open_source_tasks_with_author,
             tutorials_json_content=tutorials_json_content,
@@ -9607,6 +9733,115 @@ def admin_public_batch_reject():
     return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
 
 
+@quickform_bp.route('/admin/multimodal_approve/<int:user_id>', methods=['POST'])
+@admin_required
+def admin_multimodal_approve(user_id):
+    """管理员通过多模态附件申请。"""
+    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-multimodal-audit'
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user or not getattr(user, 'qflink_uid', None):
+            flash('用户不存在或不是 QFLink 用户。', 'warning')
+            return redirect(redirect_url)
+        if not getattr(user, 'qflink_multimodal_requested', False):
+            flash('该用户未提交多模态申请。', 'warning')
+            return redirect(redirect_url)
+        if int(getattr(user, 'qflink_multimodal_approval', 0) or 0) != 0:
+            flash('该申请不在待审核状态。', 'warning')
+            return redirect(redirect_url)
+        username = user.username or ''
+        uid = user.id
+        user.qflink_multimodal_requested = True
+        user.qflink_multimodal_approval = 1
+        user.qflink_multimodal_enabled = True
+        db.commit()
+        try:
+            from core.qf_notice import notify_multimodal_apply_approved
+            notify_multimodal_apply_approved(uid, username)
+        except Exception:
+            logger.exception('多模态审核通过后发送通知失败 user_id=%s', user_id)
+        flash(f'已通过用户「{username}」的多模态附件申请。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('多模态审核通过失败 user_id=%s', user_id)
+        flash('操作失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    return redirect(redirect_url)
+
+
+@quickform_bp.route('/admin/multimodal_reject/<int:user_id>', methods=['POST'])
+@admin_required
+def admin_multimodal_reject(user_id):
+    """管理员拒绝多模态附件申请。"""
+    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-multimodal-audit'
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user or not getattr(user, 'qflink_uid', None):
+            flash('用户不存在或不是 QFLink 用户。', 'warning')
+            return redirect(redirect_url)
+        if not getattr(user, 'qflink_multimodal_requested', False):
+            flash('该用户未提交多模态申请。', 'warning')
+            return redirect(redirect_url)
+        if int(getattr(user, 'qflink_multimodal_approval', 0) or 0) != 0:
+            flash('该申请不在待审核状态。', 'warning')
+            return redirect(redirect_url)
+        username = user.username or ''
+        uid = user.id
+        user.qflink_multimodal_approval = -1
+        user.qflink_multimodal_enabled = False
+        db.commit()
+        try:
+            from core.qf_notice import notify_multimodal_apply_rejected
+            notify_multimodal_apply_rejected(uid, username)
+        except Exception:
+            logger.exception('多模态审核拒绝后发送通知失败 user_id=%s', user_id)
+        flash(f'已拒绝用户「{username}」的多模态附件申请。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('多模态审核拒绝失败 user_id=%s', user_id)
+        flash('操作失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    return redirect(redirect_url)
+
+
+@quickform_bp.route('/admin/multimodal_revoke/<int:user_id>', methods=['POST'])
+@admin_required
+def admin_multimodal_revoke(user_id):
+    """管理员撤销已开启的多模态附件权限。"""
+    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-multimodal-audit'
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user or not getattr(user, 'qflink_uid', None):
+            flash('用户不存在或不是 QFLink 用户。', 'warning')
+            return redirect(redirect_url)
+        if not getattr(user, 'qflink_multimodal_enabled', False):
+            flash('该用户未开启多模态附件。', 'warning')
+            return redirect(redirect_url)
+        username = user.username or ''
+        uid = user.id
+        user.qflink_multimodal_enabled = False
+        user.qflink_multimodal_approval = -1
+        db.commit()
+        try:
+            from core.qf_notice import notify_qflink_multimodal
+            notify_qflink_multimodal(uid, username, False)
+        except Exception:
+            logger.exception('多模态撤销后发送通知失败 user_id=%s', user_id)
+        flash(f'已撤销用户「{username}」的多模态附件权限。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('多模态撤销失败 user_id=%s', user_id)
+        flash('操作失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    return redirect(redirect_url)
+
+
 @quickform_bp.route('/admin/open_source_revoke/<int:task_id>', methods=['POST'])
 @admin_required
 def admin_open_source_revoke(task_id):
@@ -9822,12 +10057,23 @@ def admin_user_qflink_multimodal_toggle(user_id):
         if not getattr(user, 'qflink_uid', None):
             flash('该用户不是 QFLink 用户。', 'warning')
             return redirect(url_for('quickform.admin_panel', tab='qflink'))
-        user.qflink_multimodal_enabled = not bool(getattr(user, 'qflink_multimodal_enabled', False))
+        username = user.username or ''
+        uid = user.id
+        new_enabled = not bool(getattr(user, 'qflink_multimodal_enabled', False))
+        user.qflink_multimodal_enabled = new_enabled
+        if new_enabled:
+            user.qflink_multimodal_requested = True
+            user.qflink_multimodal_approval = 1
+        else:
+            user.qflink_multimodal_approval = -1
         db.commit()
-        from core.qf_notice import notify_qflink_multimodal
-        notify_qflink_multimodal(user.id, user.username, user.qflink_multimodal_enabled)
+        try:
+            from core.qf_notice import notify_qflink_multimodal
+            notify_qflink_multimodal(uid, username, new_enabled)
+        except Exception:
+            logger.exception('QFLink 多模态开关通知失败 user_id=%s', user_id)
         flash(
-            f"已{'开启' if user.qflink_multimodal_enabled else '关闭'}多模态附件：{user.username}",
+            f"已{'开启' if new_enabled else '关闭'}多模态附件：{username}",
             'success',
         )
     finally:
@@ -9875,9 +10121,12 @@ def admin_qflink_batch():
                 notify_queue.append(('enabled', user.id, user.username, False))
             elif action == 'multimodal_on':
                 user.qflink_multimodal_enabled = True
+                user.qflink_multimodal_requested = True
+                user.qflink_multimodal_approval = 1
                 notify_queue.append(('multimodal', user.id, user.username, True))
             elif action == 'multimodal_off':
                 user.qflink_multimodal_enabled = False
+                user.qflink_multimodal_approval = -1
                 notify_queue.append(('multimodal', user.id, user.username, False))
             updated += 1
         db.commit()
