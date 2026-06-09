@@ -972,6 +972,9 @@ def _ensure_schema_ready() -> None:
                 # 任务读写状态：API 读/写开关（默认均启用）
                 conn.execute(text('ALTER TABLE "task" ADD COLUMN IF NOT EXISTS api_read_enabled BOOLEAN DEFAULT TRUE;'))
                 conn.execute(text('ALTER TABLE "task" ADD COLUMN IF NOT EXISTS api_write_enabled BOOLEAN DEFAULT TRUE;'))
+                conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS attachment_quota_mb_override INTEGER;'))
+                conn.execute(text('ALTER TABLE "task" ADD COLUMN IF NOT EXISTS attachment_quota_mb_override INTEGER;'))
+                conn.execute(text('ALTER TABLE "task" ADD COLUMN IF NOT EXISTS api_all_bytes_quota_mb_override INTEGER;'))
         except Exception:
             # 补列失败不阻塞启动（例如权限受限/并发迁移），后续可手动执行 scripts/add_qflink_columns.py
             logger.exception("QFLink 字段补齐失败（可忽略；可手动执行 scripts/add_qflink_columns.py）")
@@ -8071,6 +8074,26 @@ def profile():
         qf_config = _get_user_qf_config(db, current_user.id)
         is_qflink_user = _is_qflink_user(current_user)
         multimodal_enabled = _user_multimodal_enabled(current_user)
+        account_usage = None
+        if API_FILE_UPLOAD_ENABLED:
+            from core.usage_limits import (
+                effective_user_attachment_quota_mb,
+                load_usage_limits,
+                user_attachment_bytes_used,
+            )
+
+            limits = load_usage_limits()
+            cap_mb = effective_user_attachment_quota_mb(u)
+            used = user_attachment_bytes_used(db, u.id)
+            cap_bytes = cap_mb * 1024 * 1024 if cap_mb > 0 else 0
+            pct = round(100.0 * used / cap_bytes, 1) if cap_bytes > 0 else None
+            account_usage = {
+                'used_mb': round(used / 1024 / 1024, 2),
+                'quota_mb': cap_mb,
+                'pct': pct,
+                'override': getattr(u, 'attachment_quota_mb_override', None),
+                'global_mb': limits['user_attachment_quota_mb'],
+            }
         return render_template(
             'profile.html',
             user=u,
@@ -8086,6 +8109,7 @@ def profile():
             can_apply_multimodal=_user_can_apply_multimodal(current_user),
             is_qflink_user=is_qflink_user,
             api_file_upload_enabled=API_FILE_UPLOAD_ENABLED,
+            account_usage=account_usage,
         )
     finally:
         db.close()
@@ -9063,6 +9087,39 @@ def _admin_panel_impl():
         # 「其他审核」侧栏数字：公开项目 + 团队入驻 + 多模态待审
         pending_other_sidebar = pending_public_sidebar + pending_org_sidebar + pending_multimodal_sidebar
 
+        from core.usage_limits import (
+            collect_quota_alerts,
+            effective_user_attachment_quota_mb,
+            task_usage_snapshot,
+            user_attachment_bytes_used,
+            load_usage_limits,
+        )
+        global_quota_limits = load_usage_limits()
+        quotas_enabled = any(v > 0 for v in global_quota_limits.values())
+        quota_sidebar_count = 0
+        quota_alerts = None
+        user_usage_map = {}
+        task_usage_map = {}
+        if quotas_enabled:
+            try:
+                scan_limit = 400 if current_tab == 'quota-watch' else 120
+                quota_alerts = collect_quota_alerts(
+                    db,
+                    task_limit=scan_limit,
+                    user_limit=min(200, scan_limit),
+                )
+                quota_sidebar_count = int(quota_alerts.get('total_alert_count') or 0)
+            except Exception:
+                logger.exception('admin_panel: quota alerts failed')
+                quota_alerts = {
+                    'global_limits': global_quota_limits,
+                    'task_alerts': [],
+                    'user_alerts': [],
+                    'exceeded_count': 0,
+                    'warning_count': 0,
+                    'total_alert_count': 0,
+                }
+
         # 默认值：未选中的 tab 不查数据
         users = []
         total_filtered_users = 0
@@ -9126,6 +9183,18 @@ def _admin_panel_impl():
                 .limit(user_per_page)
                 .all()
             )
+            if quotas_enabled and users:
+                for u in users:
+                    cap_mb = effective_user_attachment_quota_mb(u)
+                    used = user_attachment_bytes_used(db, u.id)
+                    cap_bytes = cap_mb * 1024 * 1024 if cap_mb > 0 else 0
+                    pct = round(100.0 * used / cap_bytes, 1) if cap_bytes > 0 else None
+                    user_usage_map[u.id] = {
+                        'used_mb': round(used / 1024 / 1024, 2),
+                        'quota_mb': cap_mb,
+                        'pct': pct,
+                        'override': getattr(u, 'attachment_quota_mb_override', None),
+                    }
 
         elif current_tab == 'qflink':
             qflink_users = (
@@ -9149,6 +9218,21 @@ def _admin_panel_impl():
                 .limit(task_per_page)
                 .all()
             )
+            if quotas_enabled and all_tasks:
+                for t in all_tasks:
+                    snap = task_usage_snapshot(db, t, owner=t.author)
+                    task_usage_map[t.id] = {
+                        'attachment_used_mb': round(snap['attachment_bytes_used'] / 1024 / 1024, 2),
+                        'attachment_quota_mb': snap['effective_limits_mb']['task_attachment'],
+                        'attachment_pct': snap['attachment_pct'],
+                        'api_all_used_mb': round(snap['api_all_bytes_used'] / 1024 / 1024, 2),
+                        'api_all_quota_mb': snap['effective_limits_mb']['task_api_all'],
+                        'api_all_pct': snap['api_all_pct'],
+                        'overrides': snap['overrides'],
+                    }
+
+        elif current_tab == 'quota-watch':
+            pass
 
         elif current_tab == 'other-review':
             # 公开项目审核 + 团队入驻；HTML 不再做后台审核门禁（见模板说明）
@@ -9376,6 +9460,12 @@ def _admin_panel_impl():
             pending_other_sidebar=pending_other_sidebar,
             attachment_search_q=attachment_search_q,
             api_upload_limits=api_limits_for_client(),
+            quota_sidebar_count=quota_sidebar_count,
+            quota_alerts=quota_alerts,
+            global_quota_limits=global_quota_limits,
+            quotas_enabled=quotas_enabled,
+            user_usage_map=user_usage_map,
+            task_usage_map=task_usage_map,
         )
     finally:
         db.close()
@@ -9451,6 +9541,74 @@ def admin_system_config_save():
         logger.exception('保存系统配置失败: %s', e)
         flash('保存失败，请稍后重试。', 'danger')
     return redirect(url_for('quickform.admin_panel', tab='system-config'))
+
+
+@quickform_bp.route('/admin/users/<int:user_id>/quota_override', methods=['POST'])
+@admin_required
+def admin_user_quota_override(user_id):
+    """管理员：单用户附件存储提额（空=恢复默认，0=不限，正整数=MB）。"""
+    from core.usage_limits import parse_quota_override_form
+
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            flash('用户不存在', 'danger')
+            return redirect(url_for('quickform.admin_panel', tab='users'))
+        try:
+            user.attachment_quota_mb_override = parse_quota_override_form(
+                request.form.get('attachment_quota_mb_override')
+            )
+        except ValueError as exc:
+            flash(str(exc), 'danger')
+            return redirect(request.referrer or url_for('quickform.admin_panel', tab='users'))
+        db.commit()
+        flash(f'已更新用户「{user.username}」的附件配额设置。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('admin_user_quota_override failed user_id=%s', user_id)
+        flash('保存失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    tab = (request.form.get('return_tab') or 'users').strip() or 'users'
+    user_page = request.form.get('user_page', type=int) or 1
+    q = (request.form.get('q') or '').strip() or None
+    return redirect(url_for('quickform.admin_panel', tab=tab, user_page=user_page, q=q))
+
+
+@quickform_bp.route('/admin/tasks/<int:task_id>/quota_override', methods=['POST'])
+@admin_required
+def admin_task_quota_override(task_id):
+    """管理员：单任务附件存储与 /all 流量提额。"""
+    from core.usage_limits import parse_quota_override_form
+
+    db = SessionLocal()
+    try:
+        task = db.get(Task, task_id)
+        if not task:
+            flash('任务不存在', 'danger')
+            return redirect(url_for('quickform.admin_panel', tab='tasks'))
+        try:
+            task.attachment_quota_mb_override = parse_quota_override_form(
+                request.form.get('attachment_quota_mb_override')
+            )
+            task.api_all_bytes_quota_mb_override = parse_quota_override_form(
+                request.form.get('api_all_bytes_quota_mb_override')
+            )
+        except ValueError as exc:
+            flash(str(exc), 'danger')
+            return redirect(request.referrer or url_for('quickform.admin_panel', tab='tasks'))
+        db.commit()
+        flash(f'已更新任务「{task.title or task.id}」的配额设置。', 'success')
+    except Exception:
+        db.rollback()
+        logger.exception('admin_task_quota_override failed task_id=%s', task_id)
+        flash('保存失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    tab = (request.form.get('return_tab') or 'tasks').strip() or 'tasks'
+    task_page = request.form.get('task_page', type=int) or 1
+    return redirect(url_for('quickform.admin_panel', tab=tab, task_page=task_page))
 
 
 @quickform_bp.route('/admin/pending_users/approve', methods=['POST'])

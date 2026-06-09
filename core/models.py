@@ -41,6 +41,8 @@ class User(UserMixin, Base):
     qflink_multimodal_enabled = Column(Boolean, default=False)  # QFLink 用户是否允许多模态附件（API/任务详情）
     qflink_multimodal_requested = Column(Boolean, default=False)  # QFLink 用户是否已提交多模态申请
     qflink_multimodal_approval = Column(Integer, default=0)  # 0=待审核(已申请), 1=已通过, -1=已拒绝/已撤销
+    # 附件存储配额提额（MB）；NULL=沿用系统默认，0=不限
+    attachment_quota_mb_override = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     tasks = relationship('Task', back_populates='author', foreign_keys='Task.user_id', cascade='all, delete-orphan')
     ai_config = relationship('AIConfig', back_populates='user', uselist=False, cascade='all, delete-orphan')
@@ -128,6 +130,9 @@ class Task(Base):
     api_task_all_bytes_total = Column(BigInteger, default=0)  # /all 已下发响应体累计字节
     submission_count_total = Column(Integer, default=0)  # 已接收提交条数（累计）
     submission_bytes_total = Column(BigInteger, default=0)  # 已接收提交 data 的累计字节（UTF-8）
+    # 配额提额（MB）；NULL=沿用系统默认，0=不限
+    attachment_quota_mb_override = Column(Integer, nullable=True)
+    api_all_bytes_quota_mb_override = Column(Integer, nullable=True)
     approver = relationship('User', foreign_keys=[html_approved_by], backref='approved_tasks')
     organization = relationship('Organization', back_populates='tasks')
     shares = relationship('TaskShare', back_populates='task', cascade='all, delete-orphan')

@@ -17,6 +17,12 @@
         <a href="{{ url_for('quickform.admin_panel', tab='tasks') }}" class="sidebar-item {{ 'active' if current_tab == 'tasks' else '' }}" data-tab="tasks">
             <i class="bi bi-list-task" style="margin-right: 0.75rem;"></i> {{ translate('admin.task_report') }}
         </a>
+        {% if quotas_enabled %}
+        <a href="{{ url_for('quickform.admin_panel', tab='quota-watch') }}" class="sidebar-item {{ 'active' if current_tab == 'quota-watch' else '' }}" data-tab="quota-watch">
+            <i class="bi bi-exclamation-triangle" style="margin-right: 0.75rem;"></i> 用量预警
+            {% if quota_sidebar_count and quota_sidebar_count > 0 %}<span class="badge bg-danger ms-auto">{{ quota_sidebar_count }}</span>{% endif %}
+        </a>
+        {% endif %}
         <a href="{{ url_for('quickform.admin_panel', tab='data') }}" class="sidebar-item {{ 'active' if current_tab == 'data' else '' }}" data-tab="data">
             <i class="bi bi-graph-up" style="margin-right: 0.75rem;"></i> {{ translate('admin.data_report') }}
         </a>
@@ -250,6 +256,7 @@
                                         <th style="width: 200px;">邮箱</th>
                                         <th style="width: 110px;">用户类型</th>
                                         <th style="width: 90px;">任务数</th>
+                                        {% if quotas_enabled %}<th style="width: 130px;">账户附件</th>{% endif %}
                                         <th style="width: 140px;">{{ translate('admin.register_time') }}</th>
                                         <th style="width: 90px;">{{ translate('admin.actions') }}</th>
                                     </tr>
@@ -282,6 +289,19 @@
                                             {% endif %}
                                         </td>
                                         <td>{{ user.tasks|length }}</td>
+                                        {% if quotas_enabled %}
+                                        {% set uu = user_usage_map.get(user.id) if user_usage_map else none %}
+                                        <td class="small" style="white-space: nowrap;">
+                                            {% if uu and uu.quota_mb %}
+                                            <span class="{% if uu.pct and uu.pct >= 100 %}text-danger fw-semibold{% elif uu.pct and uu.pct >= 80 %}text-warning{% endif %}">
+                                                {{ uu.used_mb }} / {{ uu.quota_mb }} MB
+                                            </span>
+                                            {% if uu.override is not none %}<span class="badge bg-info text-dark" title="已单独提额">提</span>{% endif %}
+                                            {% elif uu %}
+                                            <span class="text-muted">{{ uu.used_mb }} MB（不限）</span>
+                                            {% else %}—{% endif %}
+                                        </td>
+                                        {% endif %}
                                         <td style="white-space: nowrap; font-size: 0.9em;">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                         <td onclick="event.stopPropagation();">
                                             {% if user.id != current_user.id %}
@@ -312,6 +332,22 @@
                                                             <i class="bi bi-envelope-at text-secondary"></i> 修改邮箱
                                                         </a>
                                                     </li>
+                                                    {% if quotas_enabled %}
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li class="px-3 py-2">
+                                                        <form method="POST" action="{{ url_for('quickform.admin_user_quota_override', user_id=user.id) }}" class="small" onsubmit="return confirm('确定保存该用户的附件配额设置吗？');">
+                                                            <input type="hidden" name="return_tab" value="users">
+                                                            <input type="hidden" name="user_page" value="{{ user_page }}">
+                                                            {% if user_search %}<input type="hidden" name="q" value="{{ user_search }}">{% endif %}
+                                                            <label class="form-label mb-1 text-muted">账户附件限额(MB)</label>
+                                                            <input type="number" class="form-control form-control-sm mb-1" name="attachment_quota_mb_override" min="0" max="102400" step="1"
+                                                                   placeholder="空=默认{% if global_quota_limits.user_attachment_quota_mb %}({{ global_quota_limits.user_attachment_quota_mb }}){% endif %}"
+                                                                   value="{% if user.attachment_quota_mb_override is not none %}{{ user.attachment_quota_mb_override }}{% endif %}">
+                                                            <div class="form-text mb-1">留空恢复默认；0=不限</div>
+                                                            <button type="submit" class="btn btn-sm btn-outline-primary w-100">保存配额</button>
+                                                        </form>
+                                                    </li>
+                                                    {% endif %}
                                                     <li>
                                                         <form action="{{ url_for('quickform.admin_delete_user', user_id=user.id) }}" method="POST" onsubmit="return confirm('{{ translate('admin.confirm_delete_user').format(username=user.username) }}\n\n这将同时删除该用户的：\n- 所有任务\n- 所有提交数据\n- AI配置\n- 认证申请\n\n此操作不可恢复！')">
                                                             <button type="submit" class="dropdown-item text-danger">
@@ -439,6 +475,7 @@
                                         <th>创建者</th>
                                         <th>提交条数（累计）</th>
                                         <th>累计数据量（约 MB）</th>
+                                        {% if quotas_enabled %}<th>附件/大屏流量</th>{% endif %}
                                         <th>创建时间</th>
                                         <th>{{ translate('admin.actions') }}</th>
                                     </tr>
@@ -455,14 +492,57 @@
                                         <td>
                                             <span class="text-nowrap">{{ (used_b / 1024 / 1024) | round(2) }}</span>
                                         </td>
+                                        {% if quotas_enabled %}
+                                        {% set tu = task_usage_map.get(task.id) if task_usage_map else none %}
+                                        <td class="small">
+                                            {% if tu %}
+                                            {% if tu.attachment_quota_mb %}
+                                            <div class="{% if tu.attachment_pct and tu.attachment_pct >= 100 %}text-danger{% elif tu.attachment_pct and tu.attachment_pct >= 80 %}text-warning{% endif %}">
+                                                附件 {{ tu.attachment_used_mb }}/{{ tu.attachment_quota_mb }} MB
+                                            </div>
+                                            {% endif %}
+                                            {% if tu.api_all_quota_mb %}
+                                            <div class="{% if tu.api_all_pct and tu.api_all_pct >= 100 %}text-danger{% elif tu.api_all_pct and tu.api_all_pct >= 80 %}text-warning{% endif %}">
+                                                /all {{ tu.api_all_used_mb }}/{{ tu.api_all_quota_mb }} MB
+                                            </div>
+                                            {% endif %}
+                                            {% if not tu.attachment_quota_mb and not tu.api_all_quota_mb %}
+                                            <span class="text-muted">不限</span>
+                                            {% endif %}
+                                            {% else %}—{% endif %}
+                                        </td>
+                                        {% endif %}
                                         <td>{{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                                         <td>
+                                            <div class="d-flex flex-wrap gap-1 align-items-start">
                                             <a href="{{ url_for('quickform.task_detail', task_id=task.id) }}" 
                                                class="btn btn-sm" 
                                                style="background-color: #0d9488; color: white; border: none; white-space: nowrap;">
                                                 <i class="bi bi-eye" style="margin-right: 0.25rem;"></i>
                                                 查看
                                             </a>
+                                            {% if quotas_enabled %}
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#taskQuota{{ task.id }}" aria-expanded="false">提额</button>
+                                            {% endif %}
+                                            </div>
+                                            {% if quotas_enabled %}
+                                            <div class="collapse mt-2" id="taskQuota{{ task.id }}">
+                                                <form method="POST" action="{{ url_for('quickform.admin_task_quota_override', task_id=task.id) }}" class="border rounded p-2 bg-light small" style="min-width: 220px;" onsubmit="return confirm('确定保存该任务的配额设置吗？');">
+                                                    <input type="hidden" name="return_tab" value="tasks">
+                                                    <input type="hidden" name="task_page" value="{{ task_page }}">
+                                                    <label class="form-label mb-0">任务附件(MB)</label>
+                                                    <input type="number" class="form-control form-control-sm mb-1" name="attachment_quota_mb_override" min="0" max="102400"
+                                                           placeholder="默认{% if global_quota_limits.task_attachment_quota_mb %} {{ global_quota_limits.task_attachment_quota_mb }}{% endif %}"
+                                                           value="{% if task.attachment_quota_mb_override is not none %}{{ task.attachment_quota_mb_override }}{% endif %}">
+                                                    <label class="form-label mb-0">/all 流量(MB)</label>
+                                                    <input type="number" class="form-control form-control-sm mb-1" name="api_all_bytes_quota_mb_override" min="0" max="102400"
+                                                           placeholder="默认{% if global_quota_limits.task_api_all_bytes_quota_mb %} {{ global_quota_limits.task_api_all_bytes_quota_mb }}{% endif %}"
+                                                           value="{% if task.api_all_bytes_quota_mb_override is not none %}{{ task.api_all_bytes_quota_mb_override }}{% endif %}">
+                                                    <div class="form-text">留空=默认；0=不限</div>
+                                                    <button type="submit" class="btn btn-sm btn-primary w-100 mt-1">保存</button>
+                                                </form>
+                                            </div>
+                                            {% endif %}
                                         </td>
                                     </tr>
                                     {% endfor %}
@@ -1115,6 +1195,112 @@
                     </div>
                 </div>
             </div>
+            <!-- 用量预警 -->
+            {% if quotas_enabled %}
+            <div class="tab-pane fade {{ 'show active' if current_tab == 'quota-watch' else '' }}" id="quota-watch" role="tabpanel">
+                <div class="card mb-4">
+                    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <h5 class="mb-0" style="color: white;">用量预警</h5>
+                        <div class="d-flex flex-wrap gap-2 small">
+                            {% if quota_alerts %}
+                            <span class="badge bg-danger">超额 {{ quota_alerts.exceeded_count }}</span>
+                            <span class="badge bg-warning text-dark">预警(≥80%) {{ quota_alerts.warning_count }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            扫描最近任务与用户账户附件用量；达到全局限额 <strong>80%</strong> 记为预警，<strong>100%</strong> 记为超额（上传或 /all 将被拦截）。
+                            可在「用户管理」「任务报表」中为单用户/单任务提额，或在
+                            <a href="{{ url_for('quickform.admin_panel', tab='system-config') }}">系统配置</a> 调整全局限额。
+                        </p>
+                        <div class="row g-2 small mb-4">
+                            <div class="col-md-4"><strong>全局限额</strong>：单任务附件 {{ global_quota_limits.task_attachment_quota_mb or '不限' }} MB</div>
+                            <div class="col-md-4"><strong>单任务 /all</strong>：{{ global_quota_limits.task_api_all_bytes_quota_mb or '不限' }} MB</div>
+                            <div class="col-md-4"><strong>账户附件合计</strong>：{{ global_quota_limits.user_attachment_quota_mb or '不限' }} MB</div>
+                        </div>
+                        <h6 class="fw-semibold">任务维度</h6>
+                        <div class="table-responsive mb-4">
+                            <table class="table table-sm table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>级别</th>
+                                        <th>类型</th>
+                                        <th>任务</th>
+                                        <th>创建者</th>
+                                        <th>已用 / 限额(MB)</th>
+                                        <th>占比</th>
+                                        <th>提额</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% if quota_alerts and quota_alerts.task_alerts %}
+                                    {% for row in quota_alerts.task_alerts %}
+                                    <tr>
+                                        <td>
+                                            {% if row.level == 'exceeded' %}<span class="badge bg-danger">超额</span>
+                                            {% else %}<span class="badge bg-warning text-dark">预警</span>{% endif %}
+                                        </td>
+                                        <td>{% if row.kind == 'task_attachment' %}任务附件{% else %}/all 流量{% endif %}</td>
+                                        <td title="{{ row.api_id }}">{{ row.title }}</td>
+                                        <td>{{ row.author }}</td>
+                                        <td>{{ row.used_mb }} / {{ row.quota_mb }}</td>
+                                        <td>{{ row.pct }}%</td>
+                                        <td>{% if row.override_mb is not none %}{{ row.override_mb }}{% else %}—{% endif %}</td>
+                                        <td>
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('quickform.admin_panel', tab='tasks') }}#taskQuota{{ row.task_id }}">提额</a>
+                                            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('quickform.task_detail', task_id=row.task_id) }}">查看</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% else %}
+                                    <tr><td colspan="8" class="text-muted text-center py-3">暂无任务维度预警</td></tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <h6 class="fw-semibold">用户维度（账户附件合计）</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>级别</th>
+                                        <th>用户</th>
+                                        <th>已用 / 限额(MB)</th>
+                                        <th>占比</th>
+                                        <th>提额</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% if quota_alerts and quota_alerts.user_alerts %}
+                                    {% for row in quota_alerts.user_alerts %}
+                                    <tr>
+                                        <td>
+                                            {% if row.level == 'exceeded' %}<span class="badge bg-danger">超额</span>
+                                            {% else %}<span class="badge bg-warning text-dark">预警</span>{% endif %}
+                                        </td>
+                                        <td>{{ row.username }} <span class="text-muted">#{{ row.user_id }}</span></td>
+                                        <td>{{ row.used_mb }} / {{ row.quota_mb }}</td>
+                                        <td>{{ row.pct }}%</td>
+                                        <td>{% if row.override_mb is not none %}{{ row.override_mb }}{% else %}—{% endif %}</td>
+                                        <td>
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('quickform.admin_panel', tab='users') }}">去用户列表提额</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% else %}
+                                    <tr><td colspan="6" class="text-muted text-center py-3">暂无用户维度预警</td></tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- 附件回收 -->
             <div class="tab-pane fade {{ 'show active' if current_tab == 'attachment-recovery' else '' }}" id="attachment-recovery" role="tabpanel">
                 <div class="card mb-4">

@@ -80,6 +80,28 @@
                         </div>
                         {% endif %}
                         {% endif %}
+                        {% if account_usage and account_usage.quota_mb %}
+                        <div class="alert alert-light border py-2 small mb-3">
+                            <strong><i class="bi bi-hdd-stack"></i> 账户附件用量</strong>
+                            <div class="mt-1 mb-0">
+                                已用约 <strong>{{ account_usage.used_mb }}</strong> / {{ account_usage.quota_mb }} MB
+                                {% if account_usage.pct and account_usage.pct >= 100 %}
+                                <span class="text-danger fw-semibold">（已达上限，无法继续上传附件）</span>
+                                {% elif account_usage.pct and account_usage.pct >= 80 %}
+                                <span class="text-warning">（接近上限）</span>
+                                {% endif %}
+                                {% if account_usage.override is not none %}
+                                <span class="badge bg-info text-dark ms-1" title="管理员已为您的账户单独设置限额">已提额</span>
+                                {% endif %}
+                            </div>
+                            <div class="text-muted mt-1 mb-0">统计您名下所有任务的 API 上传附件合计；如需提高限额请联系管理员。</div>
+                        </div>
+                        {% elif account_usage and not account_usage.quota_mb and account_usage.used_mb %}
+                        <div class="alert alert-light border py-2 small mb-3">
+                            <strong><i class="bi bi-hdd-stack"></i> 账户附件用量</strong>
+                            <div class="mt-1 mb-0">已用约 {{ account_usage.used_mb }} MB（当前账户不限总附件存储）</div>
+                        </div>
+                        {% endif %}
                         <form method="POST" action="{{ url_for('quickform.profile') }}" autocomplete="off">
                             <input type="hidden" name="update_profile" value="1">
                             

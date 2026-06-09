@@ -128,20 +128,34 @@
                     <p>{{ task.description }}</p>
                 </div>
                 {% endif %}
-                {% if quota_ui and can_edit_task and (quota_ui.limits.task_attachment_quota_mb or quota_ui.limits.task_api_all_bytes_quota_mb) %}
+                {% set eff = quota_ui.effective_limits_mb if quota_ui and quota_ui.effective_limits_mb else none %}
+                {% if quota_ui and can_edit_task and eff and (eff.task_attachment or eff.task_api_all or eff.user_attachment) %}
                 <div class="alert alert-light border small py-2 mt-3 mb-0">
                     <strong><i class="bi bi-speedometer2"></i> 用量与限额</strong>
                     <ul class="mb-0 mt-1 ps-3">
-                        {% if quota_ui.limits.task_attachment_quota_mb %}
-                        <li>任务附件：约 {{ (quota_ui.attachment_bytes_used / 1024 / 1024) | round(2) }} / {{ quota_ui.limits.task_attachment_quota_mb }} MB{% if quota_ui.attachment_pct and quota_ui.attachment_pct >= 80 %} <span class="text-warning">（接近上限）</span>{% endif %}</li>
+                        {% if eff.task_attachment %}
+                        <li>任务附件：约 {{ (quota_ui.attachment_bytes_used / 1024 / 1024) | round(2) }} / {{ eff.task_attachment }} MB
+                            {% if quota_ui.overrides.task_attachment_mb is not none %}<span class="badge bg-info text-dark" title="管理员已为该任务提额">已提额</span>{% endif %}
+                            {% if quota_ui.attachment_pct and quota_ui.attachment_pct >= 100 %} <span class="text-danger">（已达上限）</span>
+                            {% elif quota_ui.attachment_pct and quota_ui.attachment_pct >= 80 %} <span class="text-warning">（接近上限）</span>{% endif %}
+                        </li>
                         {% endif %}
-                        {% if quota_ui.limits.task_api_all_bytes_quota_mb %}
-                        <li>数据大屏拉取：约 {{ (quota_ui.api_all_bytes_used / 1024 / 1024) | round(2) }} / {{ quota_ui.limits.task_api_all_bytes_quota_mb }} MB{% if quota_ui.api_all_pct and quota_ui.api_all_pct >= 80 %} <span class="text-warning">（接近上限）</span>{% endif %}</li>
+                        {% if eff.task_api_all %}
+                        <li>数据大屏拉取：约 {{ (quota_ui.api_all_bytes_used / 1024 / 1024) | round(2) }} / {{ eff.task_api_all }} MB
+                            {% if quota_ui.overrides.task_api_all_mb is not none %}<span class="badge bg-info text-dark" title="管理员已为该任务提额">已提额</span>{% endif %}
+                            {% if quota_ui.api_all_pct and quota_ui.api_all_pct >= 100 %} <span class="text-danger">（已达上限）</span>
+                            {% elif quota_ui.api_all_pct and quota_ui.api_all_pct >= 80 %} <span class="text-warning">（接近上限）</span>{% endif %}
+                        </li>
                         {% endif %}
-                        {% if quota_ui.limits.user_attachment_quota_mb %}
-                        <li>账户附件合计：约 {{ (quota_ui.user_attachment_bytes_used / 1024 / 1024) | round(2) }} / {{ quota_ui.limits.user_attachment_quota_mb }} MB</li>
+                        {% if eff.user_attachment %}
+                        <li>账户附件合计：约 {{ (quota_ui.user_attachment_bytes_used / 1024 / 1024) | round(2) }} / {{ eff.user_attachment }} MB
+                            {% if quota_ui.overrides.user_attachment_mb is not none %}<span class="badge bg-info text-dark" title="管理员已为您的账户提额">已提额</span>{% endif %}
+                            {% if quota_ui.user_attachment_pct and quota_ui.user_attachment_pct >= 100 %} <span class="text-danger">（已达上限）</span>
+                            {% elif quota_ui.user_attachment_pct and quota_ui.user_attachment_pct >= 80 %} <span class="text-warning">（接近上限）</span>{% endif %}
+                        </li>
                         {% endif %}
                     </ul>
+                    <p class="text-muted mb-0 mt-1">默认限额见系统配置；如需提高请联系管理员。</p>
                 </div>
                 {% endif %}
                 {% if not is_public_visitor %}
