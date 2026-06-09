@@ -809,12 +809,13 @@ def _has_api_upload_files(task_id):
         return False
 
 
-def _process_submit_form_file_uploads(request, task_id, multimodal_allowed):
+def _process_submit_form_file_uploads(request, task, db, multimodal_allowed):
     """处理 API multipart 文件，返回 (uploaded_paths, warnings)。"""
     import uuid as _uuid
 
     uploaded_files = []
     warnings = []
+    task_id = (getattr(task, 'task_id', None) or '').strip()
     if not request.files:
         return uploaded_files, warnings
     if not multimodal_allowed:
@@ -824,11 +825,13 @@ def _process_submit_form_file_uploads(request, task_id, multimodal_allowed):
         warnings.append('文件上传功能已关闭，文件未保存')
         return uploaded_files, warnings
 
-    max_size_bytes = DEFAULT_MAX_FILE_SIZE_MB * 1024 * 1024
+    max_size_bytes = api_max_file_size_mb() * 1024 * 1024
     allowed_exts = [e.strip().lower() for e in DEFAULT_ALLOWED_FILE_EXTENSIONS.split(',') if e.strip()]
     upload_dir = _api_upload_dir_for_task(task_id)
     file_size_rejected = False
     file_type_rejected = False
+    pending_saves = []
+    incoming_bytes = 0
 
     for file_key in request.files:
         file = request.files[file_key]
@@ -845,7 +848,20 @@ def _process_submit_form_file_uploads(request, task_id, multimodal_allowed):
             file_size_rejected = True
             continue
         random_name = _uuid.uuid4().hex[:10] + (f'.{ext}' if ext else '')
-        file_path = os.path.join(upload_dir, random_name)
+        pending_saves.append((file, os.path.join(upload_dir, random_name), random_name))
+        incoming_bytes += file_size
+
+    if pending_saves and task and db:
+        from core.usage_limits import check_attachment_upload
+
+        ok, block_msg, warn_msg = check_attachment_upload(db, task, incoming_bytes)
+        if not ok:
+            warnings.append(block_msg or '附件存储已达上限，文件未保存')
+            return uploaded_files, warnings
+        if warn_msg:
+            warnings.append(warn_msg)
+
+    for file, file_path, random_name in pending_saves:
         file.save(file_path)
         uploaded_files.append(f'/static/uploads/{task_id}/{random_name}')
 
@@ -3482,14 +3498,18 @@ def task_detail(task_id):
         quota_ui = None
         can_request_quota_relief = False
         if can_analyze_export and current_user.is_authenticated:
+            from core.usage_limits import task_usage_snapshot
+
             gct = int(getattr(task, "api_task_get_count", None) or 0)
             act = int(getattr(task, "api_task_all_count", None) or 0)
             abt = int(getattr(task, "api_task_all_bytes_total", None) or 0)
+            usage = task_usage_snapshot(db, task)
             quota_ui = {
                 "get_count": gct,
                 "all_count": act,
                 "all_bytes": abt,
                 "total_get": gct + act,
+                **usage,
             }
 
         task_author_name = db.query(User.username).filter(User.id == task.user_id).scalar() or ''
@@ -5500,7 +5520,7 @@ def submit_form(task_id):
 
         multimodal_allowed = _task_multimodal_enabled(task, db)
         uploaded_files, upload_warnings = _process_submit_form_file_uploads(
-            request, task.task_id, multimodal_allowed
+            request, task, db, multimodal_allowed
         )
         if uploaded_files:
             form_data = _merge_attachment_into_form_data(form_data, uploaded_files, task.task_id)
@@ -5684,14 +5704,6 @@ def submit_form_all(task_id):
         pass
     
     cache_key = _build_read_cache_key('api_task_all', task_id)
-    cached_payload = _cache_read_get(cache_key)
-    if cached_payload is not None:
-        response = jsonify(cached_payload)
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        response.headers['Cache-Control'] = 'no-store'
-        return response, 200
 
     db = SessionLocal()
     try:
@@ -5725,6 +5737,28 @@ def submit_form_all(task_id):
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             return response, 403
         
+        from core.usage_limits import check_api_all_export
+
+        all_ok, all_block, all_warn = check_api_all_export(task)
+        if not all_ok:
+            err = jsonify({
+                'error': 'quota_exceeded',
+                'message': all_block or '该任务数据拉取流量已达上限。',
+            })
+            err.headers['Access-Control-Allow-Origin'] = '*'
+            err.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+            err.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            return err, 403
+
+        cached_payload = _cache_read_get(cache_key)
+        if cached_payload is not None:
+            response = jsonify(cached_payload)
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            response.headers['Cache-Control'] = 'no-store'
+            return response, 200
+
         # 返回全部数据
         submissions = db.query(Submission).filter_by(task_id=task.id).order_by(Submission.submitted_at.desc()).all()
         data_list = []
@@ -5748,16 +5782,18 @@ def submit_form_all(task_id):
                 })
         
         total_count = len(data_list)
-        response = jsonify({
+        response_body = {
             'note': f'Total {total_count} submission(s).',
             'task_id': task.task_id,
             'task_title': task.title,
             'total_submissions': total_count,
             'submissions': data_list
-        })
+        }
+        if all_warn:
+            response_body['warning'] = all_warn
+        response = jsonify(response_body)
         payload_bytes = len(response.get_data())
         try:
-            # 校园版：只做统计，不做 /all 配额拦截
             db.execute(
                 text("""
                     UPDATE task SET
@@ -9378,6 +9414,17 @@ def admin_system_config_save():
             api_max_file_size_mb = max(1, min(50, int(request.form.get('api_max_file_size_mb') or '1')))
         except (TypeError, ValueError):
             api_max_file_size_mb = 1
+
+        def _quota_mb_field(name: str, default: int) -> int:
+            try:
+                return max(0, min(102400, int(request.form.get(name) or default)))
+            except (TypeError, ValueError):
+                return default
+
+        task_attachment_quota_mb = _quota_mb_field('task_attachment_quota_mb', 300)
+        task_api_all_bytes_quota_mb = _quota_mb_field('task_api_all_bytes_quota_mb', 512)
+        user_attachment_quota_mb = _quota_mb_field('user_attachment_quota_mb', 3072)
+
         from core.icp import is_valid_icp_record, normalize_icp_record
         icp_record = normalize_icp_record(request.form.get('icp_record') or '')
         if not is_valid_icp_record(icp_record):
@@ -9394,6 +9441,9 @@ def admin_system_config_save():
             attachment_recovery_enabled=attachment_recovery_enabled,
             username_login_enabled=username_login_enabled,
             api_max_file_size_mb=api_max_file_size_mb,
+            task_attachment_quota_mb=task_attachment_quota_mb,
+            task_api_all_bytes_quota_mb=task_api_all_bytes_quota_mb,
+            user_attachment_quota_mb=user_attachment_quota_mb,
         )
         save_system_config(cfg)
         flash('系统配置已保存。', 'success')

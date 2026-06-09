@@ -686,6 +686,28 @@
                                     </select>
                                     <div class="form-text text-muted">关闭后：管理员侧栏隐藏「附件回收」，用于清理多模态/API 上传的磁盘文件。</div>
                                 </div>
+                                <div class="col-12">
+                                    <hr class="my-1">
+                                    <h6 class="text-muted mb-2">多模态流量/存储限额（MB，填 0 表示不限制）</h6>
+                                </div>
+                                <div class="col-12 col-lg-4">
+                                    <label class="form-label">单任务附件存储上限</label>
+                                    <input type="number" class="form-control" name="task_attachment_quota_mb" min="0" max="102400" step="1"
+                                           value="{{ syscfg.task_attachment_quota_mb if syscfg and syscfg.task_attachment_quota_mb is not none else 300 }}">
+                                    <div class="form-text text-muted">统计 <code>static/uploads/&lt;API ID&gt;/</code> 目录体积累计；超额后拒绝新附件上传。</div>
+                                </div>
+                                <div class="col-12 col-lg-4">
+                                    <label class="form-label">单任务 /all 出站流量上限</label>
+                                    <input type="number" class="form-control" name="task_api_all_bytes_quota_mb" min="0" max="102400" step="1"
+                                           value="{{ syscfg.task_api_all_bytes_quota_mb if syscfg and syscfg.task_api_all_bytes_quota_mb is not none else 512 }}">
+                                    <div class="form-text text-muted">按 <code>api_task_all_bytes_total</code> 累计拦截数据大屏全量拉取。</div>
+                                </div>
+                                <div class="col-12 col-lg-4">
+                                    <label class="form-label">单账户附件总存储上限</label>
+                                    <input type="number" class="form-control" name="user_attachment_quota_mb" min="0" max="102400" step="1"
+                                           value="{{ syscfg.user_attachment_quota_mb if syscfg and syscfg.user_attachment_quota_mb is not none else 3072 }}">
+                                    <div class="form-text text-muted">用户名下全部任务附件合计；达 80% 时 API 返回预警。</div>
+                                </div>
                             </div>
                             <div class="mt-3">
                                 <button type="submit" class="btn btn-primary">保存系统配置</button>
@@ -1103,9 +1125,10 @@
                         <div class="alert alert-light border mb-3 py-3">
                             <h6 class="fw-semibold mb-2"><i class="bi bi-sliders"></i> 当前附件限额</h6>
                             <div class="row g-2 small">
-                                <div class="col-md-4"><strong>单文件上限</strong>：{{ api_upload_limits.maxFileMb if api_upload_limits else 1 }} MB<br><a href="{{ url_for('quickform.admin_panel', tab='system-config') }}">在系统配置中调整</a></div>
-                                <div class="col-md-4"><strong>单次请求总大小</strong>：{{ api_upload_limits.maxBodyMb if api_upload_limits else 10 }} MB<br><code>MAX_REQUEST_BODY_MB</code>（环境变量）</div>
-                                <div class="col-md-4"><strong>JSON 字段建议上限</strong>：{{ api_upload_limits.maxJsonKb if api_upload_limits else 60 }} KB<br><code>API_MAX_JSON_FIELD_KB</code></div>
+                                <div class="col-md-3"><strong>单文件上限</strong>：{{ api_upload_limits.maxFileMb if api_upload_limits else 1 }} MB<br><a href="{{ url_for('quickform.admin_panel', tab='system-config') }}">在系统配置中调整</a></div>
+                                <div class="col-md-3"><strong>单次请求总大小</strong>：{{ api_upload_limits.maxBodyMb if api_upload_limits else 10 }} MB<br><code>MAX_REQUEST_BODY_MB</code></div>
+                                <div class="col-md-3"><strong>单任务附件存储</strong>：{{ syscfg.task_attachment_quota_mb if syscfg and syscfg.task_attachment_quota_mb else 0 }} MB<br>0 = 不限</div>
+                                <div class="col-md-3"><strong>账户附件合计</strong>：{{ syscfg.user_attachment_quota_mb if syscfg and syscfg.user_attachment_quota_mb else 0 }} MB<br>0 = 不限</div>
                             </div>
                             <p class="text-muted small mb-0 mt-2">建议学生端单文件压缩至 500KB 以内；须走 multipart 的 <code>file</code> 字段，勿将文件 Base64 写入 JSON。</p>
                         </div>

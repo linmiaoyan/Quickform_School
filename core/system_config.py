@@ -17,6 +17,10 @@ class SystemConfig:
     attachment_recovery_enabled: bool = True
     username_login_enabled: bool = True
     api_max_file_size_mb: int = 1
+    # 多模态流量/存储限额（MB）；0 表示不限制
+    task_attachment_quota_mb: int = 300
+    task_api_all_bytes_quota_mb: int = 512
+    user_attachment_quota_mb: int = 3072
 
 
 def _config_path() -> str:
@@ -129,6 +133,15 @@ def load_system_config() -> SystemConfig:
             return default
         return max(lo, min(hi, n))
 
+    def _i_quota(key: str, default: int) -> int:
+        """限额 MB：0=不限，最大 102400（100GB）。"""
+        v = data.get(key)
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return default
+        return max(0, min(102400, n))
+
     def _b(key: str, default: bool) -> bool:
         v = data.get(key)
         if isinstance(v, bool):
@@ -158,6 +171,11 @@ def load_system_config() -> SystemConfig:
         ),
         username_login_enabled=_b("username_login_enabled", SystemConfig.username_login_enabled),
         api_max_file_size_mb=_i("api_max_file_size_mb", SystemConfig.api_max_file_size_mb),
+        task_attachment_quota_mb=_i_quota("task_attachment_quota_mb", SystemConfig.task_attachment_quota_mb),
+        task_api_all_bytes_quota_mb=_i_quota(
+            "task_api_all_bytes_quota_mb", SystemConfig.task_api_all_bytes_quota_mb
+        ),
+        user_attachment_quota_mb=_i_quota("user_attachment_quota_mb", SystemConfig.user_attachment_quota_mb),
     )
 
 
@@ -178,6 +196,15 @@ def save_system_config(cfg: SystemConfig) -> None:
         d["api_max_file_size_mb"] = max(1, min(50, int(d.get("api_max_file_size_mb", 1) or 1)))
     except (TypeError, ValueError):
         d["api_max_file_size_mb"] = 1
+    for qkey in (
+        "task_attachment_quota_mb",
+        "task_api_all_bytes_quota_mb",
+        "user_attachment_quota_mb",
+    ):
+        try:
+            d[qkey] = max(0, min(102400, int(d.get(qkey, getattr(SystemConfig, qkey)) or 0)))
+        except (TypeError, ValueError):
+            d[qkey] = getattr(SystemConfig, qkey)
 
     os.makedirs(os.path.dirname(p), exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(prefix="system_config_", suffix=".json", dir=os.path.dirname(p))
