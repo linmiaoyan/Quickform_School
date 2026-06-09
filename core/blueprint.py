@@ -5902,6 +5902,20 @@ def public_stats_overview():
         db.close()
 
 
+def _user_can_export_task_bundle(db, task, user):
+    """与 export_data 一致：管理员、所有者、组织成员、被共享者可导出任务包。"""
+    if not task or not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if user.is_admin() or task.user_id == user.id:
+        return True
+    if task.organization_id:
+        return db.query(OrganizationMember).filter_by(
+            organization_id=task.organization_id,
+            user_id=user.id,
+        ).first() is not None
+    return db.query(TaskShare).filter_by(task_id=task.id, user_id=user.id).first() is not None
+
+
 @quickform_bp.route('/export/<int:task_id>')
 @login_required
 def export_data(task_id):
@@ -6010,6 +6024,7 @@ def export_data(task_id):
 # 如需临时关闭，可通过环境变量 TASK_MIGRATION_ACTIVE=false 控制。
 TASK_MIGRATION_ACTIVE = (os.getenv('TASK_MIGRATION_ACTIVE', 'true').strip().lower() == 'true')
 TASK_MIGRATION_MANIFEST = 'quickform-task-migration.json'
+TASK_MIGRATION_SUBMISSIONS_FILE = 'submissions.json'
 TASK_MIGRATION_DISABLED_FLASH = '任务迁移功能已关闭（TASK_MIGRATION_ACTIVE=false）。'
 
 # 在线版（quickform.cn）对接：默认在线版根地址，可通过环境变量覆盖
@@ -7456,18 +7471,19 @@ def meeting_notice_download():
     )
 
 
-def _task_migration_export_impl(task_id):
-    """完整导出实现（ZIP + manifest + HTML）。会议前由 TASK_MIGRATION_ACTIVE=False 短路，此处代码保留无需注释。"""
+def _task_migration_export_impl(task_id, include_data=False):
+    """完整导出实现（ZIP + manifest + HTML；可选 submissions.json 与多模态附件）。"""
     db = SessionLocal()
     try:
         task = db.get(Task, task_id)
         if not task:
             flash('任务不存在', 'danger')
             return redirect(url_for('quickform.dashboard'))
-        if not (current_user.is_admin() or task.user_id == current_user.id):
-            flash('无权导出该任务模板', 'danger')
+        if not _user_can_export_task_bundle(db, task, current_user):
+            flash('无权导出该任务', 'danger')
             return redirect(url_for('quickform.dashboard'))
 
+        include_data = bool(include_data)
         html_rows = _migration_collect_html_files(task)
         export_base = ''
         try:
@@ -7484,17 +7500,22 @@ def _task_migration_export_impl(task_id):
             'share_url': (getattr(task, 'share_url', None) or '') or '',
             'tutorial_link': (getattr(task, 'tutorial_link', None) or '') or '',
             'export_api_base': export_base,
+            'includes_submissions': include_data,
             'html_files': [],
             'submissions': [],
             'api_uploads': [],
         }
 
-        subs = db.query(Submission).filter_by(task_id=task.id).order_by(Submission.submitted_at.asc()).all()
-        for sub in subs:
-            manifest['submissions'].append({
-                'data': sub.data,
-                'submitted_at': sub.submitted_at.isoformat(timespec='seconds') if sub.submitted_at else None,
-            })
+        submissions_list = []
+        if include_data:
+            subs = db.query(Submission).filter_by(task_id=task.id).order_by(Submission.submitted_at.asc()).all()
+            for sub in subs:
+                submissions_list.append({
+                    'data': sub.data,
+                    'submitted_at': sub.submitted_at.isoformat(timespec='seconds') if sub.submitted_at else None,
+                })
+            manifest['submissions_file'] = TASK_MIGRATION_SUBMISSIONS_FILE
+            manifest['submission_count'] = len(submissions_list)
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
@@ -7514,21 +7535,31 @@ def _task_migration_export_impl(task_id):
                     continue
                 manifest['html_files'].append({'original_name': orig, 'archive_name': arc})
 
-            api_id = manifest['api_id']
-            upload_dir = _api_upload_dir_for_task(api_id)
-            if os.path.isdir(upload_dir):
-                for fn in sorted(os.listdir(upload_dir)):
-                    fp = os.path.join(upload_dir, fn)
-                    if not os.path.isfile(fp):
-                        continue
-                    arc = 'api_uploads/%s' % fn
-                    try:
-                        with open(fp, 'rb') as fh:
-                            zf.writestr(arc, fh.read())
-                    except OSError:
-                        logger.warning('迁移导出跳过缺失附件: %s', fp)
-                        continue
-                    manifest['api_uploads'].append({'original_name': fn, 'archive_name': arc})
+            if include_data:
+                zf.writestr(
+                    TASK_MIGRATION_SUBMISSIONS_FILE,
+                    json.dumps({
+                        'task_api_id': manifest['api_id'],
+                        'total_submissions': len(submissions_list),
+                        'submissions': submissions_list,
+                    }, ensure_ascii=False, indent=2).encode('utf-8'),
+                )
+
+                api_id = manifest['api_id']
+                upload_dir = _api_upload_dir_for_task(api_id)
+                if os.path.isdir(upload_dir):
+                    for fn in sorted(os.listdir(upload_dir)):
+                        fp = os.path.join(upload_dir, fn)
+                        if not os.path.isfile(fp):
+                            continue
+                        arc = 'api_uploads/%s' % fn
+                        try:
+                            with open(fp, 'rb') as fh:
+                                zf.writestr(arc, fh.read())
+                        except OSError:
+                            logger.warning('迁移导出跳过缺失附件: %s', fp)
+                            continue
+                        manifest['api_uploads'].append({'original_name': fn, 'archive_name': arc})
 
             zf.writestr(
                 TASK_MIGRATION_MANIFEST,
@@ -7537,7 +7568,8 @@ def _task_migration_export_impl(task_id):
 
         buf.seek(0)
         safe_title = re.sub(r'[^0-9A-Za-z\u4e00-\u9fa5_-]+', '_', manifest['title'])[:40] or 'task'
-        dl_name = '%s_%s_migration.zip' % (safe_title, manifest['api_id'] or 'export')
+        suffix = '_migration_with_data' if include_data else '_migration'
+        dl_name = '%s_%s%s.zip' % (safe_title, manifest['api_id'] or 'export', suffix)
         return send_file(
             buf,
             as_attachment=True,
@@ -7548,7 +7580,7 @@ def _task_migration_export_impl(task_id):
     except Exception:
         logger.exception('导出任务迁移包失败 task_id=%s', task_id)
         flash('导出失败，请稍后重试', 'danger')
-        return redirect(url_for('quickform.dashboard'))
+        return redirect(url_for('quickform.task_detail', task_id=task_id))
     finally:
         db.close()
 
@@ -7556,11 +7588,12 @@ def _task_migration_export_impl(task_id):
 @quickform_bp.route('/task/<int:task_id>/export_template', methods=['GET'])
 @login_required
 def export_task_template(task_id):
-    """任务迁移导出路由：会议前仅提示；会议后将 TASK_MIGRATION_ACTIVE=True。"""
+    """任务导出：ZIP 迁移包（含 HTML；可选含提交数据与多模态附件）。"""
     if not TASK_MIGRATION_ACTIVE:
         flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
         return redirect(url_for('quickform.task_detail', task_id=task_id))
-    return _task_migration_export_impl(task_id)
+    include_data = (request.args.get('include_data') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+    return _task_migration_export_impl(task_id, include_data=include_data)
 
 
 def _task_migration_import_impl():

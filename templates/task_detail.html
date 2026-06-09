@@ -24,34 +24,9 @@
                         <li><a class="dropdown-item" href="{{ url_for('quickform.export_data', task_id=task.id, fmt='json') }}"><i class="bi bi-file-earmark-code me-2"></i>导出 JSON（数据大屏）</a></li>
                     </ul>
                 </div>
-                <style>
-                .qf-migration-soon-wrap { position: relative; display: inline-block; }
-                .qf-migration-soon-tip {
-                    display: none;
-                    position: absolute;
-                    left: 0;
-                    top: 100%;
-                    margin-top: 2px;
-                    min-width: 280px;
-                    max-width: 340px;
-                    padding: 0.5rem 0.75rem;
-                    font-size: 0.875rem;
-                    line-height: 1.45;
-                    color: #212529;
-                    background: #fff;
-                    border: 1px solid rgba(0,0,0,.15);
-                    border-radius: 0.375rem;
-                    box-shadow: 0 0.25rem 0.75rem rgba(0,0,0,.1);
-                    z-index: 1080;
-                }
-                .qf-migration-soon-wrap:hover .qf-migration-soon-tip,
-                .qf-migration-soon-wrap:focus-within .qf-migration-soon-tip { display: block; }
-                </style>
-                {% if user_can_import_task %}
-                <a href="{{ url_for('quickform.import_task') }}" class="btn btn-outline-secondary me-2" style="font-weight: 500;">
-                    <i class="bi bi-box-arrow-in-down"></i>{{ translate('nav.import_task') if translate('nav.import_task') != 'nav.import_task' else '导入任务' }}
-                </a>
-                {% endif %}
+                <button type="button" class="btn btn-outline-secondary me-2" style="font-weight: 500;" data-bs-toggle="modal" data-bs-target="#exportTaskModal">
+                    <i class="bi bi-box-arrow-up"></i>{{ translate('task_detail.export_task') }}
+                </button>
                 <a href="{{ url_for('quickform.smart_analyze', task_id=task.id) }}" id="qf-onboard-open-smart-analyze" class="btn btn-info me-2" style="font-weight: 500;">
                     <i class="bi bi-bar-chart"></i>{{ translate('task_detail.analyze') }}
                 </a>
@@ -521,29 +496,34 @@
     </div>
 </div>
 
-<div class="modal fade" id="importTaskTemplateModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="exportTaskModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('quickform.import_task_template') }}" enctype="multipart/form-data" onsubmit="return false;">
-                <div class="modal-header">
-                    <h5 class="modal-title">{{ translate('task_detail.import_template_title') }}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
-                    <div class="mb-3">
-                        <label class="form-label">{{ translate('task_detail.import_template_file_label') }}</label>
-                        <input class="form-control" type="file" name="template_file" accept=".json,application/json" disabled>
-                    </div>
-                    <div class="alert alert-info mb-0 small">
-                        说明：任务迁移已开放。请在「任务迁移」页面进行导入（支持选择任务 / 粘贴 API 地址或公开项目页 URL）。
+            <div class="modal-header">
+                <h5 class="modal-title">{{ translate('task_detail.export_task_title') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">{{ translate('task_detail.export_task_desc') }}</p>
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="exportIncludeData" id="exportWithoutData" value="0" checked>
+                        <label class="form-check-label" for="exportWithoutData">{{ translate('task_detail.export_without_data') }}</label>
+                        <div class="form-text">{{ translate('task_detail.export_without_data_hint') }}</div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
-                    <button type="button" class="btn btn-primary" disabled>{{ translate('task_detail.start_import') }}</button>
+                <div class="mb-0">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="exportIncludeData" id="exportWithData" value="1">
+                        <label class="form-check-label" for="exportWithData">{{ translate('task_detail.export_with_data') }}</label>
+                        <div class="form-text">{{ translate('task_detail.export_with_data_hint') }}</div>
+                    </div>
                 </div>
-            </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ translate('task_detail.export_cancel') }}</button>
+                <button type="button" class="btn btn-primary" id="exportTaskConfirmBtn">{{ translate('task_detail.export_confirm') }}</button>
+            </div>
         </div>
     </div>
 </div>
@@ -1360,6 +1340,15 @@
             }.bind(this)).catch(function() {}).finally(function() { this.disabled = false; }.bind(this));
         });
     });
+    var exportTaskBtn = document.getElementById('exportTaskConfirmBtn');
+    if (exportTaskBtn) {
+        exportTaskBtn.addEventListener('click', function () {
+            var withDataEl = document.getElementById('exportWithData');
+            var include = withDataEl && withDataEl.checked ? '1' : '0';
+            var baseUrl = {{ url_for('quickform.export_task_template', task_id=task.id) | tojson }};
+            window.location.href = baseUrl + (baseUrl.indexOf('?') >= 0 ? '&' : '?') + 'include_data=' + include;
+        });
+    }
 </script>
 {% endblock %}
 {% endblock %}
