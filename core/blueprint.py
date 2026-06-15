@@ -2328,6 +2328,23 @@ def _online_cli_error_from_response(r, data=None):
         out['certification_url'] = cert_url
     if is_certified is not None:
         out['is_certified'] = is_certified
+
+    if not code:
+        code = (data.get('error') or '').strip()
+        if code:
+            out['code'] = code
+
+    if code == 'quota_exceeded':
+        out['message'] = (data.get('message') or '').strip() or (
+            '在线版该任务数据量超出公开接口限额，请使用 export_task 或 show+include_data 导入。'
+        )
+        out['hint'] = (data.get('hint') or '').strip() or '请勿使用 GET /api/<apiid>/all 拉取全量数据。'
+    elif code == 'data_read_disabled':
+        out['message'] = (data.get('message') or '').strip() or (
+            '在线版已关闭该任务的公开数据读取，请使用 export_task 或 show+include_data 导入。'
+        )
+        out['hint'] = (data.get('hint') or '').strip() or '公开任务仅可导入页面，无法导出提交数据。'
+
     return out
 
 
@@ -6450,6 +6467,91 @@ def _online_cli_post(base_url: str, path: str, payload: dict, timeout_sec: int =
     return data
 
 
+def _online_cli_fetch_export_task_zip(
+    base_url: str,
+    auth_fields: dict,
+    apiid: str,
+    include_data: bool = True,
+    timeout_sec: int = 120,
+):
+    """
+    调用在线版 POST /cli/export_task，成功时返回 ZIP 字节；失败时返回 (None, error_dict)。
+    """
+    base = _normalize_base_url(base_url)
+    apiid = (apiid or '').strip()
+    if not apiid:
+        return None, {'success': False, 'message': '缺少 apiid'}
+    if not isinstance(auth_fields, dict) or not auth_fields.get('username'):
+        return None, {'success': False, 'message': '缺少在线版认证信息'}
+
+    payload = dict(auth_fields)
+    payload['apiid'] = apiid
+    payload['include_data'] = bool(include_data)
+    url = base.rstrip('/') + '/cli/export_task'
+    try:
+        r = requests.post(url, json=payload, timeout=timeout_sec)
+    except requests.RequestException as e:
+        return None, {'success': False, 'message': f'连接在线版失败：{e}'}
+
+    ct = (r.headers.get('Content-Type') or '').lower()
+    if r.status_code >= 400:
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+        err = _online_cli_error_from_response(r, data if isinstance(data, dict) else {})
+        out = {'success': False}
+        out.update({k: v for k, v in err.items() if v is not None})
+        return None, out
+
+    if 'application/zip' in ct or 'application/octet-stream' in ct:
+        content = r.content or b''
+        if len(content) >= 2 and content[:2] == b'PK':
+            return content, {'success': True}
+        try:
+            data = json.loads(content.decode('utf-8'))
+        except Exception:
+            data = {}
+        if isinstance(data, dict) and data.get('success') is False:
+            err = _online_cli_error_from_response(r, data)
+            out = {'success': False}
+            out.update({k: v for k, v in err.items() if v is not None})
+            return None, out
+        return None, {'success': False, 'message': '在线版 export_task 未返回有效 ZIP'}
+
+    try:
+        data = r.json()
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if data.get('success') is False:
+        err = _online_cli_error_from_response(r, data)
+        out = {'success': False}
+        out.update({k: v for k, v in err.items() if v is not None})
+        return None, out
+    return None, {'success': False, 'message': '在线版 export_task 响应格式无法识别'}
+
+
+def _normalize_online_show_submissions(show: dict):
+    """将 /cli/show?include_data=true 的 submissions 规范为迁移导入格式。"""
+    if not isinstance(show, dict):
+        return []
+    subs = show.get('submissions') or []
+    if not isinstance(subs, list):
+        return []
+    out = []
+    for item in subs:
+        if not isinstance(item, dict):
+            continue
+        out.append({
+            'data': item.get('data', item),
+            'submitted_at': item.get('submitted_at') or item.get('created_at'),
+            'legacy_id': item.get('legacy_id'),
+        })
+    return out
+
+
 def _download_bytes(url: str, max_bytes: int, timeout_sec: int = 25) -> bytes:
     """下载远端附件，带体积限制。"""
     u = (url or '').strip()
@@ -6469,47 +6571,72 @@ def _download_bytes(url: str, max_bytes: int, timeout_sec: int = 25) -> bytes:
         return buf.getvalue()
 
 
-def _import_online_submissions_for_task(db, task, online_apiid: str, online_base_url: str = None):
-    """从在线版 GET /api/<apiid>/all 拉取提交数据（教师版 /api/qf/import_data 同款）。"""
+def _import_online_submissions_for_task(
+    db,
+    task,
+    online_apiid: str,
+    online_base_url: str = None,
+    auth_fields: dict = None,
+):
+    """
+    从在线版导入提交数据：优先 POST /cli/export_task；备选 POST /cli/show include_data=true。
+    禁止使用 GET /api/<apiid>/all（易 quota_exceeded / data_read_disabled）。
+    """
     online_apiid = (online_apiid or '').strip()
     if not task or not online_apiid:
         raise ValueError('缺少任务或在线 APIID')
     base = _normalize_base_url(online_base_url or ONLINE_QUICKFORM_BASE_URL)
-    url = f'{base}/api/{online_apiid}/all'
-    r = requests.get(
-        url,
-        timeout=60,
-        headers={'User-Agent': 'Mozilla/5.0 (compatible; QuickForm-School/2.5)'},
+
+    if not isinstance(auth_fields, dict) or not auth_fields.get('username'):
+        cfg = _get_user_qf_config(db, current_user.id)
+        auth_fields, err = _online_cli_auth_payload(
+            (cfg.username if cfg else '') or '',
+            password=(cfg.password if cfg else '') or '',
+            auth_code=(cfg.auth_code if cfg else '') or '',
+        )
+        if err:
+            raise RuntimeError(err)
+
+    zip_bytes, export_res = _online_cli_fetch_export_task_zip(
+        base, auth_fields, online_apiid, include_data=True,
     )
-    if r.status_code != 200:
-        raise RuntimeError(f'获取在线数据失败: HTTP {r.status_code}')
-    result = r.json()
-    submissions = result.get('submissions', []) if isinstance(result, dict) else []
-    if not submissions:
-        raise RuntimeError('该在线任务暂无提交数据')
-    imported_count = 0
-    payload_bytes = 0
-    for sub in submissions:
-        if isinstance(sub, dict):
-            submission_data = json.dumps(sub, ensure_ascii=False)
-        else:
-            submission_data = str(sub)
-        payload_bytes += len((submission_data or '').encode('utf-8', errors='ignore'))
-        db.add(Submission(task_id=task.id, data=submission_data))
-        imported_count += 1
-    task.submission_count_total = (task.submission_count_total or 0) + imported_count
-    task.submission_bytes_total = (task.submission_bytes_total or 0) + payload_bytes
-    db.commit()
-    _invalidate_task_read_cache(task.task_id)
-    _invalidate_task_data_cache(task.id)
-    return imported_count
+    if zip_bytes:
+        return _import_submissions_from_migration_zip(
+            zip_bytes, db, task, online_apiid, task.task_id,
+        )
+
+    export_code = (export_res or {}).get('code') or (export_res or {}).get('error') or ''
+    if export_code == 'certification_required':
+        raise OnlineCliResponseError(export_res)
+
+    show_payload = dict(auth_fields)
+    show_payload['apiid'] = online_apiid
+    show_payload['include_data'] = True
+    show = _online_cli_post(base, '/cli/show', show_payload, timeout_sec=60)
+    if not show.get('success'):
+        if export_res and export_res.get('message'):
+            show = dict(export_res)
+            show.setdefault('message', export_res.get('message'))
+        raise OnlineCliResponseError(show if isinstance(show, dict) else {'message': '获取在线数据失败'})
+
+    subs = _normalize_online_show_submissions(show)
+    if not subs:
+        raise RuntimeError('该在线任务暂无提交数据（公开任务无法通过 include_data 导出提交数据）')
+    return _campus_import_submissions_into_task(
+        db, task, subs, online_apiid, task.task_id, online_base=base,
+    )
 
 
-def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict, apiid: str):
+def _campus_import_task_from_online(
+    db,
+    online_base_url: str,
+    auth_fields: dict,
+    apiid: str,
+    include_data: bool = True,
+):
     """
-    从在线版导入一个任务：
-    - API 不冲突：沿用 apiid；冲突：生成新 apiid
-    - 下载 HTML 附件并改写接口地址为本地
+    从在线版导入任务（含提交数据时优先 export_task ZIP，备选 show+include_data）。
+    HTML 页面在写入本地前改写 /api/<old> → /api/<new>。
     """
     apiid = (apiid or '').strip()
     if not apiid:
@@ -6517,17 +6644,51 @@ def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict,
     if not isinstance(auth_fields, dict) or not auth_fields.get('username'):
         raise ValueError('缺少在线版认证信息')
 
-    # 1) 拉取在线版任务详情
+    export_fallback_msg = None
+    if include_data:
+        zip_bytes, export_res = _online_cli_fetch_export_task_zip(
+            online_base_url, auth_fields, apiid, include_data=True,
+        )
+        if zip_bytes:
+            try:
+                new_task, new_apiid, old_apiid = _import_task_from_quickform_export_zip(zip_bytes, db)
+                subs_count = db.query(Submission).filter_by(task_id=new_task.id).count()
+                html_count = 0
+                try:
+                    html_count = len(json.loads(new_task.html_files or '[]'))
+                except Exception:
+                    html_count = 1 if new_task.file_path else 0
+                return new_task, {
+                    'old_apiid': old_apiid,
+                    'new_apiid': new_apiid,
+                    'import_method': 'export_task',
+                    'submissions_imported': subs_count,
+                    'attachments_saved': html_count,
+                }
+            except Exception as ex:
+                logger.warning('export_task ZIP 解析失败，回退 show：%s', ex)
+                export_fallback_msg = str(ex)
+        elif isinstance(export_res, dict):
+            export_code = export_res.get('code') or export_res.get('error') or ''
+            if export_code == 'certification_required':
+                raise OnlineCliResponseError(export_res)
+            export_fallback_msg = export_res.get('message') or export_fallback_msg
+
     show_payload = dict(auth_fields)
     show_payload['apiid'] = apiid
+    if include_data:
+        show_payload['include_data'] = True
     show = _online_cli_post(
         online_base_url,
         '/cli/show',
         show_payload,
-        timeout_sec=20,
+        timeout_sec=60,
     )
     if not show.get('success'):
-        raise OnlineCliResponseError(show if isinstance(show, dict) else {'message': '在线版任务获取失败'})
+        err = show if isinstance(show, dict) else {'message': '在线版任务获取失败'}
+        if export_fallback_msg and not err.get('message'):
+            err['message'] = export_fallback_msg
+        raise OnlineCliResponseError(err)
 
     title = (show.get('name') or '').strip()
     description = (show.get('intro') or '').strip()
@@ -6538,11 +6699,9 @@ def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict,
     if not title:
         title = f'导入任务 {apiid}'
 
-    # 2) 选定新 apiid（按冲突规则）
     exists = db.query(Task.id).filter(Task.task_id == apiid).first()
     new_apiid = apiid if not exists else _pick_unique_task_id(db)
 
-    # 3) 下载与保存 HTML 附件，并改写接口地址
     static_uploads = _static_uploads_dir()
     stored_list = []
     local_base = _public_site_base_url().rstrip('/')
@@ -6553,7 +6712,6 @@ def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict,
             continue
         name = (a.get('name') or '').strip() or 'form.html'
         url = (a.get('url') or '').strip()
-        # 仅处理 html/htm；其它类型先跳过（避免下载图片/zip 造成体积与风险）
         lower = name.lower()
         if not (lower.endswith('.html') or lower.endswith('.htm')):
             continue
@@ -6562,9 +6720,7 @@ def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict,
             text = body.decode('utf-8')
         except UnicodeDecodeError:
             text = body.decode('utf-8', errors='replace')
-        # 改写在线版接口 → 本地接口（若冲突导致 new_apiid != apiid，会替换 /api/old -> /api/new）
         text = _rewrite_html_migration_endpoints(text, apiid, new_apiid, online_base_norm, local_base)
-        # 再兜底替换纯路径 /api/<id>
         text = _rewrite_html_migration_endpoints(text, apiid, new_apiid, '', '')
 
         bio = io.BytesIO(text.encode('utf-8'))
@@ -6574,7 +6730,6 @@ def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict,
             raise RuntimeError('保存附件失败')
         stored_list.append({'original_name': name, 'saved_name': unique_filename})
 
-    # 4) 创建本地任务
     new_task = Task(
         title=title,
         description=description or None,
@@ -6596,8 +6751,44 @@ def _campus_import_task_from_online(db, online_base_url: str, auth_fields: dict,
             _auto_approve_task_html(new_task, current_user.id)
 
     db.add(new_task)
+    db.flush()
+
+    subs_count = 0
+    submissions_unavailable = False
+    if include_data:
+        subs = _normalize_online_show_submissions(show)
+        if subs:
+            subs_count = _campus_import_submissions_into_task(
+                db, new_task, subs, apiid, new_apiid, online_base=online_base_norm,
+            )
+        else:
+            submissions_unavailable = True
+
     db.commit()
-    return new_task, {'old_apiid': apiid, 'new_apiid': new_apiid, 'attachments_saved': len(stored_list)}
+
+    if new_task.file_path and str(new_task.file_path).lower().endswith(('.html', '.htm')):
+        try:
+            analyze_html_file(
+                new_task.id,
+                current_user.id,
+                new_task.file_path,
+                SessionLocal,
+                Task,
+                AIConfig,
+                read_file_content,
+                call_ai_model,
+            )
+        except Exception as ex:
+            logger.warning('在线导入后自动分析 HTML 未启动: %s', ex)
+
+    return new_task, {
+        'old_apiid': apiid,
+        'new_apiid': new_apiid,
+        'import_method': 'show',
+        'submissions_imported': subs_count,
+        'attachments_saved': len(stored_list),
+        'submissions_unavailable': submissions_unavailable,
+    }
 
 
 def _qf_config_has_online_auth(cfg) -> bool:
@@ -6803,13 +6994,43 @@ def _migration_resolve_html_file_entries(zf, task_data):
     return found
 
 
-def _migration_collect_upload_entries(task_data):
+def _migration_collect_upload_entries(task_data, zf=None):
     uploads = task_data.get('api_uploads')
     if uploads is None:
         uploads = task_data.get('attachments')
-    if not isinstance(uploads, list):
+    entries = []
+    if isinstance(uploads, list):
+        for item in uploads:
+            if isinstance(item, dict):
+                entries.append(dict(item))
+
+    if entries:
+        return entries
+
+    if zf is None:
         return []
-    return uploads
+
+    found = []
+    seen = set()
+    for info in zf.infolist():
+        n = (info.filename or '').replace('\\', '/')
+        if n.endswith('/') or (getattr(info, 'is_dir', lambda: False)()):
+            continue
+        parts = [p for p in n.split('/') if p]
+        if len(parts) < 2:
+            continue
+        if parts[0] == 'attachments':
+            rel = '/'.join(parts[1:])
+            if not rel or n in seen:
+                continue
+            seen.add(n)
+            found.append({'archive_name': n, 'original_name': rel, 'path': n})
+        elif parts[0] == 'api_uploads' and len(parts) == 2:
+            if n in seen:
+                continue
+            seen.add(n)
+            found.append({'archive_name': n, 'original_name': parts[1], 'path': n})
+    return found
 
 
 def _migration_rewrite_submission_data(raw_str, old_api_id, new_api_id, file_map=None, online_base='', local_base=''):
@@ -6870,6 +7091,10 @@ def _migration_import_api_uploads(zf, upload_entries, new_api_id, old_api_id):
         if original_name:
             refs.add(original_name)
             refs.add(os.path.basename(original_name))
+            if '/' in arc_name.replace('\\', '/'):
+                refs.add(arc_name.replace('\\', '/'))
+                if arc_name.startswith('attachments/'):
+                    refs.add(arc_name)
         if old_api_id:
             refs.add('/static/uploads/%s/%s' % (old_api_id, os.path.basename(save_name)))
             refs.add('/uploads/api_files/%s/%s' % (old_api_id, os.path.basename(save_name)))
@@ -6905,6 +7130,75 @@ def _migration_import_submissions(db, task_data, new_task_id, old_api_id, new_ap
                 pass
         db.add(Submission(task_id=new_task_id, data=raw_str, submitted_at=submitted_at))
         imported += 1
+    return imported
+
+
+def _import_submissions_from_migration_zip(raw: bytes, db, task, old_api_id: str, new_api_id: str):
+    """从迁移 ZIP（export_task 或本地导出）向已有任务导入提交数据与多模态附件。"""
+    max_zip = _migration_zip_max_bytes()
+    if len(raw) > max_zip:
+        raise ValueError('迁移包过大')
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile:
+        raise ValueError('无效的迁移 ZIP')
+    ok, err = _migration_validate_zip(zf)
+    if not ok:
+        zf.close()
+        raise ValueError(err or '迁移包校验失败')
+    try:
+        task_data, _ = _migration_read_manifest_from_zip(zf)
+        task_data = _migration_enrich_task_data_from_zip(zf, task_data)
+        upload_entries = _migration_collect_upload_entries(task_data, zf=zf)
+        file_map = _migration_import_api_uploads(zf, upload_entries, new_api_id, old_api_id)
+        imported = _migration_import_submissions(
+            db, task_data, task.id, old_api_id, new_api_id, file_map=file_map,
+        )
+        if imported:
+            payload_bytes = 0
+            for sub in db.query(Submission).filter_by(task_id=task.id).order_by(Submission.id.desc()).limit(imported):
+                payload_bytes += len((sub.data or '').encode('utf-8', errors='ignore'))
+            task.submission_count_total = (task.submission_count_total or 0) + imported
+            task.submission_bytes_total = (task.submission_bytes_total or 0) + payload_bytes
+            db.commit()
+            _invalidate_task_read_cache(task.task_id)
+            _invalidate_task_data_cache(task.id)
+        else:
+            db.commit()
+        return imported
+    finally:
+        zf.close()
+
+
+def _campus_import_submissions_into_task(
+    db,
+    task,
+    submissions,
+    old_api_id: str,
+    new_api_id: str,
+    *,
+    file_map=None,
+    online_base: str = '',
+):
+    """将 show+include_data 返回的 submissions 写入本地任务。"""
+    if not submissions:
+        return 0
+    task_data = {
+        'submissions': submissions,
+        'export_api_base': online_base or ONLINE_QUICKFORM_BASE_URL,
+    }
+    imported = _migration_import_submissions(
+        db, task_data, task.id, old_api_id, new_api_id, file_map=file_map or {},
+    )
+    if imported:
+        payload_bytes = 0
+        for sub in db.query(Submission).filter_by(task_id=task.id).order_by(Submission.id.desc()).limit(imported):
+            payload_bytes += len((sub.data or '').encode('utf-8', errors='ignore'))
+        task.submission_count_total = (task.submission_count_total or 0) + imported
+        task.submission_bytes_total = (task.submission_bytes_total or 0) + payload_bytes
+        db.commit()
+        _invalidate_task_read_cache(task.task_id)
+        _invalidate_task_data_cache(task.id)
     return imported
 
 
@@ -6996,7 +7290,7 @@ def _import_task_from_quickform_export_zip(raw: bytes, db):
     db.add(new_task)
     db.flush()
 
-    upload_entries = _migration_collect_upload_entries(task_data)
+    upload_entries = _migration_collect_upload_entries(task_data, zf=zf)
     file_map = _migration_import_api_uploads(zf, upload_entries, new_api_id, original_api_id)
     _migration_import_submissions(db, task_data, new_task.id, original_api_id, new_api_id, file_map=file_map)
 
@@ -7155,9 +7449,18 @@ def import_task_action(apiid):
             flash(msg, 'danger')
             return redirect(url_for('quickform.import_task'))
         base_url = _normalize_base_url(ONLINE_QUICKFORM_BASE_URL)
-        task, meta = _campus_import_task_from_online(db, base_url, auth, apiid)
+        include_data = (request.args.get('include_data') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+        if request.args.get('include_data') is None:
+            include_data = True
+        task, meta = _campus_import_task_from_online(
+            db, base_url, auth, apiid, include_data=include_data,
+        )
         new_api_id = meta.get('new_apiid')
         success_msg = '任务"%s"导入成功，API ID: %s' % (task.title or task_name, new_api_id)
+        if meta.get('submissions_imported'):
+            success_msg += '（含 %s 条提交数据）' % meta['submissions_imported']
+        elif meta.get('submissions_unavailable') and include_data:
+            success_msg += '（在线版未返回提交数据，可能为公开任务）'
         if is_ajax:
             return jsonify({
                 'success': True,
@@ -7166,6 +7469,9 @@ def import_task_action(apiid):
                 'new_api_id': new_api_id,
                 'new_apiid': new_api_id,
                 'original_apiid': meta.get('old_apiid'),
+                'submissions_imported': meta.get('submissions_imported', 0),
+                'import_method': meta.get('import_method'),
+                'submissions_unavailable': bool(meta.get('submissions_unavailable')),
             })
         flash(success_msg, 'success')
         return redirect(url_for('quickform.task_detail', task_id=task.id))
@@ -7387,12 +7693,22 @@ def api_online_task_import():
     if not apiid:
         return jsonify({'success': False, 'message': '缺少 apiid 或 api_url'}), 400
 
+    include_data = data.get('include_data')
+    if include_data is None:
+        include_data = True
+    else:
+        include_data = bool(include_data) if not isinstance(include_data, str) else (
+            include_data.strip().lower() in ('1', 'true', 'yes', 'on')
+        )
+
     db = SessionLocal()
     try:
         auth, err = _resolve_online_credentials_from_request(data, db)
         if err:
             return jsonify({'success': False, 'message': err}), 400
-        task, meta = _campus_import_task_from_online(db, base_url, auth, apiid)
+        task, meta = _campus_import_task_from_online(
+            db, base_url, auth, apiid, include_data=include_data,
+        )
         if auth.get('username'):
             _save_user_qf_config(
                 db,
@@ -7402,8 +7718,14 @@ def api_online_task_import():
                 auth_code=auth.get('auth_code') or '',
             )
         msg = '导入成功'
+        if meta.get('submissions_imported'):
+            msg = f"导入成功（含 {meta['submissions_imported']} 条提交数据）"
+        elif meta.get('submissions_unavailable') and include_data:
+            msg = '导入成功（在线版未返回提交数据，可能为公开任务）'
         if meta.get('old_apiid') != meta.get('new_apiid'):
             msg = f"导入成功：原 APIID 已存在，已重新分配为 {meta.get('new_apiid')}"
+            if meta.get('submissions_imported'):
+                msg += f"（含 {meta['submissions_imported']} 条提交数据）"
         return jsonify({
             'success': True,
             'message': msg,
@@ -7411,6 +7733,9 @@ def api_online_task_import():
             'old_apiid': meta.get('old_apiid'),
             'new_apiid': meta.get('new_apiid'),
             'original_apiid': meta.get('old_apiid'),
+            'submissions_imported': meta.get('submissions_imported', 0),
+            'import_method': meta.get('import_method'),
+            'submissions_unavailable': bool(meta.get('submissions_unavailable')),
             'redirect': url_for('quickform.task_detail', task_id=task.id),
         }), 200
     except OnlineCliResponseError as e:
@@ -7454,7 +7779,7 @@ def api_qf_test_connection():
 @quickform_bp.route('/api/qf/import_data', methods=['POST'])
 @login_required
 def api_qf_import_data():
-    """从在线版导入某任务的提交数据（教师版 /api/qf/import_data）。"""
+    """从在线版导入某任务的提交数据（优先 export_task，备选 show+include_data；不用 /api/all）。"""
     data = request.get_json(silent=True) or {}
     task_id = data.get('task_id')
     apiid = (data.get('apiid') or '').strip()
@@ -7468,12 +7793,19 @@ def api_qf_import_data():
         task = db.get(Task, int(task_id))
         if not task or task.user_id != current_user.id:
             return jsonify({'success': False, 'message': '任务不存在或无权访问'}), 403
-        count = _import_online_submissions_for_task(db, task, apiid, online_base)
+        auth, err = _resolve_online_credentials_from_request(data, db)
+        if err:
+            return jsonify({'success': False, 'message': err}), 400
+        count = _import_online_submissions_for_task(
+            db, task, apiid, online_base_url=online_base, auth_fields=auth,
+        )
         return jsonify({
             'success': True,
             'message': f'成功导入 {count} 条数据',
             'count': count,
         }), 200
+    except OnlineCliResponseError as e:
+        return _jsonify_online_cli_failure(e.payload)
     except Exception as e:
         db.rollback()
         logger.exception('import_data failed')
@@ -7807,7 +8139,7 @@ def _task_migration_import_impl():
 
             db.add(new_task)
             db.flush()
-            upload_entries = _migration_collect_upload_entries(data)
+            upload_entries = _migration_collect_upload_entries(data, zf=zf)
             file_map = _migration_import_api_uploads(zf, upload_entries, new_api_id, old_api_id)
             sub_count = _migration_import_submissions(db, data, new_task.id, old_api_id, new_api_id, file_map=file_map)
             if sub_count:

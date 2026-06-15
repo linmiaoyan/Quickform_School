@@ -12,6 +12,12 @@
     return data.code === 'certification_required' || data.is_certified === false;
   }
 
+  function isQuotaOrDataReadError(data) {
+    if (!data || typeof data !== 'object') return false;
+    var code = data.code || data.error || '';
+    return code === 'quota_exceeded' || code === 'data_read_disabled';
+  }
+
   function formatOnlineCliErrorHtml(data) {
     if (!data) return escapeHtml('请求失败');
     if (isCertificationRequired(data)) {
@@ -23,6 +29,14 @@
       }
       html += '<a class="btn btn-sm btn-warning" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">前往 quickform.cn 提交教师认证</a>';
       return html;
+    }
+    if (isQuotaOrDataReadError(data)) {
+      var html2 = '<div class="fw-semibold mb-1">无法通过公开接口读取数据</div>';
+      html2 += '<div class="mb-2">' + escapeHtml(data.message || '请改用 export_task 或 show+include_data 导入。') + '</div>';
+      if (data.hint) {
+        html2 += '<div class="text-muted small mb-0">' + escapeHtml(data.hint) + '</div>';
+      }
+      return html2;
     }
     var msg = data.message || '请求失败';
     if (data.hint) {
@@ -80,6 +94,7 @@
 
   global.OnlineCliErrors = {
     isCertificationRequired: isCertificationRequired,
+    isQuotaOrDataReadError: isQuotaOrDataReadError,
     formatOnlineCliErrorHtml: formatOnlineCliErrorHtml,
     formatOnlineCliErrorText: formatOnlineCliErrorText,
     showOnlineCliErrorIn: showOnlineCliErrorIn,
