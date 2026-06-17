@@ -50,31 +50,31 @@
                         {% if api_file_upload_enabled %}
                         {% if multimodal_enabled %}
                         <div class="alert alert-success py-2 small mb-3">
-                            <strong><i class="bi bi-paperclip"></i> 多模态附件：已开启</strong>
+                            <strong><i class="bi bi-paperclip"></i> 多模态能力：已开启</strong>
                             <div class="mt-1 mb-0">您的账号可在任务 API 中接收图片、音频、文档等附件（与 JSON 字段一并提交）。请打开任意任务的「编辑任务」查看接入说明，或在任务详情页的「API 联通测试」中试传文件。</div>
                         </div>
                         {% elif is_qflink_user and multimodal_apply_pending %}
                         <div class="alert alert-info py-2 small mb-3">
-                            <strong><i class="bi bi-paperclip"></i> 多模态附件：审核中</strong>
-                            <div class="mt-1 mb-0">您已提交多模态附件权限申请，请等待管理员在「其他审核」中处理。审核结果将通过 QF 小公告通知。</div>
+                            <strong><i class="bi bi-paperclip"></i> 多模态能力：审核中</strong>
+                            <div class="mt-1 mb-0">您已提交多模态能力申请，请等待管理员在「其他审核」中处理。审核结果将通过 QF 小公告通知。</div>
                         </div>
                         {% elif is_qflink_user and multimodal_apply_rejected %}
                         <div class="alert alert-warning py-2 small mb-3">
-                            <strong><i class="bi bi-paperclip"></i> 多模态附件：未通过审核</strong>
-                            <div class="mt-1 mb-0">您的多模态申请未通过审核，可在确认需求后重新提交申请。</div>
+                            <strong><i class="bi bi-paperclip"></i> 多模态能力：未通过审核</strong>
+                            <div class="mt-1 mb-0">您的多模态能力申请未通过审核，可在确认需求后重新提交申请。</div>
                             {% if can_apply_multimodal %}
                             <form method="POST" action="{{ url_for('quickform.profile_multimodal_apply') }}" class="mt-2 mb-0">
-                                <button type="submit" class="btn btn-sm btn-primary">重新申请多模态附件</button>
+                                <button type="submit" class="btn btn-sm btn-primary">重新申请多模态能力</button>
                             </form>
                             {% endif %}
                         </div>
                         {% elif is_qflink_user %}
                         <div class="alert alert-warning py-2 small mb-3">
-                            <strong><i class="bi bi-paperclip"></i> 多模态附件：未开启</strong>
-                            <div class="mt-1 mb-0">QFLink 用户需提交多模态附件权限申请，经管理员审核通过后方可通过 API 上传文件。</div>
+                            <strong><i class="bi bi-paperclip"></i> 多模态能力：未开启</strong>
+                            <div class="mt-1 mb-0">QFLink 用户需提交多模态能力申请，经管理员审核通过后方可通过 API 上传文件。</div>
                             {% if can_apply_multimodal %}
                             <form method="POST" action="{{ url_for('quickform.profile_multimodal_apply') }}" class="mt-2 mb-0">
-                                <button type="submit" class="btn btn-sm btn-primary">申请多模态附件</button>
+                                <button type="submit" class="btn btn-sm btn-primary">申请多模态能力</button>
                             </form>
                             {% endif %}
                         </div>

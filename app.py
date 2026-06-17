@@ -107,8 +107,8 @@ _secret_key = (os.getenv('SECRET_KEY') or '').strip()
 if not _secret_key or _secret_key == 'your_secret_key_here':
     raise RuntimeError('SECRET_KEY 未配置或仍为弱默认值，请在环境变量中设置强随机 SECRET_KEY 后再启动。')
 app.secret_key = _secret_key
-# 站点版本号（浏览器标题/页脚展示；可用环境变量覆盖，例如 1.0.0 或 2026.05.02）
-app.config['APP_VERSION'] = (os.getenv('APP_VERSION') or '1.0.0').strip() or '1.0.0'
+# 站点版本号（浏览器标题/页脚展示；可用环境变量覆盖，例如 2.0.0 或 2026.05.02）
+app.config['APP_VERSION'] = (os.getenv('APP_VERSION') or '2.0.0').strip() or '2.0.0'
 # 整包请求上限（与 MAX_REQUEST_BODY_MB 一致）；API 多模态单文件见 API_MAX_FILE_SIZE_MB
 from core.api_submit import api_max_request_body_bytes
 
@@ -174,7 +174,7 @@ def inject_site_branding():
     return {
         'system_config': cfg,
         'syscfg': cfg,
-        'app_version': (app.config.get('APP_VERSION') or '1.0.0'),
+        'app_version': (app.config.get('APP_VERSION') or '2.0.0'),
     }
 
 @app.context_processor

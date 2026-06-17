@@ -429,10 +429,18 @@
                             <strong>校园版说明</strong>：提交数据<strong>仅做统计与展示</strong>，不在接口侧按「条数/体积上限」强制拦截。
                             下表「提交条数」「累计数据量」来自任务上的计数器；单条 JSON 建议控制在约 60KB 内，避免过大导致写入或导出异常。
                         </p>
-                        <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                             <div class="text-muted small">
-                                共 {{ task_total }} 个任务，当前第 {{ task_page|int }} / {{ task_pages|int }} 页
+                                共 {{ task_total }} 个任务{% if task_search_q %}（已筛选）{% endif %}，当前第 {{ task_page|int }} / {{ task_pages|int }} 页
                             </div>
+                            <form method="get" action="{{ url_for('quickform.admin_panel') }}" class="d-flex flex-wrap gap-2 align-items-center">
+                                <input type="hidden" name="tab" value="tasks">
+                                <input type="text" class="form-control form-control-sm" name="task_q" value="{{ task_search_q or '' }}" placeholder="任务 ID / API ID / 标题" style="min-width: 220px;">
+                                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search"></i> 查询任务</button>
+                                {% if task_search_q %}
+                                <a href="{{ url_for('quickform.admin_panel', tab='tasks') }}" class="btn btn-sm btn-outline-secondary">清除</a>
+                                {% endif %}
+                            </form>
                             <div class="d-flex flex-wrap gap-2 align-items-center">
                                 <a class="btn btn-sm" style="background-color:#10b981;color:white;border:none;" href="{{ url_for('quickform.admin_export_top_project_usage', sort_by='submissions', limit=20, format='xlsx') }}">
                                     导出提交数 Top20
@@ -471,6 +479,7 @@
                                 <thead>
                                     <tr>
                                         <th>任务ID</th>
+                                        <th>API ID</th>
                                         <th>标题</th>
                                         <th>创建者</th>
                                         <th>提交条数（累计）</th>
@@ -486,6 +495,7 @@
                                     {% set used_b = task.submission_bytes_total if task.submission_bytes_total is not none else 0 %}
                                     <tr>
                                         <td>{{ task.id }}</td>
+                                        <td><code>{{ task.task_id }}</code></td>
                                         <td>{{ task.title }}</td>
                                         <td>{{ task.author.username }}</td>
                                         <td>{{ used_c }}</td>
@@ -553,7 +563,7 @@
                         <nav aria-label="任务列表分页" class="mt-3">
                             <ul class="pagination pagination-sm justify-content-center mb-0">
                                 <li class="page-item {% if task_page <= 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page-1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.prev_page') }}">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page-1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None, task_q=task_search_q if task_search_q else None) }}" aria-label="{{ translate('admin.prev_page') }}">
                                         <span aria-hidden="true">&laquo;</span>
                                     </a>
                                 </li>
@@ -561,7 +571,7 @@
                                 {% set end_page = [task_pages, task_page + 2]|min %}
 
                                 {% if start_page > 1 %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}">1</a></li>
+                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None, task_q=task_search_q if task_search_q else None) }}">1</a></li>
                                 {% if start_page > 2 %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                                 {% endif %}
@@ -569,7 +579,7 @@
 
                                 {% for page_num in range(start_page, end_page + 1) %}
                                 <li class="page-item {% if page_num|int == task_page|int %}active{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=page_num, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}">{{ page_num }}</a>
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=page_num, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None, task_q=task_search_q if task_search_q else None) }}">{{ page_num }}</a>
                                 </li>
                                 {% endfor %}
 
@@ -577,11 +587,11 @@
                                 {% if end_page < task_pages - 1 %}
                                 <li class="page-item disabled"><span class="page-link">…</span></li>
                                 {% endif %}
-                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_pages, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}">{{ task_pages }}</a></li>
+                                <li class="page-item"><a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_pages, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None, task_q=task_search_q if task_search_q else None) }}">{{ task_pages }}</a></li>
                                 {% endif %}
 
                                 <li class="page-item {% if task_page >= task_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page+1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None) }}" aria-label="{{ translate('admin.next_page') }}">
+                                    <a class="page-link" href="{{ url_for('quickform.admin_panel', task_page=task_page+1, user_page=user_page, html_review_page=html_review_page, tab='tasks', q=user_search if user_search else None, task_q=task_search_q if task_search_q else None) }}" aria-label="{{ translate('admin.next_page') }}">
                                         <span aria-hidden="true">&raquo;</span>
                                     </a>
                                 </li>
@@ -847,7 +857,7 @@
                         <h5 class="mb-0">发布 QF 小公告</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small">除手动公告外，系统会在<strong>注册审核通过/拒绝</strong>、<strong>项目公开审核</strong>、<strong>团队入驻审核</strong>、<strong>多模态附件申请审核</strong>、<strong>QFLink 禁用/多模态开关</strong>、<strong>密码重置</strong>等操作后自动向对应用户推送小公告。</p>
+                        <p class="text-muted small">除手动公告外，系统会在<strong>注册审核通过/拒绝</strong>、<strong>项目公开审核</strong>、<strong>团队入驻审核</strong>、<strong>多模态能力申请审核</strong>、<strong>QFLink 禁用/多模态开关</strong>、<strong>密码重置</strong>等操作后自动向对应用户推送小公告。</p>
                         <form method="POST" action="{{ url_for('quickform.admin_qf_notices_send') }}">
                             <div class="mb-3">
                                 <label class="form-label">标题</label>
@@ -956,16 +966,30 @@
             <div id="section-multimodal-audit" class="mb-5">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">多模态附件审核</h5>
+                        <h5 class="mb-0">多模态能力审核</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted mb-3">QFLink 用户可在个人中心提交多模态附件权限申请；审核通过后可在任务 API 中上传图片、音频、文档等文件。系统内置用户默认已开启，无需申请。</p>
+                        <p class="text-muted mb-3">QFLink 用户可在个人中心提交<strong>多模态能力</strong>申请；审核通过后可在任务 API 中上传图片、音频、文档等文件。系统内置用户默认已开启，无需申请。</p>
                         <h6 class="mb-2">待审核申请</h6>
                         {% if multimodal_pending_users and multimodal_pending_users|length > 0 %}
+                        <form id="multimodalPendingBatchForm" method="POST" action="{{ url_for('quickform.admin_multimodal_batch_approve') }}">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="multimodalPendingSelectAll" value="">
+                                    <label class="form-check-label" for="multimodalPendingSelectAll">{{ translate('admin.select_all_list') }}</label>
+                                </div>
+                                <button type="submit" formaction="{{ url_for('quickform.admin_multimodal_batch_approve') }}" class="btn btn-sm btn-success" id="multimodalBatchApproveBtn">
+                                    <i class="bi bi-check-circle" style="margin-right: 0.25rem;"></i>{{ translate('admin.batch_pass') }}
+                                </button>
+                                <button type="submit" formaction="{{ url_for('quickform.admin_multimodal_batch_reject') }}" class="btn btn-sm btn-danger" id="multimodalBatchRejectBtn" onclick="return confirm('确定批量拒绝所选多模态能力申请？');">
+                                    <i class="bi bi-x-circle" style="margin-right: 0.25rem;"></i>{{ translate('admin.batch_reject') }}
+                                </button>
+                            </div>
                         <div class="table-responsive mb-4">
-                            <table class="table table-striped table-hover">
+                            <table class="table table-striped table-hover" id="multimodalPendingTable">
                                 <thead>
                                     <tr>
+                                        <th style="width: 44px;">选择</th>
                                         <th>用户ID</th>
                                         <th>用户名</th>
                                         <th>学校</th>
@@ -976,6 +1000,7 @@
                                 <tbody>
                                     {% for u in multimodal_pending_users %}
                                     <tr>
+                                        <td><input type="checkbox" form="multimodalPendingBatchForm" class="form-check-input multimodal-pending-cb" name="user_ids" value="{{ u.id }}"></td>
                                         <td>{{ u.id }}</td>
                                         <td>{{ u.username }}</td>
                                         <td>{{ u.school or '—' }}</td>
@@ -993,16 +1018,28 @@
                                 </tbody>
                             </table>
                         </div>
+                        </form>
                         {% else %}
-                        <p class="text-muted mb-4">暂无待审核的多模态申请。</p>
+                        <p class="text-muted mb-4">暂无待审核的多模态能力申请。</p>
                         {% endif %}
 
-                        <h6 class="mb-2">已开启多模态（可撤销）</h6>
+                        <h6 class="mb-2">已开启多模态能力（可撤销）</h6>
                         {% if multimodal_enabled_users and multimodal_enabled_users|length > 0 %}
+                        <form id="multimodalEnabledBatchForm" method="POST" action="{{ url_for('quickform.admin_multimodal_batch_revoke') }}">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="multimodalEnabledSelectAll" value="">
+                                    <label class="form-check-label" for="multimodalEnabledSelectAll">{{ translate('admin.select_all_list') }}</label>
+                                </div>
+                                <button type="submit" class="btn btn-sm btn-outline-danger" id="multimodalBatchRevokeBtn" onclick="return confirm('确定批量撤销所选用户的多模态能力？');">
+                                    批量撤销多模态能力
+                                </button>
+                            </div>
                         <div class="table-responsive">
-                            <table class="table table-striped table-hover">
+                            <table class="table table-striped table-hover" id="multimodalEnabledTable">
                                 <thead>
                                     <tr>
+                                        <th style="width: 44px;">选择</th>
                                         <th>用户ID</th>
                                         <th>用户名</th>
                                         <th>学校</th>
@@ -1013,12 +1050,13 @@
                                 <tbody>
                                     {% for u in multimodal_enabled_users %}
                                     <tr>
+                                        <td><input type="checkbox" form="multimodalEnabledBatchForm" class="form-check-input multimodal-enabled-cb" name="user_ids" value="{{ u.id }}"></td>
                                         <td>{{ u.id }}</td>
                                         <td>{{ u.username }}</td>
                                         <td>{{ u.school or '—' }}</td>
                                         <td>{{ u.created_at.strftime('%Y-%m-%d %H:%M') if u.created_at else '—' }}</td>
                                         <td>
-                                            <form method="POST" action="{{ url_for('quickform.admin_multimodal_revoke', user_id=u.id) }}" class="d-inline" onsubmit="return confirm('确定撤销该用户的多模态附件权限？');">
+                                            <form method="POST" action="{{ url_for('quickform.admin_multimodal_revoke', user_id=u.id) }}" class="d-inline" onsubmit="return confirm('确定撤销该用户的多模态能力？');">
                                                 <button type="submit" class="btn btn-sm btn-outline-danger">撤销</button>
                                             </form>
                                         </td>
@@ -1027,8 +1065,9 @@
                                 </tbody>
                             </table>
                         </div>
+                        </form>
                         {% else %}
-                        <p class="text-muted mb-0">暂无已开启多模态的 QFLink 用户。</p>
+                        <p class="text-muted mb-0">暂无已开启多模态能力的 QFLink 用户。</p>
                         {% endif %}
                     </div>
                 </div>
@@ -1370,7 +1409,7 @@
                             </div>
                         </form>
 
-                        <p class="text-muted small mb-2">系统用户（非 QFLink）默认开启多模态附件；QFLink 用户需在个人中心申请，或在下方手动开启/关闭。</p>
+                        <p class="text-muted small mb-2">系统用户（非 QFLink）默认开启多模态能力；QFLink 用户需在个人中心申请，或在下方手动开启/关闭。</p>
                         <h6 class="fw-semibold mb-2">QFLink 用户（最近 200 条）</h6>
                         {% if qflink_users %}
                         <form method="post" action="{{ url_for('quickform.admin_qflink_batch') }}" id="qflinkBatchForm">
@@ -1381,8 +1420,8 @@
                                 </div>
                                 <button type="submit" name="action" value="disable" class="btn btn-sm btn-outline-danger" onclick="return confirm('确定批量禁用所选用户吗？');">批量禁用</button>
                                 <button type="submit" name="action" value="enable" class="btn btn-sm btn-outline-success">批量启用</button>
-                                <button type="submit" name="action" value="multimodal_on" class="btn btn-sm btn-outline-primary">批量开启多模态</button>
-                                <button type="submit" name="action" value="multimodal_off" class="btn btn-sm btn-outline-secondary">批量关闭多模态</button>
+                                <button type="submit" name="action" value="multimodal_on" class="btn btn-sm btn-outline-primary">批量开启多模态能力</button>
+                                <button type="submit" name="action" value="multimodal_off" class="btn btn-sm btn-outline-secondary">批量关闭多模态能力</button>
                             </div>
                         <div class="table-responsive">
                             <table class="table table-striped table-hover qf-admin-qflink-table">
@@ -1875,6 +1914,34 @@
             updatePublicButtons();
         }));
         updatePublicButtons();
+    })();
+
+    // 多模态能力审核：全选与批量按钮
+    (function () {
+        function bindBatch(selectAllId, checkboxClass, buttonIds) {
+            const selectAll = document.getElementById(selectAllId);
+            const checkboxes = Array.from(document.querySelectorAll(checkboxClass));
+            const buttons = buttonIds.map(function (id) { return document.getElementById(id); }).filter(Boolean);
+            if (!selectAll || !checkboxes.length) return;
+            function updateButtons() {
+                const hasChecked = checkboxes.some(function (cb) { return cb.checked; });
+                buttons.forEach(function (btn) { btn.disabled = !hasChecked; });
+            }
+            selectAll.addEventListener('change', function () {
+                checkboxes.forEach(function (cb) { cb.checked = selectAll.checked; });
+                updateButtons();
+            });
+            checkboxes.forEach(function (cb) {
+                cb.addEventListener('change', function () {
+                    if (!cb.checked && selectAll.checked) selectAll.checked = false;
+                    else if (checkboxes.every(function (c) { return c.checked; })) selectAll.checked = true;
+                    updateButtons();
+                });
+            });
+            updateButtons();
+        }
+        bindBatch('multimodalPendingSelectAll', '.multimodal-pending-cb', ['multimodalBatchApproveBtn', 'multimodalBatchRejectBtn']);
+        bindBatch('multimodalEnabledSelectAll', '.multimodal-enabled-cb', ['multimodalBatchRevokeBtn']);
     })();
 
     // 批量/审核类按钮：提交时加 loading，防重复点击
