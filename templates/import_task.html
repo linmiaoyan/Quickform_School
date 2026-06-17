@@ -256,16 +256,17 @@ function importTask(apiid, taskName) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ apiid: apiid }),
+        body: JSON.stringify({ apiid: apiid, include_data: true }),
     })
     .then(response => response.json())
     .then(result => {
         if (result.success) {
-            if (confirm('任务「' + (taskName || result.new_api_id || apiid) + '」导入成功！是否同时从在线版导入该任务的历史提交数据？')) {
-                importQFData(result.task_id, result.original_apiid);
-            } else {
-                window.location.href = '/task/' + result.task_id;
+            var msg = result.message || ('任务「' + (taskName || result.new_api_id || apiid) + '」导入成功');
+            if (result.submissions_unavailable) {
+                msg += '\n（在线版未返回提交数据，可能为公开任务）';
             }
+            alert(msg);
+            window.location.href = '/task/' + result.task_id;
         } else {
             if (window.OnlineCliErrors) {
                 OnlineCliErrors.alertOnlineCliError(result);
@@ -276,29 +277,6 @@ function importTask(apiid, taskName) {
     })
     .catch(error => {
         alert('导入失败: ' + error.message);
-    });
-}
-
-function importQFData(taskId, apiid) {
-    fetch('{{ url_for("quickform.api_qf_import_data") }}', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ task_id: taskId, apiid: apiid }),
-    })
-    .then(response => response.json())
-    .then(result => {
-        if (result.success) {
-            alert('数据导入成功！共导入 ' + (result.count || 0) + ' 条数据');
-            window.location.href = '/task/' + taskId;
-        } else {
-            alert('数据导入失败: ' + (result.message || '未知错误'));
-            window.location.href = '/task/' + taskId;
-        }
-    })
-    .catch(error => {
-        alert('数据导入失败: ' + error.message);
-        window.location.href = '/task/' + taskId;
     });
 }
 

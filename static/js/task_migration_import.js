@@ -72,29 +72,17 @@
     setLoading(btn, true);
     try {
       const endpoint = window.QF_TASK_MIGRATION?.endpoints?.importOne || '/task/migration/online/import';
-      const data = await postJson(endpoint, { ...cred, apiid });
+      const data = await postJson(endpoint, { ...cred, apiid, include_data: true });
       const label = taskName || data.new_apiid || apiid;
-      const wantData = window.confirm(
-        `任务「${label}」已导入成功！是否同时从在线版导入该任务的历史提交数据？`
-      );
-      if (wantData && data.task_id && (data.original_apiid || data.old_apiid)) {
-        const importDataUrl = window.QF_TASK_MIGRATION?.endpoints?.importData || '/api/qf/import_data';
-        try {
-          const dr = await postJson(importDataUrl, {
-            task_id: data.task_id,
-            apiid: data.original_apiid || data.old_apiid,
-            base_url: cred.base_url,
-          });
-          alert(dr.message || `已导入 ${dr.count || 0} 条数据`);
-        } catch (e) {
-          alert('任务已导入，但数据导入失败：' + (e.message || e));
-        }
+      let msg = data.message || '导入成功';
+      if (data.submissions_unavailable) {
+        msg += '\n（在线版未返回提交数据，可能为公开任务）';
       }
       if (data.redirect) {
         window.location.href = data.redirect;
         return;
       }
-      alert(data.message || '导入成功');
+      alert(msg);
     } catch (e) {
       if (window.OnlineCliErrors && e.data) {
         OnlineCliErrors.alertOnlineCliError(e.data);
