@@ -90,9 +90,9 @@
 
                 <div id="importModal" class="modal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1050; background-color: rgba(0,0,0,0.5);">
                     <div style="width: 90%; max-width: 500px; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 10px; padding: 20px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
-                        <h5 id="importModalLabel" style="margin-bottom: 15px; font-weight: 600; color: #111827;">输入数据任务的 API 地址</h5>
-                        <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 15px;">格式如：https://quickform.cn/api/hkonwxc8ks</p>
-                        <input type="text" id="taskUrl" class="form-control" placeholder="" style="border-radius: 8px; border: 1px solid #e5e7eb; padding: 0.75rem 1rem; margin-bottom: 15px;">
+                        <h5 id="importModalLabel" style="margin-bottom: 15px; font-weight: 600; color: #111827;">通过 ID 或地址导入指定任务</h5>
+                        <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 15px;">支持：API 地址（https://quickform.cn/api/xxx）、apiid、在线任务数字 ID、或公开页 https://quickform.cn/task/123</p>
+                        <input type="text" id="taskUrl" class="form-control" placeholder="apiid / 任务数字 ID / API 地址" style="border-radius: 8px; border: 1px solid #e5e7eb; padding: 0.75rem 1rem; margin-bottom: 15px;">
                         <div style="text-align: right;">
                             <button type="button" class="btn" style="background-color: #6b7280; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem;" onclick="closeImportModal()">取消</button>
                             <button type="button" class="btn" style="background-color: #0d9488; color: white; font-weight: 500; border-radius: 8px; padding: 0.5rem 1rem; margin-left: 0.5rem;" onclick="submitTaskUrl()">确定</button>

@@ -6178,6 +6178,62 @@ def _resolve_apiid_from_public_task_page(base_url: str, task_public_id: int) -> 
     return ''
 
 
+def _resolve_online_task_apiid(base_url: str, auth_fields: dict, raw_input: str):
+    """
+    解析在线版任务标识：API 地址、apiid、公开页 /task/<id>、或数字主键（POST /cli/show id=）。
+    成功返回 (apiid, None)；失败返回 ('', error_message)。
+    """
+    raw = (raw_input or '').strip()
+    if not raw:
+        return '', '请输入 API 地址、API ID 或在线任务数字 ID'
+
+    apiid = _extract_apiid_from_api_url(raw)
+    if apiid:
+        return apiid, None
+
+    public_tid = _extract_public_task_id_from_url(raw)
+    if public_tid:
+        try:
+            apiid = _resolve_apiid_from_public_task_page(base_url, public_tid)
+        except RuntimeError as e:
+            return '', str(e)
+        if apiid:
+            return apiid, None
+        return '', '无法从公开项目页解析 APIID（请改为粘贴 .../api/<apiid>）'
+
+    if re.fullmatch(r'[0-9a-z]{6,64}', raw, flags=re.IGNORECASE):
+        return raw, None
+
+    if raw.isdigit() and isinstance(auth_fields, dict) and auth_fields.get('username'):
+        payload = dict(auth_fields)
+        payload['id'] = int(raw)
+        show = _online_cli_post(base_url, '/cli/show', payload, timeout_sec=25)
+        if show.get('success'):
+            resolved = (show.get('apiid') or show.get('task_id') or '').strip()
+            if resolved:
+                return resolved, None
+            return '', '在线版未返回 apiid'
+        return '', (show.get('message') if isinstance(show, dict) else None) or '未找到该数字 ID 对应的在线任务'
+
+    if raw.isdigit():
+        return '', '通过数字 ID 查询在线任务需先配置在线版凭据'
+
+    return '', '无法识别输入（支持 API 地址、apiid、https://quickform.cn/task/123 或在线任务数字 ID）'
+
+
+def _admin_filter_tasks_query(db, task_q: str):
+    """管理后台：按数据库 ID、API ID 或标题筛选任务。"""
+    q = (task_q or '').strip()
+    query = db.query(Task)
+    if not q:
+        return query
+    if q.isdigit():
+        tid = int(q)
+        return query.filter(or_(Task.id == tid, Task.task_id == q))
+    like = f'%{q}%'
+    return query.filter(or_(Task.task_id.ilike(like), Task.title.ilike(like)))
+
+
 def _pick_task_id_keep_if_free(db, requested_apiid: str) -> str:
     """Keep requested apiid if not exists, otherwise generate a new one."""
     rid = (requested_apiid or '').strip()
@@ -7501,14 +7557,29 @@ def import_task_action(apiid):
 @quickform_bp.route('/import_task_by_url')
 @login_required
 def import_task_by_url():
-    """教师版：从粘贴的 API 地址解析 apiid 并导入。"""
+    """从 API 地址、apiid 或在线任务数字 ID 解析并导入。"""
     if not TASK_MIGRATION_ACTIVE:
         flash(TASK_MIGRATION_DISABLED_FLASH, 'info')
         return redirect(url_for('quickform.import_task'))
-    task_url = request.args.get('url', '')
-    apiid = _extract_apiid_from_api_url(task_url)
-    if not apiid:
-        flash('无效的任务 URL 格式', 'danger')
+    raw = (request.args.get('url') or request.args.get('q') or '').strip()
+    base_url = _normalize_base_url(ONLINE_QUICKFORM_BASE_URL)
+    db = SessionLocal()
+    try:
+        auth, err = _resolve_online_credentials_from_request({}, db)
+    finally:
+        db.close()
+    if err:
+        apiid = _extract_apiid_from_api_url(raw)
+        if not apiid and re.fullmatch(r'[0-9a-z]{6,64}', raw, flags=re.IGNORECASE):
+            apiid = raw
+        if not apiid:
+            flash('请先在个人资料中配置在线版凭据，或输入可识别的 API 地址 / apiid', 'danger')
+            return redirect(url_for('quickform.import_task'))
+        apiid, resolve_err = apiid, None
+    else:
+        apiid, resolve_err = _resolve_online_task_apiid(base_url, auth, raw)
+    if resolve_err or not apiid:
+        flash(resolve_err or '无法解析任务标识', 'danger')
         return redirect(url_for('quickform.import_task'))
     return redirect(url_for(
         'quickform.import_task_action',
@@ -7658,23 +7729,26 @@ def api_online_tasks_list():
 @quickform_bp.route('/task/migration/online/resolve', methods=['POST'])
 @login_required
 def api_online_tasks_one():
-    """输入在线版 API 地址，解析出 apiid（用于方式2）。"""
+    """解析在线任务标识：API 地址、apiid、/task/<id> 或数字主键。"""
     if not TASK_MIGRATION_ACTIVE:
         return jsonify({'success': False, 'message': TASK_MIGRATION_DISABLED_FLASH}), 403
     data = request.get_json(silent=True) or {}
-    api_url = (data.get('api_url') or '').strip()
+    raw = (
+        (data.get('api_url') or data.get('q') or data.get('apiid') or data.get('id') or '')
+    ).strip()
+    if data.get('id') is not None and not raw:
+        raw = str(data.get('id')).strip()
     base_url = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
-
-    apiid = _extract_apiid_from_api_url(api_url)
-    if not apiid:
-        # Also accept public project URL: /task/<id>
-        public_tid = _extract_public_task_id_from_url(api_url)
-        if public_tid:
-            apiid = _resolve_apiid_from_public_task_page(base_url, public_tid)
-            if not apiid:
-                return jsonify({'success': False, 'message': '无法从公开项目页解析 APIID（请改为粘贴该项目的 API 地址：.../api/<apiid>）'}), 400
-        else:
-            return jsonify({'success': False, 'message': '无法从输入内容解析出 APIID（格式应为 https://quickform.cn/api/xxxxxx 或 https://quickform.cn/task/12345）'}), 400
+    db = SessionLocal()
+    try:
+        auth, err = _resolve_online_credentials_from_request(data, db)
+    finally:
+        db.close()
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    apiid, resolve_err = _resolve_online_task_apiid(base_url, auth, raw)
+    if resolve_err or not apiid:
+        return jsonify({'success': False, 'message': resolve_err or '无法解析任务标识'}), 400
     return jsonify({'success': True, 'apiid': apiid}), 200
 
 
@@ -7687,11 +7761,20 @@ def api_online_task_import():
     data = request.get_json(silent=True) or {}
     base_url = _normalize_base_url(data.get('base_url') or ONLINE_QUICKFORM_BASE_URL)
     apiid = (data.get('apiid') or '').strip()
-    api_url = (data.get('api_url') or '').strip()
-    if not apiid and api_url:
-        apiid = _extract_apiid_from_api_url(api_url)
+    raw = (data.get('api_url') or data.get('q') or '').strip()
+    if not apiid and raw:
+        db_tmp = SessionLocal()
+        try:
+            auth_tmp, err_tmp = _resolve_online_credentials_from_request(data, db_tmp)
+        finally:
+            db_tmp.close()
+        if err_tmp:
+            return jsonify({'success': False, 'message': err_tmp}), 400
+        apiid, resolve_err = _resolve_online_task_apiid(base_url, auth_tmp, raw)
+        if resolve_err or not apiid:
+            return jsonify({'success': False, 'message': resolve_err or '无法解析任务标识'}), 400
     if not apiid:
-        return jsonify({'success': False, 'message': '缺少 apiid 或 api_url'}), 400
+        return jsonify({'success': False, 'message': '缺少 apiid、api_url 或任务 ID'}), 400
 
     include_data = data.get('include_data')
     if include_data is None:
@@ -8450,24 +8533,24 @@ def profile():
 @quickform_bp.route('/profile/multimodal_apply', methods=['POST'])
 @login_required
 def profile_multimodal_apply():
-    """QFLink 用户提交多模态附件权限申请。"""
+    """QFLink 用户提交多模态能力申请。"""
     if not API_FILE_UPLOAD_ENABLED:
-        flash('站点暂未开放多模态附件功能。', 'warning')
+        flash('站点暂未开放多模态能力。', 'warning')
         return redirect(url_for('quickform.profile') + '#profile')
     db = SessionLocal()
     try:
         user = db.get(User, current_user.id)
         if not user or not _is_qflink_user(user):
-            flash('仅 QFLink 用户需要申请多模态附件权限。', 'warning')
+            flash('仅 QFLink 用户需要申请多模态能力。', 'warning')
             return redirect(url_for('quickform.profile') + '#profile')
         if getattr(user, 'qflink_disabled', False):
             flash('您的 QFLink 账号已被禁用，无法申请。', 'danger')
             return redirect(url_for('quickform.profile') + '#profile')
         if getattr(user, 'qflink_multimodal_enabled', False):
-            flash('您的多模态附件权限已开启，无需重复申请。', 'info')
+            flash('您的多模态能力已开启，无需重复申请。', 'info')
             return redirect(url_for('quickform.profile') + '#profile')
         if _user_multimodal_apply_pending(user):
-            flash('您的多模态申请正在审核中，请耐心等待。', 'info')
+            flash('您的多模态能力申请正在审核中，请耐心等待。', 'info')
             return redirect(url_for('quickform.profile') + '#profile')
         user.qflink_multimodal_requested = True
         user.qflink_multimodal_approval = 0
@@ -8480,7 +8563,7 @@ def profile_multimodal_apply():
             notify_multimodal_apply_submitted(user_id, username)
         except Exception:
             logger.exception('多模态申请提交后发送通知失败 user_id=%s', user_id)
-        flash('多模态附件申请已提交，请等待管理员审核。', 'success')
+        flash('多模态能力申请已提交，请等待管理员审核。', 'success')
     except Exception:
         db.rollback()
         logger.exception('多模态申请提交失败 user_id=%s', current_user.id)
@@ -9462,6 +9545,8 @@ def _admin_panel_impl():
         all_tasks = []
         task_total_pages = 1
         task_page = 1
+        task_search_q = ''
+        filtered_task_total = total_tasks
 
         html_tasks_with_review = []
         pending_html_count = 0
@@ -9538,13 +9623,15 @@ def _admin_panel_impl():
             )
 
         elif current_tab == 'tasks':
+            task_search_q = (request.args.get('task_q') or '').strip()
             task_page = request.args.get('task_page', 1, type=int) or 1
             task_page = max(1, task_page)
-            task_total_pages = max(math.ceil(total_tasks / task_per_page), 1) if total_tasks else 1
+            task_query = _admin_filter_tasks_query(db, task_search_q).options(joinedload(Task.author))
+            filtered_task_total = task_query.count()
+            task_total_pages = max(math.ceil(filtered_task_total / task_per_page), 1) if filtered_task_total else 1
             task_page = min(task_page, task_total_pages)
             all_tasks = (
-                db.query(Task)
-                .options(joinedload(Task.author))
+                task_query
                 .order_by(Task.created_at.desc())
                 .offset((task_page - 1) * task_per_page)
                 .limit(task_per_page)
@@ -9760,7 +9847,8 @@ def _admin_panel_impl():
             user_per_page=user_per_page,
             task_page=task_page,
             task_pages=task_total_pages,
-            task_total=total_tasks,
+            task_total=filtered_task_total,
+            task_search_q=task_search_q,
             task_per_page=task_per_page,
             html_tasks_with_review=html_tasks_with_review,
             pending_html_count=pending_html_count,
@@ -10306,35 +10394,126 @@ def admin_public_batch_reject():
     return redirect(url_for('quickform.admin_panel', tab='other-review') + '#section-public-audit')
 
 
+@quickform_bp.route('/admin/api/tasks/lookup', methods=['GET'])
+@admin_required
+def admin_api_tasks_lookup():
+    """管理后台：按数据库 ID、API ID 或标题查询任务。"""
+    q = (request.args.get('q') or request.args.get('task_q') or '').strip()
+    if not q:
+        return jsonify({'success': False, 'message': '请输入任务 ID 或 API ID'}), 400
+    db = SessionLocal()
+    try:
+        rows = (
+            _admin_filter_tasks_query(db, q)
+            .options(joinedload(Task.author))
+            .order_by(Task.id.desc())
+            .limit(20)
+            .all()
+        )
+        if not rows:
+            return jsonify({'success': False, 'message': '未找到匹配任务'}), 404
+        if len(rows) == 1:
+            t = rows[0]
+            return jsonify({
+                'success': True,
+                'mode': 'single',
+                'task': {
+                    'task_id': t.id,
+                    'api_id': t.task_id,
+                    'title': t.title or '',
+                    'author': t.author.username if t.author else '',
+                    'created_at': t.created_at.isoformat(timespec='seconds') if t.created_at else None,
+                    'detail_url': url_for('quickform.task_detail', task_id=t.id),
+                },
+            })
+        return jsonify({
+            'success': True,
+            'mode': 'search',
+            'tasks': [
+                {
+                    'task_id': t.id,
+                    'api_id': t.task_id,
+                    'title': t.title or '',
+                    'author': t.author.username if t.author else '',
+                    'detail_url': url_for('quickform.task_detail', task_id=t.id),
+                }
+                for t in rows
+            ],
+        })
+    finally:
+        db.close()
+
+
+_MULTIMODAL_AUDIT_REDIRECT = lambda: url_for('quickform.admin_panel', tab='other-review') + '#section-multimodal-audit'
+
+
+def _admin_multimodal_approve_user(db, user):
+    if not user or not getattr(user, 'qflink_uid', None):
+        return False, '用户不存在或不是 QFLink 用户'
+    if not getattr(user, 'qflink_multimodal_requested', False):
+        return False, '未提交多模态能力申请'
+    if int(getattr(user, 'qflink_multimodal_approval', 0) or 0) != 0:
+        return False, '不在待审核状态'
+    user.qflink_multimodal_requested = True
+    user.qflink_multimodal_approval = 1
+    user.qflink_multimodal_enabled = True
+    return True, user.username or ''
+
+
+def _admin_multimodal_reject_user(db, user):
+    if not user or not getattr(user, 'qflink_uid', None):
+        return False, '用户不存在或不是 QFLink 用户'
+    if not getattr(user, 'qflink_multimodal_requested', False):
+        return False, '未提交多模态能力申请'
+    if int(getattr(user, 'qflink_multimodal_approval', 0) or 0) != 0:
+        return False, '不在待审核状态'
+    user.qflink_multimodal_approval = -1
+    user.qflink_multimodal_enabled = False
+    return True, user.username or ''
+
+
+def _admin_multimodal_revoke_user(db, user):
+    if not user or not getattr(user, 'qflink_uid', None):
+        return False, '用户不存在或不是 QFLink 用户'
+    if not getattr(user, 'qflink_multimodal_enabled', False):
+        return False, '未开启多模态能力'
+    user.qflink_multimodal_enabled = False
+    user.qflink_multimodal_approval = -1
+    return True, user.username or ''
+
+
+def _parse_admin_batch_user_ids():
+    raw = request.form.getlist('user_ids') or request.form.getlist('user_ids[]')
+    out = []
+    for x in raw:
+        try:
+            out.append(int(x))
+        except (TypeError, ValueError):
+            continue
+    return list(dict.fromkeys(out))
+
+
 @quickform_bp.route('/admin/multimodal_approve/<int:user_id>', methods=['POST'])
 @admin_required
 def admin_multimodal_approve(user_id):
-    """管理员通过多模态附件申请。"""
-    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-multimodal-audit'
+    """管理员通过多模态能力申请。"""
+    redirect_url = _MULTIMODAL_AUDIT_REDIRECT()
     db = SessionLocal()
     try:
         user = db.get(User, user_id)
-        if not user or not getattr(user, 'qflink_uid', None):
-            flash('用户不存在或不是 QFLink 用户。', 'warning')
+        ok, info = _admin_multimodal_approve_user(db, user)
+        if not ok:
+            flash(info, 'warning')
             return redirect(redirect_url)
-        if not getattr(user, 'qflink_multimodal_requested', False):
-            flash('该用户未提交多模态申请。', 'warning')
-            return redirect(redirect_url)
-        if int(getattr(user, 'qflink_multimodal_approval', 0) or 0) != 0:
-            flash('该申请不在待审核状态。', 'warning')
-            return redirect(redirect_url)
-        username = user.username or ''
         uid = user.id
-        user.qflink_multimodal_requested = True
-        user.qflink_multimodal_approval = 1
-        user.qflink_multimodal_enabled = True
+        username = info
         db.commit()
         try:
             from core.qf_notice import notify_multimodal_apply_approved
             notify_multimodal_apply_approved(uid, username)
         except Exception:
             logger.exception('多模态审核通过后发送通知失败 user_id=%s', user_id)
-        flash(f'已通过用户「{username}」的多模态附件申请。', 'success')
+        flash(f'已通过用户「{username}」的多模态能力申请。', 'success')
     except Exception:
         db.rollback()
         logger.exception('多模态审核通过失败 user_id=%s', user_id)
@@ -10347,31 +10526,24 @@ def admin_multimodal_approve(user_id):
 @quickform_bp.route('/admin/multimodal_reject/<int:user_id>', methods=['POST'])
 @admin_required
 def admin_multimodal_reject(user_id):
-    """管理员拒绝多模态附件申请。"""
-    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-multimodal-audit'
+    """管理员拒绝多模态能力申请。"""
+    redirect_url = _MULTIMODAL_AUDIT_REDIRECT()
     db = SessionLocal()
     try:
         user = db.get(User, user_id)
-        if not user or not getattr(user, 'qflink_uid', None):
-            flash('用户不存在或不是 QFLink 用户。', 'warning')
+        ok, info = _admin_multimodal_reject_user(db, user)
+        if not ok:
+            flash(info, 'warning')
             return redirect(redirect_url)
-        if not getattr(user, 'qflink_multimodal_requested', False):
-            flash('该用户未提交多模态申请。', 'warning')
-            return redirect(redirect_url)
-        if int(getattr(user, 'qflink_multimodal_approval', 0) or 0) != 0:
-            flash('该申请不在待审核状态。', 'warning')
-            return redirect(redirect_url)
-        username = user.username or ''
         uid = user.id
-        user.qflink_multimodal_approval = -1
-        user.qflink_multimodal_enabled = False
+        username = info
         db.commit()
         try:
             from core.qf_notice import notify_multimodal_apply_rejected
             notify_multimodal_apply_rejected(uid, username)
         except Exception:
             logger.exception('多模态审核拒绝后发送通知失败 user_id=%s', user_id)
-        flash(f'已拒绝用户「{username}」的多模态附件申请。', 'success')
+        flash(f'已拒绝用户「{username}」的多模态能力申请。', 'success')
     except Exception:
         db.rollback()
         logger.exception('多模态审核拒绝失败 user_id=%s', user_id)
@@ -10384,32 +10556,130 @@ def admin_multimodal_reject(user_id):
 @quickform_bp.route('/admin/multimodal_revoke/<int:user_id>', methods=['POST'])
 @admin_required
 def admin_multimodal_revoke(user_id):
-    """管理员撤销已开启的多模态附件权限。"""
-    redirect_url = url_for('quickform.admin_panel', tab='other-review') + '#section-multimodal-audit'
+    """管理员撤销已开启的多模态能力。"""
+    redirect_url = _MULTIMODAL_AUDIT_REDIRECT()
     db = SessionLocal()
     try:
         user = db.get(User, user_id)
-        if not user or not getattr(user, 'qflink_uid', None):
-            flash('用户不存在或不是 QFLink 用户。', 'warning')
+        ok, info = _admin_multimodal_revoke_user(db, user)
+        if not ok:
+            flash(info, 'warning')
             return redirect(redirect_url)
-        if not getattr(user, 'qflink_multimodal_enabled', False):
-            flash('该用户未开启多模态附件。', 'warning')
-            return redirect(redirect_url)
-        username = user.username or ''
         uid = user.id
-        user.qflink_multimodal_enabled = False
-        user.qflink_multimodal_approval = -1
+        username = info
         db.commit()
         try:
             from core.qf_notice import notify_qflink_multimodal
             notify_qflink_multimodal(uid, username, False)
         except Exception:
             logger.exception('多模态撤销后发送通知失败 user_id=%s', user_id)
-        flash(f'已撤销用户「{username}」的多模态附件权限。', 'success')
+        flash(f'已撤销用户「{username}」的多模态能力。', 'success')
     except Exception:
         db.rollback()
         logger.exception('多模态撤销失败 user_id=%s', user_id)
         flash('操作失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    return redirect(redirect_url)
+
+
+@quickform_bp.route('/admin/multimodal_batch_approve', methods=['POST'])
+@admin_required
+def admin_multimodal_batch_approve():
+    """批量通过多模态能力申请。"""
+    redirect_url = _MULTIMODAL_AUDIT_REDIRECT()
+    ids = _parse_admin_batch_user_ids()
+    if not ids:
+        flash('请先勾选待审核用户。', 'warning')
+        return redirect(redirect_url)
+    db = SessionLocal()
+    try:
+        from core.qf_notice import notify_multimodal_apply_approved
+        ok_n = 0
+        for uid in ids:
+            user = db.get(User, uid)
+            ok, username = _admin_multimodal_approve_user(db, user)
+            if not ok:
+                continue
+            ok_n += 1
+            try:
+                notify_multimodal_apply_approved(user.id, username)
+            except Exception:
+                logger.exception('批量多模态通过通知失败 user_id=%s', uid)
+        db.commit()
+        flash(f'已批量通过 {ok_n} 个多模态能力申请。', 'success' if ok_n else 'warning')
+    except Exception:
+        db.rollback()
+        logger.exception('批量多模态通过失败')
+        flash('批量操作失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    return redirect(redirect_url)
+
+
+@quickform_bp.route('/admin/multimodal_batch_reject', methods=['POST'])
+@admin_required
+def admin_multimodal_batch_reject():
+    """批量拒绝多模态能力申请。"""
+    redirect_url = _MULTIMODAL_AUDIT_REDIRECT()
+    ids = _parse_admin_batch_user_ids()
+    if not ids:
+        flash('请先勾选待审核用户。', 'warning')
+        return redirect(redirect_url)
+    db = SessionLocal()
+    try:
+        from core.qf_notice import notify_multimodal_apply_rejected
+        ok_n = 0
+        for uid in ids:
+            user = db.get(User, uid)
+            ok, username = _admin_multimodal_reject_user(db, user)
+            if not ok:
+                continue
+            ok_n += 1
+            try:
+                notify_multimodal_apply_rejected(user.id, username)
+            except Exception:
+                logger.exception('批量多模态拒绝通知失败 user_id=%s', uid)
+        db.commit()
+        flash(f'已批量拒绝 {ok_n} 个多模态能力申请。', 'success' if ok_n else 'warning')
+    except Exception:
+        db.rollback()
+        logger.exception('批量多模态拒绝失败')
+        flash('批量操作失败，请稍后重试。', 'danger')
+    finally:
+        db.close()
+    return redirect(redirect_url)
+
+
+@quickform_bp.route('/admin/multimodal_batch_revoke', methods=['POST'])
+@admin_required
+def admin_multimodal_batch_revoke():
+    """批量撤销多模态能力。"""
+    redirect_url = _MULTIMODAL_AUDIT_REDIRECT()
+    ids = _parse_admin_batch_user_ids()
+    if not ids:
+        flash('请先勾选要撤销的用户。', 'warning')
+        return redirect(redirect_url)
+    db = SessionLocal()
+    try:
+        from core.qf_notice import notify_qflink_multimodal
+        ok_n = 0
+        for uid in ids:
+            user = db.get(User, uid)
+            ok, username = _admin_multimodal_revoke_user(db, user)
+            if not ok:
+                continue
+            ok_n += 1
+            try:
+                notify_qflink_multimodal(user.id, username, False)
+            except Exception:
+                logger.exception('批量多模态撤销通知失败 user_id=%s', uid)
+        db.commit()
+        flash(f'已批量撤销 {ok_n} 个用户的多模态能力。', 'success' if ok_n else 'warning')
+    except Exception:
+        db.rollback()
+        logger.exception('批量多模态撤销失败')
+        flash('批量操作失败，请稍后重试。', 'danger')
     finally:
         db.close()
     return redirect(redirect_url)
@@ -10620,7 +10890,7 @@ def admin_user_qflink_toggle(user_id):
 @quickform_bp.route('/admin/users/<int:user_id>/qflink_multimodal_toggle', methods=['POST'])
 @admin_required
 def admin_user_qflink_multimodal_toggle(user_id):
-    """管理员：为 QFLink 用户开启/关闭多模态附件。"""
+    """管理员：为 QFLink 用户开启/关闭多模态能力。"""
     db = SessionLocal()
     try:
         user = db.get(User, user_id)
@@ -10646,7 +10916,7 @@ def admin_user_qflink_multimodal_toggle(user_id):
         except Exception:
             logger.exception('QFLink 多模态开关通知失败 user_id=%s', user_id)
         flash(
-            f"已{'开启' if new_enabled else '关闭'}多模态附件：{username}",
+            f"已{'开启' if new_enabled else '关闭'}多模态能力：{username}",
             'success',
         )
     finally:
