@@ -83,7 +83,13 @@ from .i18n import translate
 from .login_throttle import login_blocked, record_login_failure, clear_login_throttle
 from .project_usage import get_top_projects, evaluate_project_alerts
 from .client_ip import get_request_client_ip
-from services.file_service import save_uploaded_file, read_file_content, ALLOWED_EXTENSIONS, allowed_file
+from services.file_service import (
+    save_uploaded_file,
+    read_file_content,
+    decode_html_bytes,
+    ALLOWED_EXTENSIONS,
+    allowed_file,
+)
 from services.ai_service import (
     call_ai_model,
     generate_analysis_prompt,
@@ -6336,10 +6342,7 @@ def _import_task_from_online_cli(db, online_base: str, online_username: str, onl
             # Only import HTML/HTM as task pages; other attachments are ignored for now.
             continue
         raw = _download_url_bytes(url, timeout_seconds=35)
-        try:
-            text = raw.decode('utf-8')
-        except UnicodeDecodeError:
-            text = raw.decode('utf-8', errors='replace')
+        text = decode_html_bytes(raw)
 
         # Rewrite api endpoint + base host if embedded.
         text = _rewrite_html_migration_endpoints(text, apiid, new_apiid, online_base_norm, local_base)
@@ -6772,10 +6775,7 @@ def _campus_import_task_from_online(
         if not (lower.endswith('.html') or lower.endswith('.htm')):
             continue
         body = _download_bytes(url, max_bytes=MAX_HTML_FILE_SIZE)
-        try:
-            text = body.decode('utf-8')
-        except UnicodeDecodeError:
-            text = body.decode('utf-8', errors='replace')
+        text = decode_html_bytes(body)
         text = _rewrite_html_migration_endpoints(text, apiid, new_apiid, online_base_norm, local_base)
         text = _rewrite_html_migration_endpoints(text, apiid, new_apiid, '', '')
 
@@ -7308,10 +7308,7 @@ def _import_task_from_quickform_export_zip(raw: bytes, db):
             body = zf.read(archive_name)
         except KeyError:
             continue
-        try:
-            text = body.decode('utf-8')
-        except UnicodeDecodeError:
-            text = body.decode('utf-8', errors='replace')
+        text = decode_html_bytes(body)
         text = _rewrite_html_migration_endpoints(text, original_api_id, new_api_id, online_base_norm, local_base)
         text = _rewrite_html_migration_endpoints(text, original_api_id, new_api_id, '', '')
         if len(text.encode('utf-8')) > MAX_HTML_FILE_SIZE:
@@ -8171,10 +8168,7 @@ def _task_migration_import_impl():
                     body = zf.read(arc_norm)
                 except KeyError:
                     continue
-                try:
-                    text = body.decode('utf-8')
-                except UnicodeDecodeError:
-                    text = body.decode('utf-8', errors='replace')
+                text = decode_html_bytes(body)
 
                 if rewrite_host and ob and nb:
                     text = _rewrite_html_migration_endpoints(text, old_api_id, new_api_id, ob, nb)

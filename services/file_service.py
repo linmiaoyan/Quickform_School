@@ -42,6 +42,42 @@ def allowed_file(filename, allowed_extensions=None):
     return result
 
 
+def decode_html_bytes(data: bytes) -> str:
+    """将 HTML 文件字节解码为 Unicode 文本，兼容 UTF-8/UTF-16（含无 BOM 的 UTF-16LE）等常见编码。"""
+    if not data:
+        return ''
+    if data.startswith(b'\xff\xfe'):
+        return data.decode('utf-16-le')
+    if data.startswith(b'\xfe\xff'):
+        return data.decode('utf-16-be')
+    if data.startswith(b'\xef\xbb\xbf'):
+        return data.decode('utf-8-sig')
+    # UTF-16 LE 无 BOM：如 "<html" -> 3c 00 68 00 ...
+    if len(data) >= 4 and data[1] == 0 and data[3] == 0:
+        try:
+            return data.decode('utf-16-le')
+        except UnicodeDecodeError:
+            pass
+    if len(data) >= 4 and data[0] == 0 and data[2] == 0:
+        try:
+            return data.decode('utf-16-be')
+        except UnicodeDecodeError:
+            pass
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        pass
+    try:
+        return data.decode('gb18030')
+    except UnicodeDecodeError:
+        pass
+    return data.decode('utf-8', errors='replace')
+
+
 def save_uploaded_file(file, upload_folder, allowed_extensions=None):
     """保存上传的文件
     
